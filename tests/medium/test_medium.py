@@ -20,6 +20,7 @@ class TestArrlio:
         [
             "arrlio.backend.local",
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -33,6 +34,7 @@ class TestArrlio:
         [
             "arrlio.backend.local",
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -47,6 +49,7 @@ class TestArrlio:
         [
             "arrlio.backend.local",
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -80,6 +83,7 @@ class TestArrlio:
         "backend",
         [
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -89,6 +93,7 @@ class TestArrlio:
         backend.container.stop()
         await asyncio.sleep(3)
         backend.container.start()
+        await asyncio.sleep(1)
         ar = await client.call(tasks.hello_world)
         assert await asyncio.wait_for(ar.get(), 10) == "Hello World!"
 
@@ -97,6 +102,7 @@ class TestArrlio:
         [
             "arrlio.backend.local",
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -111,6 +117,7 @@ class TestArrlio:
         [
             "arrlio.backend.local",
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -125,6 +132,7 @@ class TestArrlio:
         [
             "arrlio.backend.local",
             "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
@@ -135,12 +143,12 @@ class TestArrlio:
         with pytest.raises((arrlio.TaskNoResultError, asyncio.TimeoutError)):
             await asyncio.wait_for(ar.get(), 2)
 
-    # @pytest.mark.parametrize("backend", ["rabbitmq"], indirect=True)
-    # async def test_task_ack_late(self, backend, app):
-    #     await app.run()
-    #     ar = await app.send_task(tasks.ack_late)
-    #     await asyncio.sleep(1)
-    #     await app.stop()
-    #     await app.run()
-    #     await asyncio.wait_for(ar.get(), 5)
-    #     assert tasks.ack_late.func.counter == 2
+    # # @pytest.mark.parametrize("backend", ["rabbitmq"], indirect=True)
+    # # async def test_task_ack_late(self, backend, app):
+    # #     await app.run()
+    # #     ar = await app.send_task(tasks.ack_late)
+    # #     await asyncio.sleep(1)
+    # #     await app.stop()
+    # #     await app.run()
+    # #     await asyncio.wait_for(ar.get(), 5)
+    # #     assert tasks.ack_late.func.counter == 2

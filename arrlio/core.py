@@ -104,7 +104,7 @@ class Base:
         self.backend = self.config.backend.Backend(self.config.backend.BackendConfig(**(backend_config_kwds)))
 
     def __str__(self):
-        return f"[{self.__class__.__name__}{self.backend} at {hex(id(self))}]"
+        return f"[{self.__class__.__name__}{self.backend}]"
 
     def __repr__(self):
         return self.__str__()

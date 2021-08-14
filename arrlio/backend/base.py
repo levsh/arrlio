@@ -4,10 +4,10 @@ import logging
 from types import MethodType
 from typing import List
 
-from pydantic import BaseSettings, PositiveInt
+from pydantic import BaseSettings
 
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.typing import AsyncCallableT, SerializerT
+from arrlio.typing import AsyncCallableT, SerializerT, TimeoutT
 
 
 logger = logging.getLogger("arrlio")
@@ -15,7 +15,7 @@ logger = logging.getLogger("arrlio")
 
 class BackendConfig(BaseSettings):
     serializer: SerializerT
-    timeout: PositiveInt = None
+    timeout: TimeoutT = None
 
 
 class Backend(abc.ABC):
@@ -38,7 +38,7 @@ class Backend(abc.ABC):
             if self._closing:
                 return
             if self._closed:
-                raise Exception(f"Trying to call {method} but backend {self} is closed")
+                raise Exception(f"Trying to call {method} but backend {self} has been closed")
             task = asyncio.create_task(method(self, *args, **kwds))
             self._tasks.add(task)
             try:

@@ -1,8 +1,8 @@
 from typing import List
 
-from pydantic import BaseSettings, Field, PositiveInt, conint
+from pydantic import BaseSettings, Field
 
-from arrlio.typing import BackendT, PriorityT
+from arrlio.typing import BackendT, PositiveIntT, PriorityT, TimeoutT
 
 
 BACKEND = "arrlio.backend.local"
@@ -27,8 +27,8 @@ class TaskConfig(BaseSettings):
     bind: bool = Field(default_factory=lambda: TASK_BIND)
     queue: str = Field(default_factory=lambda: TASK_QUEUE)
     priority: PriorityT = Field(default_factory=lambda: TASK_PRIORITY)
-    timeout: PositiveInt = Field(default_factory=lambda: TASK_TIMEOUT)
-    ttl: PositiveInt = Field(default_factory=lambda: TASK_TTL)
+    timeout: TimeoutT = Field(default_factory=lambda: TASK_TIMEOUT)
+    ttl: PositiveIntT = Field(default_factory=lambda: TASK_TTL)
     ack_late: bool = Field(default_factory=lambda: TASK_ACK_LATE)
     result_return: bool = Field(default_factory=lambda: RESULT_RETURN)
     result_encrypt: bool = Field(default_factory=lambda: RESULT_ENCRYPT)
@@ -39,7 +39,7 @@ class TaskConfig(BaseSettings):
 
 
 class ResultConfig(BaseSettings):
-    ttl: PositiveInt = Field(default_factory=lambda: RESULT_TTL)
+    ttl: PositiveIntT = Field(default_factory=lambda: RESULT_TTL)
 
     class Config:
         validate_assignment = True
@@ -60,7 +60,7 @@ class WorkerConfig(BaseSettings):
     backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
     task_queues: List[str] = Field(default_factory=lambda: WORKER_TASK_QUEUES)
     message_queues: List[str] = Field(default_factory=lambda: WORKER_MESSAGE_QUEUES)
-    pool_size: conint(ge=1) = Field(default_factory=lambda: WORKER_POOL_SIZE)
+    pool_size: PositiveIntT = Field(default_factory=lambda: WORKER_POOL_SIZE)
 
     class Config:
         validate_assignment = True

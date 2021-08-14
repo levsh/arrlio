@@ -37,11 +37,11 @@ def backend(request, container_executor):
     if request.param == "arrlio.backend.rabbitmq":
         container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
-        config_kwds["url"] = f"amqp://{address[0]}:{address[1]}"
-    # if request.param == "arrlio.backend.redis":
-    #     container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
-    #     address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
-    #     config_kwds["url"] = f"amqp://{address[0]}:{address[1]}"
+        config_kwds["url"] = f"amqp://guest:guest@{address[0]}:{address[1]}"
+    if request.param == "arrlio.backend.redis":
+        container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
+        address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
+        config_kwds["url"] = f"redis://{address[0]}:{address[1]}"
     if address:
         try:
             utils.wait_socket_available(address, 20)

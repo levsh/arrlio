@@ -8,12 +8,13 @@ from typing import Dict, Iterable, List, Tuple
 
 import aiormq
 import yarl
-from pydantic import AnyUrl, Field, PositiveInt
+from pydantic import Field
 
 from arrlio import core, utils
 from arrlio.backend import base
+from arrlio.exc import TaskNoResultError
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.typing import AsyncCallableT, ExceptionFilterT, PriorityT, SerializerT
+from arrlio.typing import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RabbitMQDsn, SerializerT, TimeoutT
 
 
 logger = logging.getLogger("arrlio")
@@ -31,13 +32,13 @@ PREFETCH_COUNT: int = 1
 
 class BackendConfig(base.BackendConfig):
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
-    url: AnyUrl = Field(default_factory=lambda: URL)
-    timeout: PositiveInt = Field(default_factory=lambda: TIMEOUT)
+    url: RabbitMQDsn = Field(default_factory=lambda: URL)
+    timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)
     retry_timeouts: List = Field(default_factory=lambda: RETRY_TIMEOUTS)
     verify_ssl: bool = Field(default_factory=lambda: True)
     exchange: str = Field(default_factory=lambda: EXCHANGE)
-    queue_ttl: PositiveInt = Field(default_factory=lambda: QUEUE_TTL)
-    prefetch_count: PositiveInt = Field(default_factory=lambda: PREFETCH_COUNT)
+    queue_ttl: PositiveIntT = Field(default_factory=lambda: QUEUE_TTL)
+    prefetch_count: PositiveIntT = Field(default_factory=lambda: PREFETCH_COUNT)
 
     class Config:
         validate_assignment = True
@@ -47,7 +48,7 @@ class BackendConfig(base.BackendConfig):
 class Connection:
     _shared: dict = {}
 
-    def __init__(self, url: str):
+    def __init__(self, url: RabbitMQDsn):
         if url not in self.__class__._shared:
             self.__class__._shared[url] = {
                 "refs": 0,
@@ -98,7 +99,7 @@ class Connection:
     async def open(self, retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
         async def connect():
             logger.info("%s: connecting...", self)
-            self._conn = await asyncio.wait_for(aiormq.connect(self.url), self._connect_timeout)
+            self._conn = await asyncio.wait_for(aiormq.connect(self.url.get_secret_value()), self._connect_timeout)
             logger.info("%s: connected", self)
 
         async def supervisor():
@@ -194,7 +195,7 @@ class Backend(base.Backend):
         self._consume_lock: asyncio.Lock = asyncio.Lock()
 
     def __str__(self):
-        return f"[RabbitMQBackend[{self._conn}] at 0x{id(self):x}]"
+        return f"[RabbitMQBackend[{self._conn}]]"
 
     async def close(self):
         await super().close()
@@ -316,7 +317,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult, encrypt: bool = None):
         if not task_instance.task.result_return:
-            raise core.TaskNoResultError(task_instance.data.task_id)
+            raise TaskNoResultError(task_instance.data.task_id)
         routing_key = await self.declare_result_queue(task_instance)
         logger.debug("%s: push result for %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:

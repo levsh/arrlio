@@ -51,7 +51,7 @@ class Backend(base.Backend):
         self._consumers = {}
 
     def __str__(self):
-        return f"[LocalBackend({self.config.name}) at 0x{id(self):x}]"
+        return f"[LocalBackend({self.config.name})]"
 
     @property
     def _refs(self) -> int:

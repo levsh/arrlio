@@ -17,6 +17,7 @@ setup(
         "cryptography==3.4.7",
         "pydantic==1.8.2",
         "yarl==1.6.3",
+        'siderpy @ git+https://git@github.com/levsh/siderpy#egg=siderpy[hiredis]',
     ],
     python_requires=">=3.8",
     classifiers=[
