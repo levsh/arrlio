@@ -301,5 +301,7 @@ class AsyncResult:
                 self._exception = e
                 self._ready = True
         if self._exception:
+            if isinstance(self._exception.args[0], Exception):
+                raise self._exception from self._exception.args[0]
             raise self._exception
         return self._result

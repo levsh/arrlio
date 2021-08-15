@@ -11,11 +11,13 @@ from arrlio.serializer.json import CryptoJson
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
+BACKEND = "arrlio.backend.local"
+
 
 async def main():
     async def example_1():
-        worker = arrlio.Worker(arrlio.WorkerConfig(backend="arrlio.backend.local"))
-        client = arrlio.Client(arrlio.ClientConfig(backend="arrlio.backend.local"))
+        client = arrlio.Client(arrlio.ClientConfig(backend=BACKEND))
+        worker = arrlio.Worker(arrlio.WorkerConfig(backend=BACKEND))
 
         try:
             await worker.run()
@@ -57,11 +59,11 @@ async def main():
 
         backend_config_kwds = {"serializer": serializer}
         worker = arrlio.Worker(
-            arrlio.WorkerConfig(backend="arrlio.backend.local"),
+            arrlio.WorkerConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
         client = arrlio.Client(
-            arrlio.ClientConfig(backend="arrlio.backend.local"),
+            arrlio.ClientConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
 

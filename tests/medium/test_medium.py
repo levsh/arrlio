@@ -116,8 +116,8 @@ class TestArrlio:
         "backend",
         [
             "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            # "arrlio.backend.rabbitmq",
+            # "arrlio.backend.redis",
         ],
         indirect=True,
     )
