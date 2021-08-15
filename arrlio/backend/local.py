@@ -16,13 +16,13 @@ from arrlio.typing import AsyncCallableT, PriorityT, SerializerT
 logger = logging.getLogger("arrlio")
 
 
-SERIALIZER: str = "arrlio.serializer.nop.Nop"
 BACKEND_NAME: str = "arrlio"
+SERIALIZER: str = "arrlio.serializer.nop.Nop"
 
 
 class BackendConfig(base.BackendConfig):
-    serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     name: str = Field(default_factory=lambda: BACKEND_NAME)
+    serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
 
     class Config:
         validate_assignment = True

@@ -30,8 +30,14 @@ def serializer():
     )
 
 backend_config_kwds = {"serializer": serializer}
-client = arrlio.Client(arrlio.ClientConfig(backend=BACKEND), backend_config_kwds=backend_config_kwds)
-worker = arrlio.Worker(arrlio.WorkerConfig(backend=BACKEND), backend_config_kwds=backend_config_kwds)
+client = arrlio.Client(
+    arrlio.ClientConfig(backend=BACKEND),
+    backend_config_kwds=backend_config_kwds
+)
+worker = arrlio.Worker(
+    arrlio.WorkerConfig(backend=BACKEND),
+    backend_config_kwds=backend_config_kwds
+)
 
 
 async def main():

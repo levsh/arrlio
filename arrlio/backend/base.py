@@ -14,6 +14,7 @@ logger = logging.getLogger("arrlio")
 
 
 class BackendConfig(BaseSettings):
+    name: str = None
     serializer: SerializerT
     timeout: TimeoutT = None
 

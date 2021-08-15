@@ -10,7 +10,7 @@ logger.addHandler(log_hndl)
 logger.setLevel("INFO")
 
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 __tasks__ = {}
 

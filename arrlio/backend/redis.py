@@ -16,6 +16,7 @@ from arrlio.typing import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, T
 logger = logging.getLogger("arrlio")
 
 
+BACKEND_NAME: str = "arrlio"
 SERIALIZER: str = "arrlio.serializer.json.Json"
 URL: str = "redis://localhost?db=0"
 TIMEOUT: int = 60
@@ -26,6 +27,7 @@ VERIFY_SSL: bool = True
 
 
 class BackendConfig(base.BackendConfig):
+    name: str = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     url: RedisDsn = Field(default_factory=lambda: URL)
     timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)

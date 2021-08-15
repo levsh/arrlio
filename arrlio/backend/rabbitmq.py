@@ -20,6 +20,7 @@ from arrlio.typing import AsyncCallableT, ExceptionFilterT, PositiveIntT, Priori
 logger = logging.getLogger("arrlio")
 
 
+BACKEND_NAME: str = "arrlio"
 SERIALIZER: str = "arrlio.serializer.json.Json"
 URL: str = "amqp://guest:guest@localhost"
 TIMEOUT: int = 60
@@ -31,6 +32,7 @@ PREFETCH_COUNT: int = 1
 
 
 class BackendConfig(base.BackendConfig):
+    name: str = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     url: RabbitMQDsn = Field(default_factory=lambda: URL)
     timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)
