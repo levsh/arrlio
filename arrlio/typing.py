@@ -1,7 +1,7 @@
 import importlib
 import re
 from types import ModuleType
-from typing import Any, Callable, Coroutine, Optional, no_type_check
+from typing import Any, Callable, Coroutine, Dict, Optional, no_type_check
 
 from pydantic import AnyUrl, PyObject, conint
 
@@ -49,6 +49,23 @@ class SecretAnyUrl(AnyUrl):
 class RabbitMQDsn(SecretAnyUrl):
     allowed_schemes = {"amqp"}
     user_required = True
+
+
+class RedisDsn(SecretAnyUrl):
+    allowed_schemes = {"redis", "rediss"}
+    user_required = False
+
+    @classmethod
+    def validate_parts(cls, parts: Dict[str, str]) -> Dict[str, str]:
+        defaults = {
+            "domain": "localhost" if not (parts["ipv4"] or parts["ipv6"]) else "",
+            "port": "6379",
+            "path": "/0",
+        }
+        for key, value in defaults.items():
+            if not parts[key]:
+                parts[key] = value
+        return super().validate_parts(parts)
 
 
 class BackendT:

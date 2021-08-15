@@ -4,13 +4,13 @@ import logging
 from typing import Iterable, List
 
 import siderpy
-from pydantic import Field, RedisDsn
+from pydantic import Field
 
 from arrlio import core
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.typing import AsyncCallableT, PositiveIntT, SerializerT, TimeoutT
+from arrlio.typing import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
 
 
 logger = logging.getLogger("arrlio")
@@ -43,7 +43,7 @@ class Backend(base.Backend):
     def __init__(self, config: BackendConfig):
         super().__init__(config)
         self.redis_pool = siderpy.RedisPool(
-            config.url,
+            config.url.get_secret_value(),
             connect_timeout=config.connect_timeout,
             timeout=config.timeout,
             size=config.pool_size,
