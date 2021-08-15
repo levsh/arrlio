@@ -2,7 +2,7 @@ from unittest import mock
 
 import pytest
 
-from arrlio import Client, ClientConfig, Worker, WorkerConfig, settings, task
+from arrlio import Client, ClientConfig, settings, task
 from arrlio.core import AsyncResult
 
 

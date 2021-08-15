@@ -10,10 +10,10 @@ logger.addHandler(log_hndl)
 logger.setLevel("INFO")
 
 
-__version__ = "0.2.4"
+__version__ = "0.3.0"
 
 __tasks__ = {}
 
 
-from arrlio.core import Client, ClientConfig, Worker, WorkerConfig, logger, task  # noqa
+from arrlio.core import Client, ClientConfig, Executor, ExecutorConfig, logger, task  # noqa
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError  # noqa

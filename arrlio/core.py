@@ -9,7 +9,7 @@ from uuid import UUID
 from arrlio import __tasks__, settings
 from arrlio.exc import TaskError, TaskNoResultError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
-from arrlio.settings import ClientConfig, WorkerConfig
+from arrlio.settings import ClientConfig, ExecutorConfig
 
 
 logger = logging.getLogger("arrlio")
@@ -98,7 +98,7 @@ def task(
 
 
 class Base:
-    def __init__(self, config: Union[ClientConfig, WorkerConfig], backend_config_kwds: dict = None):
+    def __init__(self, config: Union[ClientConfig, ExecutorConfig], backend_config_kwds: dict = None):
         self.config = config
         backend_config_kwds = backend_config_kwds or {}
         self.backend = self.config.backend.Backend(self.config.backend.BackendConfig(**(backend_config_kwds)))
@@ -174,8 +174,8 @@ class Client(Base):
         return task_result.res
 
 
-class Worker(Base):
-    def __init__(self, config: WorkerConfig, backend_config_kwds: dict = None):
+class Executor(Base):
+    def __init__(self, config: ExecutorConfig, backend_config_kwds: dict = None):
         super().__init__(config, backend_config_kwds=backend_config_kwds)
         self._running_tasks: dict = {}
         self._lock: asyncio.Lock = asyncio.Lock()

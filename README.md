@@ -34,16 +34,20 @@ client = arrlio.Client(
     arrlio.ClientConfig(backend=BACKEND),
     backend_config_kwds=backend_config_kwds
 )
-worker = arrlio.Worker(
-    arrlio.WorkerConfig(backend=BACKEND),
+executor = arrlio.Executor(
+    arrlio.ExecutorConfig(backend=BACKEND),
     backend_config_kwds=backend_config_kwds
 )
 
 
 async def main():
-    await worker.run()
-    ar = await client.call("hello_world")
-    await ar.get()
+    try:
+        await executor.run()
+        ar = await client.call("hello_world")
+        await ar.get()
+    finally:
+        await executor.stop()
+        await client.close()
 
 
 asyncio.run(main())

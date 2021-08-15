@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from arrlio import Client, ClientConfig, Worker, WorkerConfig
+from arrlio import Client, ClientConfig, Executor, ExecutorConfig
 
 from tests import utils
 
@@ -64,10 +64,10 @@ async def client(backend):
 
 
 @pytest.fixture(scope="function")
-async def worker(backend):
-    config = WorkerConfig(backend=backend.module)
-    worker = Worker(config, backend_config_kwds=backend.config_kwds)
+async def executor(backend):
+    config = ExecutorConfig(backend=backend.module)
+    executor = Executor(config, backend_config_kwds=backend.config_kwds)
     try:
-        yield worker
+        yield executor
     finally:
-        await worker.stop()
+        await executor.stop()

@@ -24,8 +24,8 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_default(self, backend, client, worker):
-        await worker.run()
+    async def test_task_default(self, backend, client, executor):
+        await executor.run()
         ar = await client.call(tasks.hello_world)
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
@@ -38,8 +38,8 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_args_kwds(self, backend, client, worker):
-        await worker.run()
+    async def test_task_args_kwds(self, backend, client, executor):
+        await executor.run()
         ar = await client.call(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4})
         res = await asyncio.wait_for(ar.get(), 5)
         assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
@@ -53,9 +53,9 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_custom_queue(self, backend, client, worker):
-        worker.config.task_queues = ["queue1", "queue2"]
-        await worker.run()
+    async def test_task_custom_queue(self, backend, client, executor):
+        executor.config.task_queues = ["queue1", "queue2"]
+        await executor.run()
         ar = await client.call(tasks.hello_world, queue="queue1")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
         ar = await client.call(tasks.hello_world, queue="queue2")
@@ -69,9 +69,9 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_priority(self, backend, client, worker):
-        worker.config.pool_size = 1
-        await worker.run()
+    async def test_task_priority(self, backend, client, executor):
+        executor.config.pool_size = 1
+        await executor.run()
         await client.call(tasks.sleep, args=(0.5,), priority=10)
         aw1 = (await client.call(tasks.sleep, args=(1,), priority=1)).get()
         aw2 = (await client.call(tasks.sleep, args=(1,), priority=2)).get()
@@ -87,8 +87,8 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_lost_connection(self, backend, client, worker):
-        await worker.run()
+    async def test_lost_connection(self, backend, client, executor):
+        await executor.run()
         await asyncio.sleep(1)
         backend.container.stop()
         await asyncio.sleep(3)
@@ -106,8 +106,8 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_timeout(self, backend, client, worker):
-        await worker.run()
+    async def test_task_timeout(self, backend, client, executor):
+        await executor.run()
         ar = await client.call(tasks.sleep, args=(3600,), timeout=1)
         with pytest.raises(arrlio.TaskError):
             await asyncio.wait_for(ar.get(), 5)
@@ -121,8 +121,8 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_no_result(self, backend, client, worker):
-        await worker.run()
+    async def test_task_no_result(self, backend, client, executor):
+        await executor.run()
         ar = await client.call(tasks.noresult)
         with pytest.raises(arrlio.TaskNoResultError):
             await asyncio.wait_for(ar.get(), 5)
@@ -136,8 +136,8 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_task_result_timeout(self, backend, client, worker):
-        await worker.run()
+    async def test_task_result_timeout(self, backend, client, executor):
+        await executor.run()
         ar = await client.call(tasks.hello_world, result_ttl=1)
         await asyncio.sleep(3)
         with pytest.raises((arrlio.TaskNoResultError, asyncio.TimeoutError)):

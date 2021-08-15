@@ -56,7 +56,7 @@ class ClientConfig(BaseSettings):
         env_prefix = "ARRLIO_CLIENT_"
 
 
-class WorkerConfig(BaseSettings):
+class ExecutorConfig(BaseSettings):
     backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
     task_queues: List[str] = Field(default_factory=lambda: WORKER_TASK_QUEUES)
     message_queues: List[str] = Field(default_factory=lambda: WORKER_MESSAGE_QUEUES)
@@ -64,4 +64,4 @@ class WorkerConfig(BaseSettings):
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_WORKER_"
+        env_prefix = "ARRLIO_EXECUTOR_"

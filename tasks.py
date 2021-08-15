@@ -48,7 +48,7 @@ def bump_major(c):
         if match:
             groupdict = match.groupdict()
             major = int(groupdict["major"])
-            text = re.sub(r'(.*__version__ = ")(\d)\.(\d)(\.\d)?(".*)', fr"\g<1>{major+1}.0\g<5>", text)
+            text = re.sub(r'(.*__version__ = ")(\d)\.(\d)(\.\d)?(".*)', fr"\g<1>{major+1}.0.0\g<5>", text)
             f.seek(0)
             f.write(text)
             f.truncate()
@@ -65,7 +65,7 @@ def bump_minor(c):
             groupdict = match.groupdict()
             major = int(groupdict["major"])
             minor = int(groupdict["minor"])
-            text = re.sub(r'(.*__version__ = ")(\d)\.(\d)(\.\d)?(".*)', fr"\g<1>{major}.{minor+1}\g<5>", text)
+            text = re.sub(r'(.*__version__ = ")(\d)\.(\d)(\.\d)?(".*)', fr"\g<1>{major}.{minor+1}.0\g<5>", text)
             f.seek(0)
             f.write(text)
             f.truncate()

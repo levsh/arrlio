@@ -17,10 +17,10 @@ BACKEND = "arrlio.backend.local"
 async def main():
     async def example_1():
         client = arrlio.Client(arrlio.ClientConfig(backend=BACKEND))
-        worker = arrlio.Worker(arrlio.WorkerConfig(backend=BACKEND))
+        executor = arrlio.Executor(arrlio.ExecutorConfig(backend=BACKEND))
 
         try:
-            await worker.run()
+            await executor.run()
 
             # call by task
             ar = await client.call(tasks.hello_world)
@@ -44,7 +44,7 @@ async def main():
                 print()
 
         finally:
-            await worker.stop()
+            await executor.stop()
             await client.close()
 
     async def example_2():
@@ -58,8 +58,8 @@ async def main():
             )
 
         backend_config_kwds = {"serializer": serializer}
-        worker = arrlio.Worker(
-            arrlio.WorkerConfig(backend=BACKEND),
+        executor = arrlio.Executor(
+            arrlio.ExecutorConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
         client = arrlio.Client(
@@ -68,13 +68,13 @@ async def main():
         )
 
         try:
-            await worker.run()
+            await executor.run()
 
             ar = await client.call(tasks.hello_world, encrypt=True, result_encrypt=True)
             logger.info(await ar.get())
 
         finally:
-            await worker.stop()
+            await executor.stop()
             await client.close()
 
     await example_1()
