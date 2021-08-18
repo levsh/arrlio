@@ -10,7 +10,7 @@ from arrlio import core
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.typing import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
+from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
 
 
 logger = logging.getLogger("arrlio")

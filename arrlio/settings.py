@@ -2,7 +2,7 @@ from typing import List
 
 from pydantic import BaseSettings, Field
 
-from arrlio.typing import BackendT, PositiveIntT, PriorityT, TimeoutT
+from arrlio.tp import BackendT, PositiveIntT, PriorityT, TimeoutT
 
 
 BACKEND = "arrlio.backend.local"

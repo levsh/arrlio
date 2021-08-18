@@ -10,7 +10,7 @@ from pydantic import Field
 from arrlio.backend import base
 from arrlio.core import TaskNoResultError
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.typing import AsyncCallableT, PriorityT, SerializerT
+from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
 
 
 logger = logging.getLogger("arrlio")

@@ -7,7 +7,7 @@ from typing import List
 from pydantic import BaseSettings
 
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.typing import AsyncCallableT, SerializerT, TimeoutT
+from arrlio.tp import AsyncCallableT, SerializerT, TimeoutT
 
 
 logger = logging.getLogger("arrlio")

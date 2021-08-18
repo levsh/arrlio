@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pydantic
 
-from arrlio.typing import AsyncCallableT, ExceptionFilterT
+from arrlio.tp import AsyncCallableT, ExceptionFilterT
 
 
 logger = logging.getLogger("arrlio")

@@ -3,13 +3,13 @@ import types
 import pydantic
 import pytest
 
-from arrlio import typing
+from arrlio import tp
 
 
 def test_BackendType():
 
     class M(pydantic.BaseModel):
-        backend: typing.BackendT
+        backend: tp.BackendT
 
     m = M(backend="arrlio.backend.local")
     assert isinstance(m.backend, types.ModuleType)

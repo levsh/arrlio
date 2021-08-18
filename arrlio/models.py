@@ -4,7 +4,17 @@ from types import FunctionType, TracebackType
 from typing import Any, Callable, Tuple, Union
 from uuid import UUID, uuid4
 
-from arrlio import settings
+from arrlio.settings import (
+    RESULT_ENCRYPT,
+    RESULT_RETURN,
+    RESULT_TTL,
+    TASK_ACK_LATE,
+    TASK_BIND,
+    TASK_PRIORITY,
+    TASK_QUEUE,
+    TASK_TIMEOUT,
+    TASK_TTL,
+)
 
 
 @dataclass
@@ -40,23 +50,23 @@ class Task:
 
     def __post_init__(self):
         if self.bind is None:
-            object.__setattr__(self, "bind", settings.TASK_BIND)
+            object.__setattr__(self, "bind", TASK_BIND)
         if self.queue is None:
-            object.__setattr__(self, "queue", settings.TASK_QUEUE)
+            object.__setattr__(self, "queue", TASK_QUEUE)
         if self.priority is None:
-            object.__setattr__(self, "priority", settings.TASK_PRIORITY)
+            object.__setattr__(self, "priority", TASK_PRIORITY)
         if self.timeout is None:
-            object.__setattr__(self, "timeout", settings.TASK_TIMEOUT)
+            object.__setattr__(self, "timeout", TASK_TIMEOUT)
         if self.ttl is None:
-            object.__setattr__(self, "ttl", settings.TASK_TTL)
+            object.__setattr__(self, "ttl", TASK_TTL)
         if self.ack_late is None:
-            object.__setattr__(self, "ack_late", settings.TASK_ACK_LATE)
+            object.__setattr__(self, "ack_late", TASK_ACK_LATE)
         if self.result_ttl is None:
-            object.__setattr__(self, "result_ttl", settings.RESULT_TTL)
+            object.__setattr__(self, "result_ttl", RESULT_TTL)
         if self.result_return is None:
-            object.__setattr__(self, "result_return", settings.RESULT_RETURN)
+            object.__setattr__(self, "result_return", RESULT_RETURN)
         if self.result_encrypt is None:
-            object.__setattr__(self, "result_encrypt", settings.RESULT_ENCRYPT)
+            object.__setattr__(self, "result_encrypt", RESULT_ENCRYPT)
 
     def instatiate(self, data: TaskData = None) -> "TaskInstance":
         if data is None:
