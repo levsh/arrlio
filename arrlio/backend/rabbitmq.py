@@ -10,11 +10,12 @@ import aiormq
 import yarl
 from pydantic import Field
 
-from arrlio import core, utils
+from arrlio import core
+from arrlio.utils import AsyncRetry
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import TaskInstance, TaskResult
-from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RabbitMQDsn, SerializerT, TimeoutT
+from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
 
 
 logger = logging.getLogger("arrlio")
@@ -34,7 +35,7 @@ PREFETCH_COUNT: int = 1
 class BackendConfig(base.BackendConfig):
     name: str = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
-    url: RabbitMQDsn = Field(default_factory=lambda: URL)
+    url: RMQDsn = Field(default_factory=lambda: URL)
     timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)
     retry_timeouts: List = Field(default_factory=lambda: RETRY_TIMEOUTS)
     verify_ssl: bool = Field(default_factory=lambda: True)
@@ -47,127 +48,158 @@ class BackendConfig(base.BackendConfig):
         env_prefix = "ARRLIO_RMQ_BACKEND_"
 
 
-class Connection:
-    _shared: dict = {}
+class RMQConnection:
+    __shared: dict = {}
 
-    def __init__(self, url: RabbitMQDsn):
-        if url not in self.__class__._shared:
-            self.__class__._shared[url] = {
+    @property
+    def _shared(self) -> dict:
+        return self.__shared[self._key]
+
+    def __init__(self, url, retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
+        self.url = url
+
+        self._retry_timeouts = retry_timeouts
+        self._exc_filter = exc_filter
+
+        self._key = (asyncio.get_event_loop(), url)
+
+        if self._key not in self.__shared:
+            self.__shared[self._key] = {
                 "refs": 0,
+                "objs": 0,
                 "conn": None,
                 "conn_lock": asyncio.Lock(),
+                "on_open_callbacks_lock": asyncio.Lock(),
+                "on_open": {},
+                "on_lost": {},
+                "on_close": {},
             }
-        self.url = url
-        self.on_open = {}
-        self.on_lost = {}
-        self.on_close = {}
+
+        self._shared["objs"] += 1
+
         self._connect_timeout = yarl.URL(url).query.get("connection_timeout")
         if self._connect_timeout is not None:
             self._connect_timeout = int(self._connect_timeout) / 1000
+
         self._supervisor_task: asyncio.Task = None
-        self._on_open_cb_lock = asyncio.Lock()
-        self._closing: asyncio.Future = asyncio.Future()
-        self._closed: bool = True
+        self._closed: asyncio.Future = asyncio.Future()
+
+    def __del__(self):
+        if not self.is_closed:
+            logger.warning("%s: unclosed")
+        self._shared["objs"] -= 1
+        if self._shared["objs"] == 0:
+            del self.__shared[self._key]
 
     @property
     def _conn(self) -> aiormq.Connection:
-        return self.__class__._shared.get(self.url, {}).get("conn")
+        return self._shared["conn"]
 
     @_conn.setter
     def _conn(self, value: aiormq.Connection):
-        if self.url in self.__class__._shared:
-            self.__class__._shared[self.url]["conn"] = value
-
-    @property
-    def _refs(self) -> int:
-        return self.__class__._shared.get(self.url, {}).get("refs")
-
-    @_refs.setter
-    def _refs(self, value: int):
-        if self.url in self.__class__._shared:
-            self.__class__._shared[self.url]["refs"] = value
+        self._shared["conn"] = value
 
     @property
     def _conn_lock(self) -> asyncio.Lock:
-        return self.__class__._shared.get(self.url, {}).get("conn_lock")
+        return self._shared["conn_lock"]
+
+    @property
+    def _on_open_callbacks_lock(self) -> asyncio.Lock:
+        return self._shared["on_open_callbacks_lock"]
+
+    @property
+    def _refs(self) -> int:
+        return self._shared["refs"]
+
+    @_refs.setter
+    def _refs(self, value: int):
+        self._shared["refs"] = value
+
+    def add_callback(self, tp, group, name: str, cb):
+        self._shared[tp].setdefault(group, {})
+        self._shared[tp][group][name] = cb
+
+    async def remove_callback(self, tp, group, name):
+        if group in self._shared[tp] and name in self._shared[tp][group]:
+            del self._shared[tp][group][name]
+
+    async def remove_callback_group(self, group):
+        for tp in ("on_open", "on_lost", "on_close"):
+            if group in self._shared[tp]:
+                del self._shared[tp][group]
 
     def __str__(self):
-        return f"{self.__class__.__name__}[{self.url}]"
+        return f"{self.__class__.__name__}[{self.url.host}:{self.url.port}]"
+
+    @property
+    def is_open(self) -> bool:
+        return not self.is_closed and self._conn is not None and not self._conn.is_closed
 
     @property
     def is_closed(self) -> bool:
-        return self._closed or self._conn is None or (self._conn and self._conn.is_closed)
+        return self._closed.done()
 
-    async def open(self, retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
-        async def connect():
-            logger.info("%s: connecting...", self)
-            self._conn = await asyncio.wait_for(aiormq.connect(self.url.get_secret_value()), self._connect_timeout)
-            logger.info("%s: connected", self)
-
-        async def supervisor():
+    async def _execute_callbacks(self, tp):
+        for callback in [callback for callbacks in self._shared[tp].values() for callback in callbacks.values()]:
             try:
-                await asyncio.wait([self._conn.closing, self._closing], return_when=asyncio.FIRST_COMPLETED)
+                if inspect.iscoroutinefunction(callback):
+                    await callback()
+                else:
+                    callback()
             except Exception as e:
-                logger.warning("%s: %s %s", self, e.__class__, e)
-            if not self._closed:
-                logger.warning("%s: connection lost", self)
-                self._refs -= 1
-                for _, callback in self.on_lost.items():
-                    try:
-                        if inspect.iscoroutinefunction(callback):
-                            await callback()
-                        else:
-                            callback()
-                    except Exception as e:
-                        logger.exception(e)
-                self._closed = True
+                logger.error("%s %s", e.__class__, e)
 
-        if not self.is_closed:
+    async def _supervisor(self):
+        try:
+            await asyncio.wait([self._conn.closing, self._closed], return_when=asyncio.FIRST_COMPLETED)
+        except Exception as e:
+            logger.warning("%s: %s %s", self, e.__class__, e)
+        if not self._closed.done():
+            logger.warning("%s: connection lost", self)
+            self._refs -= 1
+            await self._execute_callbacks("on_lost")
+
+    async def open(self):
+        if self.is_open:
             return
 
-        if self._on_open_cb_lock.locked():
+        if self._on_open_callbacks_lock.locked():
             raise ConnectionError()
 
         async with self._conn_lock:
-
             if self.is_closed:
-                if self._conn is None or self._conn.is_closed:
-                    await utils.AsyncRetry(retry_timeouts=retry_timeouts, exc_filter=exc_filter)(connect)
+                raise Exception("Can't reopen closed connection")
 
-                if self._closed:
-                    self._closed = False
-                    self._refs += 1
+            if self._conn is None or self._conn.is_closed:
 
-                self._supervisor_task = asyncio.create_task(supervisor())
+                async def connect():
+                    logger.info("%s: connecting...", self)
+                    self._conn = await asyncio.wait_for(
+                        aiormq.connect(self.url.get_secret_value()), self._connect_timeout
+                    )
+                    logger.info("%s: connected", self)
 
-                async with self._on_open_cb_lock:
-                    for x, callback in self.on_open.items():
-                        if inspect.iscoroutinefunction(callback):
-                            await callback()
-                        else:
-                            callback()
+                await AsyncRetry(retry_timeouts=self._retry_timeouts, exc_filter=self._exc_filter)(connect)
+
+            self._refs += 1
+
+            self._supervisor_task = asyncio.create_task(self._supervisor())
+
+            async with self._on_open_callbacks_lock:
+                await self._execute_callbacks("on_open")
 
     async def close(self):
-        if self._closed:
+        if self.is_closed:
             return
 
         self._refs = max(0, self._refs - 1)
         async with self._conn_lock:
-            self._closed = True
-            self._closing.set_result(None)
+            self._closed.set_result(None)
             if self._refs == 0:
-                for _, callback in self.on_close.items():
-                    try:
-                        if inspect.iscoroutinefunction(callback):
-                            await callback()
-                        else:
-                            callback()
-                    except Exception as e:
-                        logger.exception(e)
+                await self._execute_callbacks("on_close")
                 if self._conn:
                     await self._conn.close()
                     self._conn = None
-                    del self.__class__._shared[self.url]
                     logger.info("%s: closed", self)
             if self._supervisor_task:
                 await self._supervisor_task
@@ -191,17 +223,36 @@ class Connection:
 class Backend(base.Backend):
     def __init__(self, config: BackendConfig):
         super().__init__(config)
-        self._conn: Connection = Connection(config.url)
-        self._conn.on_open["declare"] = self.declare
-        self._consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
+
+        self._task_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
+        self._message_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
         self._consume_lock: asyncio.Lock = asyncio.Lock()
 
+        self.__conn: RMQConnection = RMQConnection(config.url)
+
+        self.__conn.add_callback("on_open", id(self), "declare", self.declare)
+        self.__conn.add_callback("on_lost", id(self), "cleanup", self._task_consumers.clear)
+        self.__conn.add_callback("on_lost", id(self), "cleanup", self._message_consumers.clear)
+        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_messages)
+        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_tasks)
+
+    def __del__(self):
+        if not self._closed:
+            logger.warning("Unclosed %s", self)
+
     def __str__(self):
-        return f"[RabbitMQBackend[{self._conn}]]"
+        return f"[RMQBackend[{self.__conn}]]"
+
+    @property
+    def _conn(self):
+        if self._closed:
+            raise Exception(f"{self} is closed")
+        return self.__conn
 
     async def close(self):
         await super().close()
-        await self._conn.close()
+        await self.__conn.remove_callback_group(id(self))
+        await self.__conn.close()
 
     @base.Backend.task
     async def declare(self):
@@ -268,32 +319,32 @@ class Backend(base.Backend):
                 await channel.basic_qos(prefetch_count=self.config.prefetch_count, timeout=timeout)
 
             for queue in queues:
-                if queue in self._consumers and not self._consumers[queue][0].is_closed:
+                if queue in self._task_consumers and not self._task_consumers[queue][0].is_closed:
                     continue
                 await self.declare_task_queue(queue)
                 channel = await self._conn.channel()
-                self._consumers[queue] = [
+                self._task_consumers[queue] = [
                     channel,
                     await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),
                 ]
                 logger.debug("%s: consuming queue '%s'", self, queue)
 
-            async def consume_tasks():
-                await self.consume_tasks(list(self._consumers.keys()), on_task)
+            async def _consume_tasks():
+                await self.consume_tasks(list(self._task_consumers.keys()), on_task)
 
-            self._conn.on_lost["consume_tasks"] = consume_tasks
+            self._conn.add_callback("on_lost", id(self), "consume_tasks", _consume_tasks)
 
     async def stop_consume_tasks(self):
-        self._conn.on_lost.pop("consume_tasks", None)
+        await self.__conn.remove_callback("on_lost", id(self), "consume_tasks")
         async with self._consume_lock:
             try:
-                for queue, (channel, consume_ok) in self._consumers.items():
-                    if not self._conn.is_closed and not channel.is_closed:
+                for queue, (channel, consume_ok) in self._task_consumers.items():
+                    if not self.__conn.is_closed and not channel.is_closed:
                         logger.debug("%s: stop consuming queue '%s'", self, queue)
                         await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
                         await channel.close()
             finally:
-                self._consumers = {}
+                self._task_consumers = {}
 
     @base.Backend.task
     async def declare_result_queue(self, task_instance: TaskInstance):
@@ -356,8 +407,8 @@ class Backend(base.Backend):
                     if not fut.done():
                         fut.set_exception(e)
 
-            self._conn.on_close[task_id] = on_conn_error
-            self._conn.on_lost[task_id] = on_conn_error
+            self._conn.add_callback("on_close", id(self), task_id, on_conn_error)
+            self._conn.add_callback("on_lost", id(self), task_id, on_conn_error)
             channel = await self._conn.channel()
             consume_ok = await channel.basic_consume(queue, on_result, timeout=self.config.timeout)
             try:
@@ -368,8 +419,8 @@ class Backend(base.Backend):
                     continue
                 return fut.result()
             finally:
-                self._conn.on_close.pop(task_id, None)
-                self._conn.on_lost.pop(task_id, None)
+                await self._conn.remove_callback("on_close", id(self), task_id)
+                await self._conn.remove_callback("on_lost", id(self), task_id)
                 if not self._conn.is_closed and not channel.is_closed:
                     await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
                     # if not self._conn.is_closed and not channel.is_closed:

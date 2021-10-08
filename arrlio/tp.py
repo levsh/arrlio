@@ -46,7 +46,7 @@ class SecretAnyUrl(AnyUrl):
         return self._url
 
 
-class RabbitMQDsn(SecretAnyUrl):
+class RMQDsn(SecretAnyUrl):
     allowed_schemes = {"amqp"}
     user_required = True
 

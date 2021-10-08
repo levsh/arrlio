@@ -143,12 +143,12 @@ class TestArrlio:
         with pytest.raises((arrlio.TaskNoResultError, asyncio.TimeoutError)):
             await asyncio.wait_for(ar.get(), 2)
 
-    # # @pytest.mark.parametrize("backend", ["rabbitmq"], indirect=True)
-    # # async def test_task_ack_late(self, backend, app):
-    # #     await app.run()
-    # #     ar = await app.send_task(tasks.ack_late)
-    # #     await asyncio.sleep(1)
-    # #     await app.stop()
-    # #     await app.run()
-    # #     await asyncio.wait_for(ar.get(), 5)
-    # #     assert tasks.ack_late.func.counter == 2
+    # @pytest.mark.parametrize("backend", ["rabbitmq"], indirect=True)
+    # async def test_task_ack_late(self, backend, app):
+    #     await app.run()
+    #     ar = await app.send_task(tasks.ack_late)
+    #     await asyncio.sleep(1)
+    #     await app.stop()
+    #     await app.run()
+    #     await asyncio.wait_for(ar.get(), 5)
+    #     assert tasks.ack_late.func.counter == 2

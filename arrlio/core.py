@@ -228,7 +228,7 @@ class Executor(Base):
             res, exc, trb = None, None, None
             t0 = time.monotonic()
 
-            logger.info("%s: call task %s(%s)", self, task.name, task_data.task_id)
+            logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
 
             try:
                 try:

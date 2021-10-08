@@ -36,8 +36,8 @@ class Backend(abc.ABC):
 
     def task(method: MethodType):
         async def wrap(self, *args, **kwds):
-            if self._closing:
-                return
+            # if self._closing:
+            #     return
             if self._closed:
                 raise Exception(f"Trying to call {method} but backend {self} has been closed")
             task = asyncio.create_task(method(self, *args, **kwds))
