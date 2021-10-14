@@ -40,17 +40,21 @@ async def test_Backend():
     assert id(backend1._results) != id(backend3._results)
 
     await backend1.close()
-    assert backend1._refs == 1
+    del backend1
+    assert local.Backend._Backend__shared["arrlio"]["refs"] == 1
     assert backend2._refs == 1
+    assert local.Backend._Backend__shared["custom"]["refs"] == 1
     assert backend3._refs == 1
 
     await backend2.close()
-    assert backend1._refs is None
-    assert backend2._refs is None
+    del backend2
+    assert "arrlio" not in local.Backend._Backend__shared
+    assert local.Backend._Backend__shared["custom"]["refs"] == 1
     assert backend3._refs == 1
 
     await backend3.close()
-    assert backend3._refs is None
+    del backend3
+    assert "custom" not in local.Backend._Backend__shared
 
 
 async def test_Backend_send_task():
