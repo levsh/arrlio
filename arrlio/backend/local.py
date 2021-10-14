@@ -30,12 +30,12 @@ class BackendConfig(base.BackendConfig):
 
 
 class Backend(base.Backend):
-    _shared: dict = {}
+    __shared: dict = {}
 
     def __init__(self, config: BackendConfig):
         super().__init__(config)
         name = self.config.name
-        shared = self.__class__._shared
+        shared = self.__class__.__shared
         if name not in shared:
             shared[name] = {
                 "refs": 0,
@@ -48,25 +48,28 @@ class Backend(base.Backend):
         self._task_queues = shared["task_queues"]
         self._message_queues = shared["message_queues"]
         self._results = shared["results"]
-        self._consumers = {}
+        self._task_consumers = {}
+        self._message_consumers = {}
+
+    def __del__(self):
+        self._refs = max(0, self._refs - 1)
+        if self._refs == 0:
+            del self.__shared[self.config.name]
 
     def __str__(self):
         return f"[LocalBackend({self.config.name})]"
 
     @property
+    def _shared(self):
+        return self.__shared[self.config.name]
+
+    @property
     def _refs(self) -> int:
-        return self.__class__._shared.get(self.config.name, {}).get("refs")
+        return self._shared["refs"]
 
     @_refs.setter
     def _refs(self, value: int):
-        if self.config.name in self.__class__._shared:
-            self.__class__._shared[self.config.name]["refs"] = value
-
-    async def close(self):
-        await super().close()
-        self._refs = max(0, self._refs - 1)
-        if self._refs == 0:
-            del self._shared[self.config.name]
+        self._shared["refs"] = value
 
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
@@ -100,12 +103,12 @@ class Backend(base.Backend):
                 logger.exception(e)
 
         for queue in queues:
-            self._consumers[queue] = asyncio.create_task(consume_queue(queue))
+            self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_tasks(self):
-        for _, task in self._consumers.items():
+        for _, task in self._task_consumers.items():
             task.cancel()
-        self._consumers = {}
+        self._task_consumers = {}
 
     @base.Backend.task
     async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult, encrypt: bool = None):
@@ -130,9 +133,11 @@ class Backend(base.Backend):
         except KeyError:
             raise TaskNoResultError()
 
+    @base.Backend.task
     async def send_message(message: dict):
         raise NotImplementedError()
 
+    @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
         raise NotImplementedError()
 

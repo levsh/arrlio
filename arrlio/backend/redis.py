@@ -140,9 +140,11 @@ class Backend(base.Backend):
         raw_data = await self.redis_pool.blpop(result_key, 0)
         return self.serializer.loads_task_result(raw_data[1])
 
+    @base.Backend.task
     async def send_message(message: dict):
         raise NotImplementedError()
 
+    @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
         raise NotImplementedError()
 

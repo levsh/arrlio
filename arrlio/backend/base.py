@@ -23,8 +23,7 @@ class Backend(abc.ABC):
     def __init__(self, config: BackendConfig):
         self.config = config
         self.serializer = config.serializer()
-        self._closing: bool = False
-        self._closed: bool = False
+        self._closed: asyncio.Future = asyncio.Future()
         self._tasks: set = set()
 
     def __repr__(self):
@@ -36,10 +35,8 @@ class Backend(abc.ABC):
 
     def task(method: MethodType):
         async def wrap(self, *args, **kwds):
-            # if self._closing:
-            #     return
-            if self._closed:
-                raise Exception(f"Trying to call {method} but backend {self} has been closed")
+            if self._closed.done():
+                raise Exception(f"Call {method} on closed backend")
             task = asyncio.create_task(method(self, *args, **kwds))
             self._tasks.add(task)
             try:
@@ -49,12 +46,17 @@ class Backend(abc.ABC):
 
         return wrap
 
+    @property
+    def is_closed(self):
+        return self._closed.done()
+
     async def close(self):
-        self._closing = True
+        if self.is_closed:
+            return
+        self._closed.set_result(None)
         self._cancel()
         await self.stop_consume_tasks()
         await self.stop_consume_messages()
-        self._closed = True
 
     @abc.abstractmethod
     async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):

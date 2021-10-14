@@ -237,7 +237,7 @@ class Backend(base.Backend):
         self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_tasks)
 
     def __del__(self):
-        if not self._closed:
+        if not self.is_closed:
             logger.warning("Unclosed %s", self)
 
     def __str__(self):
@@ -245,7 +245,7 @@ class Backend(base.Backend):
 
     @property
     def _conn(self):
-        if self._closed:
+        if self.is_closed:
             raise Exception(f"{self} is closed")
         return self.__conn
 
@@ -423,14 +423,16 @@ class Backend(base.Backend):
                 await self._conn.remove_callback("on_lost", id(self), task_id)
                 if not self._conn.is_closed and not channel.is_closed:
                     await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-                    # if not self._conn.is_closed and not channel.is_closed:
-                    await channel.queue_delete(queue)
-                    # if not self._conn.is_closed and not channel.is_closed:
-                    await channel.close()
+                    if not self._conn.is_closed and not channel.is_closed:
+                        await channel.queue_delete(queue)
+                    if not self._conn.is_closed and not channel.is_closed:
+                        await channel.close()
 
+    @base.Backend.task
     async def send_message(message: dict):
         raise NotImplementedError()
 
+    @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
         raise NotImplementedError()
 
