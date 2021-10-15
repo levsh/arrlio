@@ -14,7 +14,7 @@ from arrlio import core
 from arrlio.utils import AsyncRetry
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
-from arrlio.models import TaskInstance, TaskResult
+from arrlio.models import Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
 
 
@@ -429,7 +429,7 @@ class Backend(base.Backend):
                         await channel.close()
 
     @base.Backend.task
-    async def send_message(message: dict):
+    async def send_message(self, exchange: str, message: Message, encrypt: bool = None, **kwds):
         raise NotImplementedError()
 
     @base.Backend.task

@@ -16,36 +16,33 @@ BACKEND = "arrlio.backend.local"
 
 async def main():
     async def example_1():
-        client = arrlio.Client(arrlio.ClientConfig(backend=BACKEND))
-        executor = arrlio.Executor(arrlio.ExecutorConfig(backend=BACKEND))
+        producer = arrlio.TaskProducer(arrlio.TaskProducerConfig(backend=BACKEND))
+        consumer = arrlio.TaskConsumer(arrlio.TaskConsumerConfig(backend=BACKEND))
 
-        try:
-            await executor.run()
+        async with producer, consumer:
+
+            await consumer.consume()
 
             # call by task
-            ar = await client.call(tasks.hello_world)
+            ar = await producer.send(tasks.hello_world)
             logger.info(await ar.get())
 
             # call by task name
-            ar = await client.call("foo")
+            ar = await producer.send("foo")
             logger.info(await ar.get())
 
             # task bind example
-            ar = await client.call(tasks.bind)
+            ar = await producer.send(tasks.bind)
             logger.info(await ar.get())
 
             # exception
             try:
-                ar = await client.call(tasks.exception)
+                ar = await producer.send(tasks.exception)
                 logger.info(await ar.get())
             except Exception as e:
-                print(f"\nThis is example exception for {client.backend}:\n")
+                print(f"\nThis is example exception for {producer.backend}:\n")
                 logger.exception(e)
                 print()
-
-        finally:
-            await executor.stop()
-            await client.close()
 
     async def example_2():
         pri_key = crypto.generate_private_key()
@@ -58,24 +55,21 @@ async def main():
             )
 
         backend_config_kwds = {"serializer": serializer}
-        executor = arrlio.Executor(
-            arrlio.ExecutorConfig(backend=BACKEND),
+        consumer = arrlio.TaskConsumer(
+            arrlio.TaskConsumerConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
-        client = arrlio.Client(
-            arrlio.ClientConfig(backend=BACKEND),
+        producer = arrlio.TaskProducer(
+            arrlio.TaskProducerConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
 
-        try:
-            await executor.run()
+        async with producer, consumer:
 
-            ar = await client.call(tasks.hello_world, encrypt=True, result_encrypt=True)
+            await consumer.consume()
+
+            ar = await producer.send(tasks.hello_world, encrypt=True, result_encrypt=True)
             logger.info(await ar.get())
-
-        finally:
-            await executor.stop()
-            await client.close()
 
     await example_1()
     await example_2()

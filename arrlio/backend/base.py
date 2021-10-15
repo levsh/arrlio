@@ -6,7 +6,8 @@ from typing import List
 
 from pydantic import BaseSettings
 
-from arrlio.models import TaskInstance, TaskResult
+from arrlio.models import Message, TaskInstance, TaskResult
+from arrlio.serializer.base import Serializer
 from arrlio.tp import AsyncCallableT, SerializerT, TimeoutT
 
 
@@ -21,8 +22,8 @@ class BackendConfig(BaseSettings):
 
 class Backend(abc.ABC):
     def __init__(self, config: BackendConfig):
-        self.config = config
-        self.serializer = config.serializer()
+        self.config: BackendConfig = config
+        self.serializer: Serializer = config.serializer()
         self._closed: asyncio.Future = asyncio.Future()
         self._tasks: set = set()
 
@@ -79,7 +80,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def send_message(self, message: dict, **kwds):
+    async def send_message(self, exchange: str, message: Message, encrypt: bool = None, **kwds):
         pass
 
     @abc.abstractmethod

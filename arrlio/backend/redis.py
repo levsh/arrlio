@@ -9,7 +9,7 @@ from pydantic import Field
 from arrlio import core
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
-from arrlio.models import TaskInstance, TaskResult
+from arrlio.models import Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
 
 
@@ -141,7 +141,7 @@ class Backend(base.Backend):
         return self.serializer.loads_task_result(raw_data[1])
 
     @base.Backend.task
-    async def send_message(message: dict):
+    async def send_message(self, exchange: str, message: Message, encrypt: bool = None, **kwds):
         raise NotImplementedError()
 
     @base.Backend.task
