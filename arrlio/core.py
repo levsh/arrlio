@@ -3,13 +3,13 @@ import logging
 import sys
 import time
 from types import FunctionType, MethodType
-from typing import Callable, Union
+from typing import Any, Callable, Union
 from uuid import UUID
 
 from arrlio import __tasks__, settings
 from arrlio.exc import TaskError, TaskNoResultError, TaskTimeoutError
-from arrlio.models import Task, TaskData, TaskInstance, TaskResult
-from arrlio.settings import ClientConfig, ExecutorConfig
+from arrlio.models import Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.settings import ConsumerConfig, ProducerConfig
 
 
 logger = logging.getLogger("arrlio")
@@ -28,8 +28,8 @@ def task(
     result_ttl: int = None,
     result_return: bool = None,
     result_encrypt: bool = None,
-    loads: Callable = None,
-    dumps: Callable = None,
+    # loads: Callable = None,
+    # dumps: Callable = None,
 ) -> Task:
 
     if bind is None:
@@ -98,10 +98,11 @@ def task(
 
 
 class Base:
-    def __init__(self, config: Union[ClientConfig, ExecutorConfig], backend_config_kwds: dict = None):
+    def __init__(self, config: Union[ProducerConfig, ConsumerConfig], backend_config_kwds: dict = None):
         self.config = config
         backend_config_kwds = backend_config_kwds or {}
         self.backend = self.config.backend.Backend(self.config.backend.BackendConfig(**(backend_config_kwds)))
+        self._closed: asyncio.Future = asyncio.Future()
 
     def __str__(self):
         return f"[{self.__class__.__name__}{self.backend}]"
@@ -109,15 +110,28 @@ class Base:
     def __repr__(self):
         return self.__str__()
 
+    async def __aenter__(self):
+        return self
 
-class Client(Base):
-    def __init__(self, config: ClientConfig, backend_config_kwds: dict = None):
-        super().__init__(config, backend_config_kwds=backend_config_kwds)
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+    @property
+    def is_closed(self):
+        return self._closed.done()
 
     async def close(self):
         await self.backend.close()
+        self._closed.set_result(None)
 
-    async def call(
+
+class Producer(Base):
+    def __init__(self, config: ProducerConfig, backend_config_kwds: dict = None):
+        super().__init__(config, backend_config_kwds=backend_config_kwds)
+
+
+class TaskProducer(Producer):
+    async def send(
         self,
         task_or_name: Union[Task, str],
         args: tuple = None,
@@ -174,24 +188,46 @@ class Client(Base):
         return task_result.res
 
 
-class Executor(Base):
-    def __init__(self, config: ExecutorConfig, backend_config_kwds: dict = None):
+class MessageProducer(Producer):
+    async def send(
+        self,
+        message: Any,
+        exchange: str = None,
+        priority: int = None,
+        ttl: int = None,
+        encrypt: bool = None,
+    ):
+
+        message = Message(exchange=exchange, data=message, priority=priority, ttl=ttl)
+
+        logger.info("%s: send %s", self, message)
+
+        await self.backend.send_message(message, encrypt=encrypt)
+
+
+class Consumer(Base):
+    def __init__(self, config: ConsumerConfig, backend_config_kwds: dict = None):
         super().__init__(config, backend_config_kwds=backend_config_kwds)
         self._running_tasks: dict = {}
         self._lock: asyncio.Lock = asyncio.Lock()
-        self._stopped: bool = False
 
-    async def run(self):
-        logger.info("%s: consuming task queues %s", self, self.config.task_queues)
-        self._stopped = False
-        await self.backend.consume_tasks(self.config.task_queues, self._on_task)
+    async def close(self):
+        await self.stop_consume()
+        await super().close()
 
-    async def stop(self):
-        self._stopped = True
-        await self.backend.close()
-        for task_id, aio_task in self._running_tasks.items():
-            logger.debug("Canceling task '%s'", task_id)
-            aio_task.cancel()
+
+class TaskConsumer(Consumer):
+    async def consume(self):
+        if self.config.queues:
+            logger.info("%s: consuming task queues %s", self, self.config.queues)
+            await self.backend.consume_tasks(self.config.queues, self._on_task)
+
+    async def stop_consume(self):
+        async with self._lock:
+            for task_id, aio_task in self._running_tasks.items():
+                logger.debug("Cancel processing task '%s'", task_id)
+                aio_task.cancel()
+            self._running_tasks = {}
 
     async def _on_task(self, task_instance: TaskInstance):
         try:
@@ -206,8 +242,8 @@ class Executor(Base):
                         self._running_tasks[task_id] = aio_task
                         await aio_task
                     finally:
-                        if not self._stopped:
-                            await self.backend.consume_tasks(self.config.task_queues, self._on_task)
+                        if not self.is_closed:
+                            await self.backend.consume_tasks(self.config.queues, self._on_task)
                     return
 
             aio_task = asyncio.create_task(self._execute_task(task_instance))
@@ -219,7 +255,7 @@ class Executor(Base):
 
     async def _execute_task(self, task_instance: TaskInstance):
         try:
-            if self._stopped:
+            if self.is_closed:
                 return
 
             task_data = task_instance.data
@@ -266,9 +302,55 @@ class Executor(Base):
             pass
 
 
+class MessageConsumer(Consumer):
+    def __init__(self, *args, on_message=None, **kwds):
+        super().__init__(*args, **kwds)
+        if on_message:
+            self.on_message = on_message
+
+    async def consume(self):
+        if self.config.queues:
+            logger.info("%s: consuming message queues %s", self, self.config.queues)
+            await self.backend.consume_messages(self.config.queues, self._on_message)
+
+    async def stop_consume(self):
+        async with self._lock:
+            for message_id, aio_task in self._running_tasks.items():
+                logger.debug("Cancel processing message '%s'", message_id)
+                aio_task.cancel()
+            self._running_tasks = {}
+
+    async def on_message(self, message: Any):
+        pass
+
+    async def _on_message(self, message: Message):
+        try:
+            message_id: UUID = message.message_id
+
+            async with self._lock:
+                if len(self._running_tasks) + 1 >= self.config.pool_size:
+                    await self.backend.stop_consume_messages()
+                    try:
+                        aio_task = asyncio.create_task(self.on_message(message.data))
+                        aio_task.add_done_callback(lambda *args: self._running_tasks.pop(message_id, None))
+                        self._running_tasks[message_id] = aio_task
+                        await aio_task
+                    finally:
+                        if not self.is_closed:
+                            await self.backend.consume_messages(self.config.queues, self._on_message)
+                    return
+
+            aio_task = asyncio.create_task(self.on_message(message.data))
+            aio_task.add_done_callback(lambda *args: self._running_tasks.pop(message_id, None))
+            self._running_tasks[message_id] = aio_task
+
+        except Exception as e:
+            logger.exception(e)
+
+
 class AsyncResult:
-    def __init__(self, client: Client, task_instance: TaskInstance):
-        self._client = client
+    def __init__(self, producer: Producer, task_instance: TaskInstance):
+        self._producer = producer
         self._task_instance = task_instance
         self._result = None
         self._exception: Exception = None
@@ -295,7 +377,7 @@ class AsyncResult:
             raise TaskNoResultError(self._task_instance.data.task_id)
         if not self._ready:
             try:
-                self._result = await self._client.pop_result(self._task_instance)
+                self._result = await self._producer.pop_result(self._task_instance)
                 self._ready = True
             except TaskError as e:
                 self._exception = e

@@ -1,3 +1,5 @@
+from typing import Any
+
 from arrlio.models import TaskInstance, TaskResult
 from arrlio.serializer import base
 
@@ -13,4 +15,10 @@ class Nop(base.Serializer):
         return result
 
     def loads_task_result(self, data: TaskResult) -> TaskResult:
+        return data
+
+    def dumps(self, data: Any, **kwds) -> Any:
+        return data
+
+    def loads(self, data: Any) -> Any:
         return data

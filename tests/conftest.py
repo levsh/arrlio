@@ -3,7 +3,16 @@ import logging
 
 import pytest
 
-from arrlio import Client, ClientConfig, Executor, ExecutorConfig
+from arrlio import (
+    MessageConsumer,
+    MessageConsumerConfig,
+    MessageProducer,
+    MessageProducerConfig,
+    TaskConsumer,
+    TaskConsumerConfig,
+    TaskProducer,
+    TaskProducerConfig,
+)
 
 from tests import utils
 
@@ -13,11 +22,11 @@ logger = logging.getLogger("arrlio")
 
 @pytest.fixture(scope="function")
 def container_executor():
-    container_executor = utils.ContainerExecutor()
+    _container_executor = utils.ContainerExecutor()
     try:
-        yield container_executor
+        yield _container_executor
     finally:
-        for container in container_executor.containers:
+        for container in _container_executor.containers:
             container.stop()
             container.remove(v=True)
 
@@ -54,20 +63,42 @@ def backend(request, container_executor):
 
 
 @pytest.fixture(scope="function")
-async def client(backend):
-    config = ClientConfig(backend=backend.module)
-    client = Client(config, backend_config_kwds=backend.config_kwds)
+async def task_producer(backend):
+    config = TaskProducerConfig(backend=backend.module)
+    producer = TaskProducer(config, backend_config_kwds=backend.config_kwds)
     try:
-        yield client
+        yield producer
     finally:
-        await client.close()
+        await producer.close()
 
 
 @pytest.fixture(scope="function")
-async def executor(backend):
-    config = ExecutorConfig(backend=backend.module)
-    executor = Executor(config, backend_config_kwds=backend.config_kwds)
+async def task_consumer(backend):
+    config = TaskConsumerConfig(backend=backend.module)
+    consumer = TaskConsumer(config, backend_config_kwds=backend.config_kwds)
     try:
-        yield executor
+        yield consumer
     finally:
-        await executor.stop()
+        await consumer.stop_consume()
+        await consumer.close()
+
+
+@pytest.fixture(scope="function")
+async def message_producer(backend):
+    config = MessageProducerConfig(backend=backend.module)
+    producer = MessageProducer(config, backend_config_kwds=backend.config_kwds)
+    try:
+        yield producer
+    finally:
+        await producer.close()
+
+
+@pytest.fixture(scope="function")
+async def message_consumer(backend):
+    config = MessageConsumerConfig(backend=backend.module)
+    consumer = MessageConsumer(config, backend_config_kwds=backend.config_kwds)
+    try:
+        yield consumer
+    finally:
+        await consumer.stop_consume()
+        await consumer.close()

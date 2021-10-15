@@ -1,5 +1,6 @@
 import asyncio
 import collections
+import dataclasses
 import logging
 import time
 from typing import List
@@ -9,7 +10,7 @@ from pydantic import Field
 
 from arrlio.backend import base
 from arrlio.core import TaskNoResultError
-from arrlio.models import TaskInstance, TaskResult
+from arrlio.models import Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
 
 
@@ -34,8 +35,8 @@ class Backend(base.Backend):
 
     def __init__(self, config: BackendConfig):
         super().__init__(config)
-        name = self.config.name
-        shared = self.__class__.__shared
+        name: str = self.config.name
+        shared: dict = self.__class__.__shared
         if name not in shared:
             shared[name] = {
                 "refs": 0,
@@ -60,7 +61,7 @@ class Backend(base.Backend):
         return f"[LocalBackend({self.config.name})]"
 
     @property
-    def _shared(self):
+    def _shared(self) -> dict:
         return self.__shared[self.config.name]
 
     @property
@@ -79,10 +80,9 @@ class Backend(base.Backend):
         await self._task_queues[task_data.queue].put(
             (
                 (PriorityT.le - task_data.priority) if task_data.priority else PriorityT.ge,
-                (
-                    time.monotonic(),
-                    self.serializer.dumps_task_instance(task_instance, encrypt=encrypt),
-                ),
+                time.monotonic(),
+                task_instance.data.ttl,
+                self.serializer.dumps_task_instance(task_instance, encrypt=encrypt),
             )
         )
 
@@ -90,15 +90,16 @@ class Backend(base.Backend):
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         async def consume_queue(queue: str):
             try:
-                logger.info("%s: consuming queue '%s'", self, queue)
+                logger.info("%s: consuming tasks queue '%s'", self, queue)
                 while True:
-                    _, (ts, data) = await self._task_queues[queue].get()
-                    task_instance = self.serializer.loads_task_instance(data)
-                    if task_instance.data.ttl is not None and time.monotonic() >= ts + task_instance.data.ttl:
+                    _, ts, ttl, data = await self._task_queues[queue].get()
+                    if ttl is not None and time.monotonic() >= ts + ttl:
                         continue
+                    task_instance = self.serializer.loads_task_instance(data)
+                    logger.debug("%s: got %s", self, task_instance)
                     await asyncio.shield(on_task(task_instance))
             except asyncio.CancelledError:
-                logger.info("%s: stop consume queue '%s'", self, queue)
+                logger.info("%s: stop consume tasks queue '%s'", self, queue)
             except Exception as e:
                 logger.exception(e)
 
@@ -134,12 +135,40 @@ class Backend(base.Backend):
             raise TaskNoResultError()
 
     @base.Backend.task
-    async def send_message(message: dict):
-        raise NotImplementedError()
+    async def send_message(self, message: Message, encrypt: bool = None, **kwds):
+        data = dataclasses.asdict(message)
+        data["data"] = self.serializer.dumps(message.data, encrypt=encrypt)
+        await self._message_queues[message.exchange].put(
+            (
+                (PriorityT.le - message.priority) if message.priority else PriorityT.ge,
+                time.monotonic(),
+                message.ttl,
+                data,
+            )
+        )
 
     @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        raise NotImplementedError()
+        async def consume_queue(queue: str):
+            try:
+                logger.info("%s: consuming messages queue '%s'", self, queue)
+                while True:
+                    _, ts, ttl, data = await self._message_queues[queue].get()
+                    if ttl is not None and time.monotonic() >= ts + ttl:
+                        continue
+                    data["data"] = self.serializer.loads(data["data"])
+                    message = Message(**data)
+                    logger.debug("%s: got %s", self, message)
+                    await asyncio.shield(on_message(message))
+            except asyncio.CancelledError:
+                logger.info("%s: stop consume messages queue '%s'", self, queue)
+            except Exception as e:
+                logger.exception(e)
+
+        for queue in queues:
+            self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_messages(self):
-        return
+        for _, task in self._message_consumers.items():
+            task.cancel()
+        self._message_consumers = {}

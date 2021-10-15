@@ -1,21 +1,30 @@
 import abc
+from typing import Any, Union
 
 from arrlio.models import TaskInstance, TaskResult
 
 
 class Serializer(abc.ABC):
     @abc.abstractmethod
-    def dumps_task_instance(self, task_instance: TaskInstance, **kwds):
+    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> Union[bytes, TaskInstance]:
         pass
 
     @abc.abstractmethod
-    def loads_task_instance(self, data) -> TaskInstance:
+    def loads_task_instance(self, data: Union[bytes, TaskInstance]) -> TaskInstance:
         pass
 
     @abc.abstractmethod
-    def dumps_task_result(self, result: TaskResult, **kwds):
+    def dumps_task_result(self, result: TaskResult, **kwds) -> Union[bytes, TaskResult]:
         pass
 
     @abc.abstractmethod
-    def loads_task_result(self, data) -> TaskResult:
+    def loads_task_result(self, data: Union[bytes, TaskResult]) -> TaskResult:
+        pass
+
+    @abc.abstractmethod
+    def dumps(self, data: Any, **kwds) -> Union[bytes, Any]:
+        pass
+
+    @abc.abstractmethod
+    def loads(self, data: Union[bytes, Any]) -> Any:
         pass

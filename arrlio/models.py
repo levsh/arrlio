@@ -5,6 +5,10 @@ from typing import Any, Callable, Tuple, Union
 from uuid import UUID, uuid4
 
 from arrlio.settings import (
+    MESSAGE_ACK_LATE,
+    MESSAGE_EXCHANGE,
+    MESSAGE_PRIORITY,
+    MESSAGE_TTL,
     RESULT_ENCRYPT,
     RESULT_RETURN,
     RESULT_TTL,
@@ -117,3 +121,23 @@ class TaskResult:
     res: Any = None
     exc: Union[Exception, Tuple[str, str, str]] = None
     trb: Union[TracebackType, str] = None
+
+
+@dataclass(frozen=True)
+class Message:
+    data: Any
+    message_id: UUID = field(default_factory=uuid4)
+    exchange: str = None
+    priority: int = None
+    ttl: int = None
+    ack_late: bool = None
+
+    def __post_init__(self):
+        if self.exchange is None:
+            object.__setattr__(self, "exchange", MESSAGE_EXCHANGE)
+        if self.priority is None:
+            object.__setattr__(self, "priority", MESSAGE_PRIORITY)
+        if self.ttl is None:
+            object.__setattr__(self, "ttl", MESSAGE_TTL)
+        if self.ack_late is None:
+            object.__setattr__(self, "ack_late", MESSAGE_ACK_LATE)

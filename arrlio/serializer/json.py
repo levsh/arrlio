@@ -2,7 +2,7 @@ import dataclasses
 import json
 import logging
 import traceback
-from typing import Callable
+from typing import Any, Callable
 
 from arrlio import __tasks__
 from arrlio.utils import ExtendedJSONEncoder
@@ -15,7 +15,7 @@ logger = logging.getLogger("arrlio")
 
 class Json(base.Serializer):
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
-        data = {k: v for k, v in dataclasses.asdict(task_instance.data).items() if k not in {"loads", "dumps"}}
+        data = dataclasses.asdict(task_instance.data)
         data["name"] = task_instance.task.name
         return json.dumps(data, cls=ExtendedJSONEncoder).encode()
 
@@ -41,6 +41,12 @@ class Json(base.Serializer):
 
     def loads_task_result(self, data: bytes) -> TaskResult:
         return TaskResult(*json.loads(data))
+
+    def dumps(self, data: Any, **kwds) -> bytes:
+        return json.dumps(data, cls=ExtendedJSONEncoder).encode()
+
+    def loads(self, data: bytes) -> Any:
+        return json.loads(data)
 
 
 class CryptoJson(Json):
@@ -75,3 +81,17 @@ class CryptoJson(Json):
         if header == b"1":
             data: bytes = self.decryptor(data)
         return super().loads_task_result(data)
+
+    def dumps(self, data: Any, encrypt: bool = None, **kwds) -> bytes:
+        data: bytes = super().dumps(data, **kwds)
+        if encrypt:
+            data: bytes = b"1" + self.encryptor(data)
+        else:
+            data: bytes = b"0" + data
+        return data
+
+    def loads(self, data: bytes) -> Any:
+        header, data = data[0:1], data[1:]
+        if header == b"1":
+            data: bytes = self.decryptor(data)
+        return super().loads(data)
