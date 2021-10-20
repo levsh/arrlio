@@ -77,6 +77,7 @@ class Backend(base.Backend):
         task_data = task_instance.data
         if task_instance.task.result_return:
             self._results[task_data.task_id] = [asyncio.Event(), None]
+        logger.debug("%s: put %s", self, task_instance)
         await self._task_queues[task_data.queue].put(
             (
                 (PriorityT.le - task_data.priority) if task_data.priority else PriorityT.ge,
@@ -89,19 +90,20 @@ class Backend(base.Backend):
     @base.Backend.task
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         async def consume_queue(queue: str):
-            try:
-                logger.info("%s: consuming tasks queue '%s'", self, queue)
-                while True:
+            while True:
+                try:
+                    logger.info("%s: consuming tasks queue '%s'", self, queue)
                     _, ts, ttl, data = await self._task_queues[queue].get()
                     if ttl is not None and time.monotonic() >= ts + ttl:
                         continue
                     task_instance = self.serializer.loads_task_instance(data)
                     logger.debug("%s: got %s", self, task_instance)
                     await asyncio.shield(on_task(task_instance))
-            except asyncio.CancelledError:
-                logger.info("%s: stop consume tasks queue '%s'", self, queue)
-            except Exception as e:
-                logger.exception(e)
+                except asyncio.CancelledError:
+                    logger.info("%s: stop consume tasks queue '%s'", self, queue)
+                    break
+                except Exception as e:
+                    logger.exception(e)
 
         for queue in queues:
             self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
@@ -132,12 +134,13 @@ class Backend(base.Backend):
             finally:
                 del self._results[task_id]
         except KeyError:
-            raise TaskNoResultError()
+            raise TaskNoResultError(str(task_id))
 
     @base.Backend.task
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):
         data = dataclasses.asdict(message)
         data["data"] = self.serializer.dumps(message.data, encrypt=encrypt)
+        logger.debug("%s: put %s", self, message)
         await self._message_queues[message.exchange].put(
             (
                 (PriorityT.le - message.priority) if message.priority else PriorityT.ge,
@@ -150,9 +153,9 @@ class Backend(base.Backend):
     @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
         async def consume_queue(queue: str):
-            try:
-                logger.info("%s: consuming messages queue '%s'", self, queue)
-                while True:
+            while True:
+                try:
+                    logger.info("%s: consuming messages queue '%s'", self, queue)
                     _, ts, ttl, data = await self._message_queues[queue].get()
                     if ttl is not None and time.monotonic() >= ts + ttl:
                         continue
@@ -160,10 +163,11 @@ class Backend(base.Backend):
                     message = Message(**data)
                     logger.debug("%s: got %s", self, message)
                     await asyncio.shield(on_message(message))
-            except asyncio.CancelledError:
-                logger.info("%s: stop consume messages queue '%s'", self, queue)
-            except Exception as e:
-                logger.exception(e)
+                except asyncio.CancelledError:
+                    logger.info("%s: stop consume messages queue '%s'", self, queue)
+                    break
+                except Exception as e:
+                    logger.exception(e)
 
         for queue in queues:
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))

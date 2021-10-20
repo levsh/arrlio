@@ -157,12 +157,29 @@ class TestArrlio:
         "backend",
         [
             "arrlio.backend.local",
-            # "arrlio.backend.rabbitmq",
+            "arrlio.backend.rabbitmq",
             # "arrlio.backend.redis",
         ],
         indirect=True,
     )
     async def test_message(self, backend, message_producer, message_consumer):
+        if backend.module == "arrlio.backend.rabbitmq":
+            async with message_consumer.backend.channel_ctx() as channel:
+                exchange = arrlio.settings.MESSAGE_EXCHANGE
+                await channel.exchange_declare(
+                    exchange,
+                    exchange_type="direct",
+                    durable=False,
+                    auto_delete=True,
+                )
+                for queue in message_consumer.config.queues:
+                    await channel.queue_declare(
+                        queue,
+                        durable=False,
+                        auto_delete=True,
+                    )
+                    await channel.queue_bind(queue, exchange, routing_key=queue)
+
         flag = asyncio.Future()
 
         async def on_message(message):
@@ -172,6 +189,6 @@ class TestArrlio:
         message_consumer.on_message = on_message
 
         await message_consumer.consume()
-        await message_producer.send("Hello!")
+        await message_producer.send("Hello!", routing_key="arrlio.messages")
 
         assert (await asyncio.wait_for(flag, 1))

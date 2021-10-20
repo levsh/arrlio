@@ -5,6 +5,7 @@ import functools
 import inspect
 import logging
 from typing import Dict, Iterable, List, Tuple
+from uuid import UUID
 
 import aiormq
 import yarl
@@ -24,12 +25,14 @@ logger = logging.getLogger("arrlio")
 BACKEND_NAME: str = "arrlio"
 SERIALIZER: str = "arrlio.serializer.json.Json"
 URL: str = "amqp://guest:guest@localhost"
-TIMEOUT: int = 60
+TIMEOUT: int = 10
 RETRY_TIMEOUTS: Iterable[int] = None
 VERIFY_SSL: bool = True
-EXCHANGE: str = "arrlio"
-QUEUE_TTL: int = None
-PREFETCH_COUNT: int = 1
+TASK_EXCHANGE: str = "arrlio"
+TASK_QUEUE_DURABLE: bool = False
+TASK_QUEUE_TTL: int = None
+TASK_PREFETCH_COUNT: int = 1
+MESSAGE_PREFETCH_COUNT: int = 1
 
 
 class BackendConfig(base.BackendConfig):
@@ -39,9 +42,11 @@ class BackendConfig(base.BackendConfig):
     timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)
     retry_timeouts: List = Field(default_factory=lambda: RETRY_TIMEOUTS)
     verify_ssl: bool = Field(default_factory=lambda: True)
-    exchange: str = Field(default_factory=lambda: EXCHANGE)
-    queue_ttl: PositiveIntT = Field(default_factory=lambda: QUEUE_TTL)
-    prefetch_count: PositiveIntT = Field(default_factory=lambda: PREFETCH_COUNT)
+    task_exchange: str = Field(default_factory=lambda: TASK_EXCHANGE)
+    task_queue_durable: bool = Field(default_factory=lambda: TASK_QUEUE_DURABLE)
+    task_queue_ttl: PositiveIntT = Field(default_factory=lambda: TASK_QUEUE_TTL)
+    task_prefetch_count: PositiveIntT = Field(default_factory=lambda: TASK_PREFETCH_COUNT)
+    message_prefetch_count: PositiveIntT = Field(default_factory=lambda: MESSAGE_PREFETCH_COUNT)
 
     class Config:
         validate_assignment = True
@@ -228,7 +233,7 @@ class Backend(base.Backend):
         self._message_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
         self._consume_lock: asyncio.Lock = asyncio.Lock()
 
-        self.__conn: RMQConnection = RMQConnection(config.url)
+        self.__conn: RMQConnection = RMQConnection(config.url, retry_timeouts=config.retry_timeouts)
 
         self.__conn.add_callback("on_open", id(self), "declare", self.declare)
         self.__conn.add_callback("on_lost", id(self), "cleanup", self._task_consumers.clear)
@@ -249,6 +254,14 @@ class Backend(base.Backend):
             raise Exception(f"{self} is closed")
         return self.__conn
 
+    async def channel(self):
+        return await self._conn.channel()
+
+    @contextlib.asynccontextmanager
+    async def channel_ctx(self):
+        async with self._conn.channel_ctx() as channel:
+            yield channel
+
     async def close(self):
         await super().close()
         await self.__conn.remove_callback_group(id(self))
@@ -258,7 +271,7 @@ class Backend(base.Backend):
     async def declare(self):
         async with self._conn.channel_ctx() as channel:
             await channel.exchange_declare(
-                self.config.exchange,
+                self.config.task_exchange,
                 exchange_type="direct",
                 durable=False,
                 auto_delete=False,
@@ -270,26 +283,34 @@ class Backend(base.Backend):
         async with self._conn.channel_ctx() as channel:
             arguments = {}
             arguments["x-max-priority"] = PriorityT.le
-            if self.config.queue_ttl is not None:
-                arguments["x-message-ttl"] = self.config.queue_ttl * 1000
+            if self.config.task_queue_ttl is not None:
+                arguments["x-message-ttl"] = self.config.task_queue_ttl * 1000
+            durable = self.config.task_queue_durable
             await channel.queue_declare(
                 queue,
-                durable=False,
-                auto_delete=True,
+                durable=durable,
+                auto_delete=not durable,
                 arguments=arguments,
                 timeout=self.config.timeout,
             )
-            await channel.queue_bind(queue, self.config.exchange, routing_key=queue, timeout=self.config.timeout)
+            await channel.queue_bind(queue, self.config.task_exchange, routing_key=queue, timeout=self.config.timeout)
 
     @base.Backend.task
-    async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
+    async def send_task(
+        self,
+        task_instance: TaskInstance,
+        encrypt: bool = None,
+        result_queue_durable: bool = False,
+        **kwds,
+    ):
         task_data = task_instance.data
+        task_data.extra["result_queue_durable"] = result_queue_durable
         await self.declare_task_queue(task_data.queue)
         logger.debug("%s: put %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
                 self.serializer.dumps_task_instance(task_instance),
-                exchange=self.config.exchange,
+                exchange=self.config.task_exchange,
                 routing_key=task_data.queue,
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
@@ -316,7 +337,7 @@ class Backend(base.Backend):
                     await channel.basic_ack(msg.delivery.delivery_tag)
 
             async with self._conn.channel_ctx() as channel:
-                await channel.basic_qos(prefetch_count=self.config.prefetch_count, timeout=timeout)
+                await channel.basic_qos(prefetch_count=self.config.task_prefetch_count, timeout=timeout)
 
             for queue in queues:
                 if queue in self._task_consumers and not self._task_consumers[queue][0].is_closed:
@@ -351,17 +372,18 @@ class Backend(base.Backend):
         task_id = task_instance.data.task_id
         result_ttl = task_instance.data.result_ttl
         queue = routing_key = f"result.{task_id}"
+        durable = task_instance.data.extra.get("result_queue_durable")
         async with self._conn.channel_ctx() as channel:
             await channel.queue_declare(
                 queue,
-                durable=False,
-                auto_delete=True,
+                durable=durable,
+                auto_delete=not durable,
                 arguments={"x-expires": result_ttl * 1000} if result_ttl is not None else None,
                 timeout=self.config.timeout,
             )
             await channel.queue_bind(
                 queue,
-                self.config.exchange,
+                self.config.task_exchange,
                 routing_key=routing_key,
                 timeout=self.config.timeout,
             )
@@ -376,10 +398,10 @@ class Backend(base.Backend):
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
                 self.serializer.dumps_task_result(task_result),
-                exchange=self.config.exchange,
+                exchange=self.config.task_exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(
-                    delivery_mode=1,
+                    delivery_mode=2,
                     timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
                 ),
                 timeout=self.config.timeout,
@@ -429,12 +451,80 @@ class Backend(base.Backend):
                         await channel.close()
 
     @base.Backend.task
-    async def send_message(self, exchange: str, message: Message, encrypt: bool = None, **kwds):
-        raise NotImplementedError()
+    async def send_message(
+        self,
+        message: Message,
+        routing_key: str = None,
+        delivery_mode: int = None,
+        encrypt: bool = None,
+        **kwds,
+    ):
+        if not routing_key:
+            raise ValueError("Invalid routing key")
+        logger.debug("%s: put %s", self, message)
+        async with self._conn.channel_ctx() as channel:
+            await channel.basic_publish(
+                self.serializer.dumps(message.data, encrypt=encrypt),
+                exchange=message.exchange,
+                routing_key=routing_key,
+                properties=aiormq.spec.Basic.Properties(
+                    message_id=str(message.message_id.hex),
+                    delivery_mode=delivery_mode or 2,
+                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                    expiration=str(int(message.ttl * 1000)) if message.ttl is not None else None,
+                    priority=message.priority,
+                ),
+                timeout=self.config.timeout,
+            )
 
     @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        raise NotImplementedError()
+        async with self._consume_lock:
+            timeout = self.config.timeout
+
+            async def on_msg(channel: aiormq.Channel, msg):
+                data = {
+                    "data": self.serializer.loads(msg.body),
+                    "message_id": UUID(msg.header.properties.message_id),
+                    "exchange": msg.delivery.exchange,
+                    "priority": msg.delivery.routing_key,
+                    "ttl": int(msg.header.properties.expiration) // 1000 if msg.header.properties.expiration else None,
+                }
+                message = Message(**data)
+                logger.debug("%s: got %s", self, message)
+                ack_late = message.ack_late
+                if not ack_late:
+                    await channel.basic_ack(msg.delivery.delivery_tag)
+                await asyncio.shield(on_message(message))
+                if ack_late:
+                    await channel.basic_ack(msg.delivery.delivery_tag)
+
+            async with self._conn.channel_ctx() as channel:
+                await channel.basic_qos(prefetch_count=self.config.message_prefetch_count, timeout=timeout)
+
+            for queue in queues:
+                if queue in self._message_consumers and not self._message_consumers[queue][0].is_closed:
+                    continue
+                channel = await self._conn.channel()
+                self._message_consumers[queue] = [
+                    channel,
+                    await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),
+                ]
+                logger.debug("%s: consuming messages queue '%s'", self, queue)
+
+            async def _consume_messages():
+                await self.consume_messages(list(self._message_consumers.keys()), on_message)
+
+            self._conn.add_callback("on_lost", id(self), "consume_messages", _consume_messages)
 
     async def stop_consume_messages(self):
-        return
+        await self.__conn.remove_callback("on_lost", id(self), "consume_messages")
+        async with self._consume_lock:
+            try:
+                for queue, (channel, consume_ok) in self._message_consumers.items():
+                    if not self.__conn.is_closed and not channel.is_closed:
+                        logger.debug("%s: stop consuming messages queue '%s'", self, queue)
+                        await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                        await channel.close()
+            finally:
+                self._message_consumers = {}

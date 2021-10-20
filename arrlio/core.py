@@ -144,6 +144,8 @@ class TaskProducer(Producer):
         result_ttl: int = None,
         result_return: bool = None,
         result_encrypt: bool = None,
+        extra: dict = None,
+        **kwargs,
     ) -> "AsyncResult":
 
         name = task_or_name
@@ -154,6 +156,8 @@ class TaskProducer(Producer):
             args = ()
         if kwds is None:
             kwds = {}
+        if extra is None:
+            extra = {}
 
         task_data = TaskData(
             args=args,
@@ -165,6 +169,7 @@ class TaskProducer(Producer):
             result_ttl=result_ttl,
             result_return=result_return,
             result_encrypt=result_encrypt,
+            extra=extra,
         )
 
         if name in __tasks__:
@@ -174,7 +179,7 @@ class TaskProducer(Producer):
 
         logger.info("%s: send %s", self, task_instance)
 
-        await self.backend.send_task(task_instance, encrypt=encrypt)
+        await self.backend.send_task(task_instance, encrypt=encrypt, **kwargs)
 
         return AsyncResult(self, task_instance)
 
@@ -193,6 +198,7 @@ class MessageProducer(Producer):
         self,
         message: Any,
         exchange: str = None,
+        routing_key: str = None,
         priority: int = None,
         ttl: int = None,
         encrypt: bool = None,
@@ -202,7 +208,7 @@ class MessageProducer(Producer):
 
         logger.info("%s: send %s", self, message)
 
-        await self.backend.send_message(message, encrypt=encrypt)
+        await self.backend.send_message(message, routing_key=routing_key, encrypt=encrypt)
 
 
 class Consumer(Base):

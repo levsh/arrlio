@@ -30,14 +30,14 @@ class Backend(abc.ABC):
     def __repr__(self):
         return self.__str__()
 
-    def _cancel(self):
+    def _cancel_tasks(self):
         for task in self._tasks:
             task.cancel()
 
     def task(method: MethodType):
         async def wrap(self, *args, **kwds):
             if self._closed.done():
-                raise Exception(f"Call {method} on closed backend")
+                raise Exception(f"Call {method} on closed {self}")
             task = asyncio.create_task(method(self, *args, **kwds))
             self._tasks.add(task)
             try:
@@ -55,7 +55,7 @@ class Backend(abc.ABC):
         if self.is_closed:
             return
         self._closed.set_result(None)
-        self._cancel()
+        self._cancel_tasks()
         await self.stop_consume_tasks()
         await self.stop_consume_messages()
 
@@ -80,7 +80,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def send_message(self, exchange: str, message: Message, encrypt: bool = None, **kwds):
+    async def send_message(self, message: Message, encrypt: bool = None, **kwds):
         pass
 
     @abc.abstractmethod

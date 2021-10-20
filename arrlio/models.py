@@ -34,6 +34,7 @@ class TaskData:
     result_ttl: int = None
     result_return: bool = None
     result_encrypt: bool = None
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -49,8 +50,8 @@ class Task:
     result_ttl: int = None
     result_return: bool = None
     result_encrypt: bool = None
-    loads: Callable = None
-    dumps: Callable = None
+    # loads: Callable = None
+    # dumps: Callable = None
 
     def __post_init__(self):
         if self.bind is None:
