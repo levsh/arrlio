@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import itertools
 import logging
 from typing import Iterable, List
@@ -50,7 +51,8 @@ class Backend(base.Backend):
             timeout=config.timeout,
             size=config.pool_size,
         )
-        self._consumers = {}
+        self._task_consumers = {}
+        self._message_consumers = {}
 
     def __str__(self):
         return f"[RedisBackend[{self.redis_pool}]]"
@@ -59,16 +61,19 @@ class Backend(base.Backend):
         await super().close()
         await self.redis_pool.close()
 
-    def _make_queue_key(self, queue: str) -> str:
-        return f"q.{queue}"
+    def _make_task_queue_key(self, queue: str) -> str:
+        return f"q.t.{queue}"
 
     def _make_result_key(self, task_id: str) -> str:
-        return f"r.{task_id}"
+        return f"r.t.{task_id}"
+
+    def _make_message_queue_key(self, queue: str) -> str:
+        return f"q.m.{queue}"
 
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
         queue = task_instance.data.queue
-        queue_key = self._make_queue_key(queue)
+        queue_key = self._make_task_queue_key(queue)
         data = self.serializer.dumps_task_instance(task_instance)
 
         async with self.redis_pool.get_redis() as redis:
@@ -84,19 +89,19 @@ class Backend(base.Backend):
     @base.Backend.task
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         async def consume_queue(queue):
-            logger.debug("%s: consuming queue '%s'", self, queue)
-            queue_key = self._make_queue_key(queue)
+            queue_key = self._make_task_queue_key(queue)
             while True:
                 try:
+                    logger.debug("%s: consuming task queue '%s'", self, queue)
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
                     priority, task_id = queue_value.decode().split("|")
                     serialized_data = await self.redis_pool.get(task_id)
                     if serialized_data is None:
-                        logger.warning("Task %s expired", task_id)
                         continue
                     task_instance = self.serializer.loads_task_instance(serialized_data)
                     await asyncio.shield(on_task(task_instance))
                 except asyncio.CancelledError:
+                    logger.info("%s: stop consume tasks queue '%s'", self, queue)
                     break
                 except (ConnectionError, TimeoutError) as e:
                     logger.error("%s: %s %s", self, e.__class__, e)
@@ -109,16 +114,14 @@ class Backend(base.Backend):
                     await asyncio.sleep(seconds)
                 except Exception:
                     logger.exception("Internal error")
-                    await asyncio.sleep(5)
 
         for queue in queues:
-            self._consumers[queue] = asyncio.create_task(consume_queue(queue))
+            self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_tasks(self):
-        for queue, task in self._consumers.items():
-            logger.debug("%s: stop consuming queue '%s'", self, queue)
+        for queue, task in self._task_consumers.items():
             task.cancel()
-        self._consumers = {}
+        self._task_consumers = {}
 
     @base.Backend.task
     async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult, encrypt: bool = None):
@@ -141,12 +144,56 @@ class Backend(base.Backend):
         return self.serializer.loads_task_result(raw_data[1])
 
     @base.Backend.task
-    async def send_message(self, exchange: str, message: Message, encrypt: bool = None, **kwds):
-        raise NotImplementedError()
+    async def send_message(self, message: Message, encrypt: bool = None, **kwds):
+        queue = message.exchange
+        queue_key = self._make_message_queue_key(queue)
+        data = self.serializer.dumps(dataclasses.asdict(message))
+
+        async with self.redis_pool.get_redis() as redis:
+            with redis.pipeline():
+                await redis.multi()
+                await redis.setex(f"{message.message_id}", message.ttl, data)
+                await redis.rpush(queue_key, f"{message.priority}|{message.message_id}")
+                if message.priority:
+                    await redis.sort(queue, "BY", "*", "ASC", "STORE", queue)
+                await redis.execute()
+                await redis.pipeline_execute()
 
     @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        raise NotImplementedError()
+        async def consume_queue(queue):
+            queue_key = self._make_message_queue_key(queue)
+            while True:
+                try:
+                    logger.debug("%s: consuming message queue '%s'", self, queue)
+                    _, queue_value = await self.redis_pool.blpop(queue_key, 0)
+                    priority, message_id = queue_value.decode().split("|")
+                    serialized_data = await self.redis_pool.get(message_id)
+                    if serialized_data is None:
+                        continue
+                    data = self.serializer.loads(serialized_data)
+                    message = Message(**data)
+                    logger.debug("%s: got %s", self, message)
+                    await asyncio.shield(on_message(message))
+                except asyncio.CancelledError:
+                    logger.info("%s: stop consume messages queue '%s'", self, queue)
+                    break
+                except (ConnectionError, TimeoutError) as e:
+                    logger.error("%s: %s %s", self, e.__class__, e)
+                    retry_timeouts = (
+                        iter(self.config.retry_timeouts) if self.config.retry_timeouts else itertools.repeat(1)
+                    )
+                    seconds = next(retry_timeouts, None)
+                    if seconds is None:
+                        raise e
+                    await asyncio.sleep(seconds)
+                except Exception:
+                    logger.exception("Internal error")
+
+        for queue in queues:
+            self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_messages(self):
-        return
+        for queue, task in self._message_consumers.items():
+            task.cancel()
+        self._message_consumers = {}
