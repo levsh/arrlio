@@ -296,7 +296,7 @@ class TaskConsumer(Consumer):
                 time.monotonic() - t0,
             )
 
-            if task_instance.task.result_return:
+            if task_instance.data.result_return:
                 try:
                     await self.backend.push_task_result(
                         task_instance,
@@ -381,7 +381,7 @@ class AsyncResult:
         return self._ready
 
     async def get(self):
-        if not self._task_instance.task.result_return:
+        if not self._task_instance.data.result_return:
             raise TaskNoResultError(self._task_instance.data.task_id)
         if not self._ready:
             try:

@@ -131,14 +131,19 @@ class TestArrlio:
         "backend",
         [
             "arrlio.backend.local",
-            # "arrlio.backend.rabbitmq",
-            # "arrlio.backend.redis",
+            "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
         ],
         indirect=True,
     )
     async def test_task_no_result(self, backend, task_producer, task_consumer):
         await task_consumer.consume()
+
         ar = await task_producer.send(tasks.noresult)
+        with pytest.raises(arrlio.TaskNoResultError):
+            await asyncio.wait_for(ar.get(), 5)
+
+        ar = await task_producer.send(tasks.hello_world, result_return=False)
         with pytest.raises(arrlio.TaskNoResultError):
             await asyncio.wait_for(ar.get(), 5)
 
