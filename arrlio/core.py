@@ -7,7 +7,7 @@ from typing import Any, Callable, Union
 from uuid import UUID
 
 from arrlio import __tasks__, settings
-from arrlio.exc import TaskError, TaskNoResultError, TaskTimeoutError
+from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError
 from arrlio.models import Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ConsumerConfig, ProducerConfig
 
@@ -273,6 +273,8 @@ class TaskConsumer(Consumer):
             logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
 
             try:
+                if task_instance.task.func is None:
+                    raise NotFoundError(f"Task '{task_instance.task.name}' not found")
                 try:
                     res = await asyncio.wait_for(task_instance(), task_data.timeout)
                 except asyncio.TimeoutError:

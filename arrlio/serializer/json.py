@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from arrlio import __tasks__
 from arrlio.utils import ExtendedJSONEncoder
-from arrlio.models import TaskData, TaskInstance, TaskResult
+from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 from arrlio.serializer import base
 
 
@@ -22,7 +22,9 @@ class Json(base.Serializer):
     def loads_task_instance(self, data: bytes) -> TaskInstance:
         data = json.loads(data)
         name = data.pop("name")
-        return __tasks__[name].instatiate(data=TaskData(**data))
+        if name in __tasks__:
+            return __tasks__[name].instatiate(data=TaskData(**data))
+        return Task(None, name).instatiate(data=TaskData(**data))
 
     def dumps_task_result(self, task_result: TaskResult, **kwds) -> bytes:
         if task_result.exc:

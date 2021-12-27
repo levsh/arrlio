@@ -38,6 +38,21 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    async def test_task_not_found(self, backend, task_producer, task_consumer):
+        await task_consumer.consume()
+        with pytest.raises(arrlio.exc.TaskError):
+            ar = await task_producer.send("invalid")
+            await ar.get()
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "arrlio.backend.local",
+            "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
+        ],
+        indirect=True,
+    )
     async def test_task_args_kwds(self, backend, task_producer, task_consumer):
         await task_consumer.consume()
         ar = await task_producer.send(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4})
