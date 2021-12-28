@@ -6,7 +6,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional, no_type_check
 from pydantic import AnyUrl, PyObject, conint
 
 
-AsyncCallableT = Callable[[], Coroutine]
+AsyncCallableT = Callable[..., Coroutine]
 ExceptionFilterT = Callable[[Exception], bool]
 PositiveIntT = conint(ge=1)
 PriorityT = conint(ge=1, le=10)

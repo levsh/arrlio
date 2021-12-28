@@ -1,7 +1,7 @@
 import inspect
 from dataclasses import dataclass, field
 from types import FunctionType, TracebackType
-from typing import Any, Callable, Tuple, Union
+from typing import Any, Tuple, Union
 from uuid import UUID, uuid4
 
 from arrlio.settings import (
@@ -34,6 +34,7 @@ class TaskData:
     result_ttl: int = None
     result_return: bool = None
     result_encrypt: bool = None
+    thread: bool = None
     extra: dict = field(default_factory=dict)
 
 
@@ -50,8 +51,7 @@ class Task:
     result_ttl: int = None
     result_return: bool = None
     result_encrypt: bool = None
-    # loads: Callable = None
-    # dumps: Callable = None
+    thread: bool = None
 
     def __post_init__(self):
         if self.bind is None:
@@ -96,6 +96,8 @@ class Task:
             data.result_return = self.result_return
         if data.result_encrypt is None:
             data.result_encrypt = self.result_encrypt
+        if data.thread is None:
+            data.thread = self.thread
         return TaskInstance(task=self, data=data)
 
     async def __call__(self, *args, **kwds) -> Any:

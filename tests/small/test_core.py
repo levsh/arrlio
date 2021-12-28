@@ -45,6 +45,7 @@ async def test_TaskProducer_send():
         ar = await producer.send("foo")
         mock_send_task.assert_awaited_once()
         task_instance = mock_send_task.call_args[0][0]
+
         assert task_instance.task.func is None
         assert task_instance.task.name == "foo"
         assert task_instance.task.bind == settings.TASK_BIND
@@ -56,6 +57,8 @@ async def test_TaskProducer_send():
         assert task_instance.task.result_ttl == settings.RESULT_TTL
         assert task_instance.task.result_return == settings.RESULT_RETURN
         assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
+        assert task_instance.task.thread is None
+
         assert task_instance.data.args == ()
         assert task_instance.data.kwds == {}
         assert task_instance.data.queue == task_instance.task.queue
@@ -66,6 +69,53 @@ async def test_TaskProducer_send():
         assert task_instance.data.result_ttl == task_instance.task.result_ttl
         assert task_instance.data.result_return == task_instance.task.result_return
         assert task_instance.data.result_encrypt == task_instance.task.result_encrypt
+        assert task_instance.data.thread is None
+
+        assert isinstance(ar, AsyncResult)
+        assert ar.task_instance == task_instance
+
+    with mock.patch.object(producer.backend, "send_task") as mock_send_task:
+        ar = await producer.send(
+            "bar",
+            args=(1, 2),
+            kwds={"a": "b"},
+            queue="custom",
+            priority=5,
+            timeout=999,
+            ttl=333,
+            ack_late=True,
+            result_ttl=777,
+            result_return=False,
+            result_encrypt=True,
+            thread=True,
+        )
+        mock_send_task.assert_awaited_once()
+        task_instance = mock_send_task.call_args[0][0]
+
+        assert task_instance.task.func is None
+        assert task_instance.task.name == "bar"
+        assert task_instance.task.bind == settings.TASK_BIND
+        assert task_instance.task.queue == settings.TASK_QUEUE
+        assert task_instance.task.priority == settings.TASK_PRIORITY
+        assert task_instance.task.timeout == settings.TASK_TIMEOUT
+        assert task_instance.task.ttl == settings.TASK_TTL
+        assert task_instance.task.ack_late == settings.TASK_ACK_LATE
+        assert task_instance.task.result_ttl == settings.RESULT_TTL
+        assert task_instance.task.result_return == settings.RESULT_RETURN
+        assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
+        assert task_instance.task.thread is None
+
+        assert task_instance.data.args == (1, 2)
+        assert task_instance.data.kwds == {"a": "b"}
+        assert task_instance.data.queue == "custom"
+        assert task_instance.data.priority == 5
+        assert task_instance.data.timeout == 999
+        assert task_instance.data.ttl == 333
+        assert task_instance.data.ack_late is True
+        assert task_instance.data.result_ttl == 777
+        assert task_instance.data.result_return is False
+        assert task_instance.data.result_encrypt is True
+        assert task_instance.data.thread is True
 
         assert isinstance(ar, AsyncResult)
         assert ar.task_instance == task_instance

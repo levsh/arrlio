@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import sys
+import threading
 import time
 from types import FunctionType, MethodType
-from typing import Any, Callable, Union
+from typing import Any, Union
 from uuid import UUID
 
 from arrlio import __tasks__, settings
@@ -28,8 +29,7 @@ def task(
     result_ttl: int = None,
     result_return: bool = None,
     result_encrypt: bool = None,
-    # loads: Callable = None,
-    # dumps: Callable = None,
+    thread: bool = None,
 ) -> Task:
 
     if bind is None:
@@ -72,6 +72,7 @@ def task(
             result_ttl=result_ttl,
             result_return=result_return,
             result_encrypt=result_encrypt,
+            thread=thread,
         )
         __tasks__[name] = t
         logger.info("Register %s", t)
@@ -92,6 +93,7 @@ def task(
                 result_ttl=result_ttl,
                 result_return=result_return,
                 result_encrypt=result_encrypt,
+                thread=thread,
             )
 
         return wrapper
@@ -140,10 +142,12 @@ class TaskProducer(Producer):
         priority: int = None,
         timeout: int = None,
         ttl: int = None,
+        ack_late: bool = None,
         encrypt: bool = None,
         result_ttl: int = None,
         result_return: bool = None,
         result_encrypt: bool = None,
+        thread: bool = None,
         extra: dict = None,
         **kwargs,
     ) -> "AsyncResult":
@@ -166,9 +170,11 @@ class TaskProducer(Producer):
             priority=priority,
             timeout=timeout,
             ttl=ttl,
+            ack_late=ack_late,
             result_ttl=result_ttl,
             result_return=result_return,
             result_encrypt=result_encrypt,
+            thread=thread,
             extra=extra,
         )
 
@@ -222,6 +228,75 @@ class Consumer(Base):
         await super().close()
 
 
+class Executor:
+    def __str__(self):
+        return f"[{self.__class__.__name__}]"
+
+    def __repr__(self):
+        return self.__str__()
+
+    async def __call__(self, task_instance: TaskInstance) -> TaskResult:
+        task_data: TaskData = task_instance.data
+        task: Task = task_instance.task
+
+        res, exc, trb = None, None, None
+        t0 = time.monotonic()
+
+        logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
+
+        try:
+            if task_instance.task.func is None:
+                raise NotFoundError(f"Task '{task_instance.task.name}' not found")
+            try:
+                res = await asyncio.wait_for(task_instance(), task_data.timeout)
+            except asyncio.TimeoutError:
+                raise TaskTimeoutError(task_data.timeout)
+        except Exception as e:
+            exc_info = sys.exc_info()
+            exc = exc_info[1]
+            trb = exc_info[2]
+            if isinstance(e, TaskTimeoutError):
+                logger.error("Task timeout for %s", task_instance)
+            else:
+                logger.exception("%s: %s", self, task_instance)
+
+        logger.info(
+            "%s: task %s(%s) done in %.2f second(s)",
+            self,
+            task.name,
+            task_data.task_id,
+            time.monotonic() - t0,
+        )
+
+        return TaskResult(res=res, exc=exc, trb=trb)
+
+
+class ThreadExecutor(Executor):
+    async def __call__(self, task_instance: TaskInstance) -> TaskResult:
+        root_loop = asyncio.get_running_loop()
+        done_ev: asyncio.Event = asyncio.Event()
+        task_result: TaskResult = None
+
+        def thread():
+            nonlocal done_ev
+            nonlocal task_result
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                task_result = loop.run_until_complete(super(ThreadExecutor, self).__call__(task_instance))
+            finally:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.close()
+                root_loop.call_soon_threadsafe(lambda: done_ev.set())
+
+        th = threading.Thread(target=thread)
+        th.start()
+
+        await done_ev.wait()
+
+        return task_result
+
+
 class TaskConsumer(Consumer):
     async def consume(self):
         if self.config.queues:
@@ -240,6 +315,9 @@ class TaskConsumer(Consumer):
             task_id: UUID = task_instance.data.task_id
 
             async with self._lock:
+                if self.is_closed:
+                    return
+
                 if len(self._running_tasks) + 1 >= self.config.pool_size:
                     await self.backend.stop_consume_tasks()
                     try:
@@ -261,46 +339,18 @@ class TaskConsumer(Consumer):
 
     async def _execute_task(self, task_instance: TaskInstance):
         try:
-            if self.is_closed:
-                return
+            if task_instance.data.thread is True:
+                executor = ThreadExecutor()
+            else:
+                executor = Executor()
 
-            task_data = task_instance.data
-            task = task_instance.task
-
-            res, exc, trb = None, None, None
-            t0 = time.monotonic()
-
-            logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
-
-            try:
-                if task_instance.task.func is None:
-                    raise NotFoundError(f"Task '{task_instance.task.name}' not found")
-                try:
-                    res = await asyncio.wait_for(task_instance(), task_data.timeout)
-                except asyncio.TimeoutError:
-                    raise TaskTimeoutError(task_data.timeout)
-            except Exception as e:
-                exc_info = sys.exc_info()
-                exc = exc_info[1]
-                trb = exc_info[2]
-                if isinstance(e, TaskTimeoutError):
-                    logger.error("Task timeout for %s", task_instance)
-                else:
-                    logger.exception("%s: %s", self, task_instance)
-
-            logger.info(
-                "%s: task %s(%s) done in %.2f second(s)",
-                self,
-                task.name,
-                task_data.task_id,
-                time.monotonic() - t0,
-            )
+            task_result: TaskResult = await executor(task_instance)
 
             if task_instance.data.result_return:
                 try:
                     await self.backend.push_task_result(
                         task_instance,
-                        TaskResult(res=res, exc=exc, trb=trb),
+                        task_result,
                         encrypt=task_instance.task.result_encrypt,
                     )
                 except Exception as e:

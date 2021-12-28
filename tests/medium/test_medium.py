@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 import arrlio
 import pytest
@@ -26,7 +27,11 @@ class TestArrlio:
     )
     async def test_task_default(self, backend, task_producer, task_consumer):
         await task_consumer.consume()
+
         ar = await task_producer.send(tasks.hello_world)
+        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+
+        ar = await task_producer.send("hello_world")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
     @pytest.mark.parametrize(
@@ -136,6 +141,24 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    async def test_task_thread(self, backend, task_producer, task_consumer):
+        await task_consumer.consume()
+
+        ar = await task_producer.send(tasks.thread_name)
+        assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
+
+        ar = await task_producer.send("thread_name")
+        assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "arrlio.backend.local",
+            "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
+        ],
+        indirect=True,
+    )
     async def test_task_no_result(self, backend, task_producer, task_consumer):
         await task_consumer.consume()
 
@@ -162,16 +185,6 @@ class TestArrlio:
         await asyncio.sleep(3)
         with pytest.raises((arrlio.TaskNoResultError, asyncio.TimeoutError)):
             await asyncio.wait_for(ar.get(), 2)
-
-    # @pytest.mark.parametrize("backend", ["rabbitmq"], indirect=True)
-    # async def test_task_ack_late(self, backend, app):
-    #     await app.run()
-    #     ar = await app.send(tasks.ack_late)
-    #     await asyncio.sleep(1)
-    #     await app.stop()
-    #     await app.run()
-    #     await asyncio.wait_for(ar.get(), 5)
-    #     assert tasks.ack_late.func.counter == 2
 
     @pytest.mark.parametrize(
         "backend",

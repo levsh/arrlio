@@ -1,9 +1,10 @@
 import asyncio
+import threading
 
 import arrlio
 
 
-@arrlio.task
+@arrlio.task(name="hello_world")
 async def hello_world():
     return "Hello World!"
 
@@ -30,3 +31,8 @@ async def ack_late():
     ack_late.func.counter += 1
     if ack_late.func.counter == 1:
         await asyncio.sleep(5)
+
+
+@arrlio.task(name="thread_name", thread=True)
+async def thread_name():
+    return threading.current_thread().name

@@ -20,6 +20,7 @@ def test_TaskData():
     assert task_data.result_ttl is None
     assert task_data.result_return is None
     assert task_data.result_encrypt is None
+    assert task_data.thread is None
 
     task_data.queue = "default"
 
@@ -43,6 +44,7 @@ async def test_Task():
     assert task.result_ttl == settings.RESULT_TTL
     assert task.result_return == settings.RESULT_RETURN
     assert task.result_encrypt == settings.RESULT_ENCRYPT
+    assert task.thread is None
 
     task_instance = task.instatiate()
     assert isinstance(task_instance.data.task_id, uuid.UUID)
@@ -56,6 +58,7 @@ async def test_Task():
     assert task_instance.data.result_ttl == task.result_ttl
     assert task_instance.data.result_return == task.result_return
     assert task_instance.data.result_encrypt == task.result_encrypt
+    assert task_instance.data.thread is None
 
     assert await task() == "Foo!"
 
@@ -72,6 +75,7 @@ async def test_Task():
             result_ttl=30,
             result_return=False,
             result_encrypt=True,
+            thread=True,
         )
     )
     assert task_instance.task.func == bar
@@ -85,6 +89,7 @@ async def test_Task():
     assert task_instance.task.result_ttl == settings.RESULT_TTL
     assert task_instance.task.result_return == settings.RESULT_RETURN
     assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
+    assert task_instance.task.thread is None
 
     assert task_instance.data.task_id == uuid.UUID('e67b80b9-a9f0-4ff1-89e8-0beb70993ffd')
     assert task_instance.data.args == (1,)
@@ -97,6 +102,7 @@ async def test_Task():
     assert task_instance.data.result_ttl == 30
     assert task_instance.data.result_return is False
     assert task_instance.data.result_encrypt is True
+    assert task_instance.data.thread is True
 
     assert await task_instance() == "Bar!"
 
