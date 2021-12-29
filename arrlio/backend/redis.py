@@ -74,7 +74,7 @@ class Backend(base.Backend):
     async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
         queue = task_instance.data.queue
         queue_key = self._make_task_queue_key(queue)
-        data = self.serializer.dumps_task_instance(task_instance)
+        data = self.serializer.dumps_task_instance(task_instance, encrypt=encrypt)
 
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():
@@ -132,7 +132,7 @@ class Backend(base.Backend):
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():
                 await redis.multi()
-                await redis.rpush(result_key, self.serializer.dumps_task_result(task_result))
+                await redis.rpush(result_key, self.serializer.dumps_task_result(task_result, encrypt=encrypt))
                 await redis.expire(result_key, task_instance.data.result_ttl)
                 await redis.execute()
                 await redis.pipeline_execute()
@@ -147,7 +147,7 @@ class Backend(base.Backend):
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):
         queue = message.exchange
         queue_key = self._make_message_queue_key(queue)
-        data = self.serializer.dumps(dataclasses.asdict(message))
+        data = self.serializer.dumps(dataclasses.asdict(message), encrypt=encrypt)
 
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():

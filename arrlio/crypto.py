@@ -1,12 +1,11 @@
 import os
 
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.backends.openssl.rsa import _RSAPrivateKey as RSAPrivateKey
-from cryptography.hazmat.backends.openssl.rsa import _RSAPublicKey as RSAPublicKey
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import padding as symmetric_padding
 from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padding
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 

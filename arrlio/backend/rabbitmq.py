@@ -309,7 +309,7 @@ class Backend(base.Backend):
         logger.debug("%s: put %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps_task_instance(task_instance),
+                self.serializer.dumps_task_instance(task_instance, encrypt=encrypt),
                 exchange=self.config.task_exchange,
                 routing_key=task_data.queue,
                 properties=aiormq.spec.Basic.Properties(
@@ -397,7 +397,7 @@ class Backend(base.Backend):
         logger.debug("%s: push result for %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps_task_result(task_result),
+                self.serializer.dumps_task_result(task_result, encrypt=encrypt),
                 exchange=self.config.task_exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(
