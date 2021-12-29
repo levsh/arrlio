@@ -314,6 +314,7 @@ class Backend(base.Backend):
                 routing_key=task_data.queue,
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
+                    message_id=str(task_data.task_id.hex),
                     timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
                     expiration=str(int(task_data.ttl * 1000)) if task_data.ttl is not None else None,
                     priority=task_data.priority,
