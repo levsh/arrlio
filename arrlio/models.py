@@ -100,8 +100,8 @@ class Task:
             data.thread = self.thread
         return TaskInstance(task=self, data=data)
 
-    async def __call__(self, *args, **kwds) -> Any:
-        return await self.instatiate(TaskData(args=args, kwds=kwds))()
+    def __call__(self, *args, **kwds) -> Any:
+        return self.instatiate(TaskData(args=args, kwds=kwds))()
 
 
 @dataclass(frozen=True)
@@ -109,13 +109,11 @@ class TaskInstance:
     task: Task
     data: TaskData
 
-    async def __call__(self):
+    def __call__(self):
         args = self.data.args
         kwds = self.data.kwds
         if self.task.bind:
             args = (self,) + args
-        if inspect.iscoroutinefunction(self.task.func):
-            return await self.task.func(*args, **kwds)
         return self.task.func(*args, **kwds)
 
 

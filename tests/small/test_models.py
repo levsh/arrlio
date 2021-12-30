@@ -1,6 +1,8 @@
 import uuid
 
 import pytest
+
+import arrlio
 from arrlio import models, settings
 
 
@@ -60,7 +62,7 @@ async def test_Task():
     assert task_instance.data.result_encrypt == task.result_encrypt
     assert task_instance.data.thread is None
 
-    assert await task() == "Foo!"
+    assert task() == "Foo!"
 
     task_instance = models.Task(bar, "bar").instatiate(
         models.TaskData(
@@ -107,3 +109,19 @@ async def test_Task():
     assert await task_instance() == "Bar!"
 
     assert await models.Task(bar, "bar", bind=True)() == "Bar!"
+
+
+async def test_async_task():
+    @arrlio.task(name="async_task")
+    async def async_task():
+        return "Hello from async_task!"
+
+    assert await async_task() == "Hello from async_task!"
+
+
+def test_sync_task():
+    @arrlio.task(name="sync_task")
+    def sync_task():
+        return "Hello from sync_task!"
+
+    assert sync_task() == "Hello from sync_task!"
