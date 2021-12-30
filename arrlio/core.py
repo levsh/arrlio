@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import sys
 import threading
@@ -248,7 +249,10 @@ class Executor:
             if task_instance.task.func is None:
                 raise NotFoundError(f"Task '{task_instance.task.name}' not found")
             try:
-                res = await asyncio.wait_for(task_instance(), task_data.timeout)
+                if inspect.iscoroutinefunction(task_instance.task.func):
+                    res = await asyncio.wait_for(task_instance(), task_data.timeout)
+                else:
+                    res = task_instance()
             except asyncio.TimeoutError:
                 raise TaskTimeoutError(task_data.timeout)
         except Exception as e:

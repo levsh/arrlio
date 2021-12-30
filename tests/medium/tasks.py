@@ -36,3 +36,8 @@ async def ack_late():
 @arrlio.task(name="thread_name", thread=True)
 async def thread_name():
     return threading.current_thread().name
+
+
+@arrlio.task(name="sync_task")
+def sync_task():
+    return "Hello from sync_task!"

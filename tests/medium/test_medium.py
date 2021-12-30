@@ -43,6 +43,21 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    async def test_sync_task_(self, backend, task_producer, task_consumer):
+        await task_consumer.consume()
+
+        ar = await task_producer.send(tasks.sync_task)
+        assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "arrlio.backend.local",
+            "arrlio.backend.rabbitmq",
+            "arrlio.backend.redis",
+        ],
+        indirect=True,
+    )
     async def test_task_not_found(self, backend, task_producer, task_consumer):
         await task_consumer.consume()
         with pytest.raises(arrlio.exc.TaskError):
