@@ -112,7 +112,7 @@ async def test_Task():
 
 
 async def test_async_task():
-    @arrlio.task(name="async_task")
+    @arrlio.task
     async def async_task():
         return "Hello from async_task!"
 
@@ -120,7 +120,7 @@ async def test_async_task():
 
 
 def test_sync_task():
-    @arrlio.task(name="sync_task")
+    @arrlio.task
     def sync_task():
         return "Hello from sync_task!"
 

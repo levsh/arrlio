@@ -14,10 +14,13 @@ logger = logging.getLogger("arrlio")
 
 
 class Json(base.Serializer):
+    def __init__(self, encoder=None):
+        self.encoder = encoder or ExtendedJSONEncoder
+
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
         data = dataclasses.asdict(task_instance.data)
         data["name"] = task_instance.task.name
-        return json.dumps(data, cls=ExtendedJSONEncoder).encode()
+        return json.dumps(data, cls=self.encoder).encode()
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
         data = json.loads(data)
@@ -39,20 +42,21 @@ class Json(base.Serializer):
             )
         else:
             data = (task_result.res, None, None)
-        return json.dumps(data, cls=ExtendedJSONEncoder).encode()
+        return json.dumps(data, cls=self.encoder).encode()
 
     def loads_task_result(self, data: bytes) -> TaskResult:
         return TaskResult(*json.loads(data))
 
     def dumps(self, data: Any, **kwds) -> bytes:
-        return json.dumps(data, cls=ExtendedJSONEncoder).encode()
+        return json.dumps(data, cls=self.encoder).encode()
 
     def loads(self, data: bytes) -> Any:
         return json.loads(data)
 
 
 class CryptoJson(Json):
-    def __init__(self, encryptor: Callable = lambda x: x, decryptor: Callable = lambda x: x):
+    def __init__(self, encoder=None, encryptor: Callable = lambda x: x, decryptor: Callable = lambda x: x):
+        super().__init__(encoder=encoder)
         self.encryptor = encryptor
         self.decryptor = decryptor
 
