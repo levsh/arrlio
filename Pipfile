@@ -12,6 +12,7 @@ hiredis = "*"
 siderpy = "*"
 
 [dev-packages]
+build = "*"
 coverage = "*"
 docker = "*"
 flake8 = "*"
@@ -20,6 +21,7 @@ pytest = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
 six = "*"  # docker-py bug
+twine = "*"
 
 [requires]
 python_version = "3"

@@ -87,3 +87,13 @@ def bump_dev(c):
             f.seek(0)
             f.write(text)
             f.truncate()
+
+
+@task
+def build(c):
+    c.run("python -m build")
+
+
+@task
+def publish(c):
+    c.run("python -m twine upload --repository pypi dist/*")
