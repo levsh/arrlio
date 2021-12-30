@@ -40,11 +40,11 @@ def test_ExtendedJSONEncoder():
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)
 
 
-async def test_AsyncRetry():
+async def test_retry():
     async def foo(a, b=None):
         pass
 
-    await utils.AsyncRetry()(foo, 1)
+    await utils.retry()(foo)(1)
 
     counter = 0
 
@@ -54,10 +54,10 @@ async def test_AsyncRetry():
         1 / 0
 
     with pytest.raises(ZeroDivisionError):
-        await utils.AsyncRetry()(bar)
+        await utils.retry()(bar)()
     assert counter == 1
 
     counter = 0
     with pytest.raises(ZeroDivisionError):
-        await utils.AsyncRetry(retry_timeouts=[0, 0], exc_filter=lambda e: isinstance(e, ZeroDivisionError))(bar)
+        await utils.retry(retry_timeouts=[0, 0], exc_filter=lambda e: isinstance(e, ZeroDivisionError))(bar)()
     assert counter == 3

@@ -68,7 +68,7 @@ class RedisDsn(SecretAnyUrl):
         return super().validate_parts(parts)
 
 
-class BackendT:
+class ModuleT:
     validate_always = True
 
     @classmethod
@@ -82,3 +82,6 @@ class BackendT:
         if not isinstance(v, ModuleType):
             raise ValueError
         return v
+
+
+BackendT = ModuleT

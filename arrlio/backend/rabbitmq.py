@@ -12,11 +12,11 @@ import yarl
 from pydantic import Field
 
 from arrlio import core
-from arrlio.utils import AsyncRetry
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
+from arrlio.utils import retry
 
 
 logger = logging.getLogger("arrlio")
@@ -91,7 +91,7 @@ class RMQConnection:
 
     def __del__(self):
         if not self.is_closed:
-            logger.warning("%s: unclosed")
+            logger.warning("%s: unclosed", self)
         self._shared["objs"] -= 1
         if self._shared["objs"] == 0:
             del self.__shared[self._key]
@@ -152,7 +152,7 @@ class RMQConnection:
                 else:
                     callback()
             except Exception as e:
-                logger.error("%s %s", e.__class__, e)
+                logger.error("Callback '%s' %s error: %s %s", tp, callback, e.__class__, e)
 
     async def _supervisor(self):
         try:
@@ -177,6 +177,7 @@ class RMQConnection:
 
             if self._conn is None or self._conn.is_closed:
 
+                @retry(retry_timeouts=self._retry_timeouts, exc_filter=self._exc_filter)
                 async def connect():
                     logger.info("%s: connecting...", self)
                     self._conn = await asyncio.wait_for(
@@ -184,7 +185,7 @@ class RMQConnection:
                     )
                     logger.info("%s: connected", self)
 
-                await AsyncRetry(retry_timeouts=self._retry_timeouts, exc_filter=self._exc_filter)(connect)
+                await connect()
 
             self._refs += 1
 

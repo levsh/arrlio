@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import inspect
 import itertools
 import json
 import logging
@@ -10,7 +11,7 @@ from uuid import UUID
 
 import pydantic
 
-from arrlio.tp import AsyncCallableT, ExceptionFilterT
+from arrlio.tp import ExceptionFilterT
 
 
 logger = logging.getLogger("arrlio")
@@ -25,28 +26,32 @@ class ExtendedJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-class AsyncRetry:
-    def __init__(self, retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
-        self.retry_timeouts = retry_timeouts and iter(retry_timeouts) or itertools.repeat(1)
-        if exc_filter is not None:
-            self.exc_filter = exc_filter
+def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
+    retry_timeouts = iter(retry_timeouts) if retry_timeouts else itertools.repeat(5)
+    if exc_filter is None:
+        exc_filter = lambda e: isinstance(e, (ConnectionError, TimeoutError, asyncio.TimeoutError))
 
-    def exc_filter(self, e: Exception) -> bool:
-        return isinstance(e, (ConnectionError, TimeoutError, asyncio.TimeoutError))
-
-    async def __call__(self, fn: AsyncCallableT, *args, **kwds):
-        while True:
-            try:
-                return await fn(*args, **kwds)
-            except Exception as e:
-                if not self.exc_filter(e):
-                    raise e
+    def decorator(fn):
+        async def wrapper(*args, **kwds):
+            while True:
                 try:
-                    retry_timeout = next(self.retry_timeouts)
-                    logger.error("%s %s %s, retry in %i seconds", fn, e.__class__.__name__, e, retry_timeout)
-                    await asyncio.sleep(retry_timeout)
-                except StopIteration:
-                    raise e
+                    if inspect.iscoroutinefunction(fn):
+                        return await fn(*args, **kwds)
+                    return fn(*args, **kwds)
+                except Exception as e:
+                    logger.error(e)
+                    if not exc_filter(e):
+                        raise e
+                    try:
+                        t = next(retry_timeouts)
+                        logger.error("%s - retry in %s second(s)", e, t)
+                        await asyncio.sleep(t)
+                    except StopIteration:
+                        raise e
+
+        return wrapper
+
+    return decorator
 
 
 class TasksMixIn:
