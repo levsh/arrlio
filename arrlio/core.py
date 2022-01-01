@@ -1,11 +1,12 @@
 import asyncio
+import copy
 import inspect
 import logging
 import sys
 import threading
 import time
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, List, Tuple, Union
 from uuid import UUID
 
 from arrlio import __tasks__, settings
@@ -189,24 +190,33 @@ class Producer(Base):
         return AsyncResult(self, task_instance)
 
     async def send_graph(self, graph: Graph, args: Union[Tuple, List] = None, kwds: dict = None):
+        nodes = copy.deepcopy(graph.nodes)
+        edges = graph.edges
+        roots = graph.roots
+
+        if not nodes or not roots:
+            return
+
         logger.info("%s: send %s with args: %s and kwds: %s", self, graph, args, kwds)
 
-        for root in graph.roots:
-            name, root_kwds = graph.nodes[root]
-
-            task_data = TaskData(**root_kwds)
-            task_data.args += tuple(args or ())
-            task_data.kwds.update(kwds or {})
-            task_data.graph = Graph(graph.id, nodes=graph.nodes, edges=graph.edges, roots={root})
-
-            if name in __tasks__:
-                task_instance = __tasks__[name].instantiate(data=task_data)
+        task_instances = {}
+        for node_name, (task, node_kwds) in nodes.items():
+            task_data = TaskData(**node_kwds)
+            node_kwds["task_id"] = task_data.task_id
+            if task in __tasks__:
+                task_instance = __tasks__[task].instantiate(data=task_data)
             else:
-                task_instance = Task(None, name).instantiate(data=task_data)
+                task_instance = Task(None, task).instantiate(data=task_data)
+            task_instances[node_name] = task_instance
 
-            logger.info("%s: send %s", self, task_instance)
+        for root in roots:
+            task_instances[root].data.args += tuple(args or ())
+            task_instances[root].data.kwds.update(kwds or {})
+            task_instances[root].data.graph = Graph(graph.id, nodes=nodes, edges=edges, roots={root})
+            logger.info("%s: send %s", self, task_instances[root])
+            await self.backend.send_task(task_instances[root])
 
-            await self.backend.send_task(task_instance)
+        return {k: AsyncResult(self, task_instance) for k, task_instance in task_instances.items()}
 
     async def send_message(
         self,

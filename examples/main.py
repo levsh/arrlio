@@ -20,7 +20,6 @@ async def main():
         consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
 
         async with producer, consumer:
-
             await consumer.consume_tasks()
 
             # call by task
@@ -65,14 +64,33 @@ async def main():
         )
 
         async with producer, consumer:
-
             await consumer.consume_tasks()
 
             ar = await producer.send_task(tasks.hello_world, encrypt=True, result_encrypt=True)
             logger.info(await ar.get())
 
+    async def example_3():
+        graph = arrlio.Graph("My Graph")
+        graph.add_node("A", tasks.add_one, root=True)
+        graph.add_node("B", tasks.add_one)
+        graph.add_node("C", tasks.add_one)
+        graph.add_edge("A", "B")
+        graph.add_edge("B", "C")
+
+        producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
+        consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+
+        async with producer, consumer:
+            await consumer.consume_tasks()
+
+            ars = await producer.send_graph(graph, args=(0,))
+            logger.info("A: %i", await ars["A"].get())
+            logger.info("B: %i", await ars["B"].get())
+            logger.info("C: %i", await ars["C"].get())
+
     await example_1()
     await example_2()
+    await example_3()
 
 
 if __name__ == "__main__":

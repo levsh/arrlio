@@ -20,3 +20,8 @@ async def bind(self):
 @arrlio.task
 async def exception():
     raise ZeroDivisionError
+
+
+@arrlio.task
+async def add_one(value: str, **kwds):
+    return int(value) + 1

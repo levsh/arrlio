@@ -49,6 +49,4 @@ def sync_task():
 
 @arrlio.task
 def add_one(x: str, **kwds):
-    res = int(x) + 1
-    logger.info(res)
-    return res
+    return int(x) + 1

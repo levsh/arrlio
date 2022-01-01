@@ -260,5 +260,7 @@ class TestArrlio:
         graph.add_edge("A", "B")
         graph.add_edge("B", "C")
 
-        await producer.send_graph(graph, args=(0,))
-        await asyncio.sleep(2)
+        ars = await producer.send_graph(graph, args=(0,))
+        assert await asyncio.wait_for(ars["A"].get(), 1) == 1
+        assert await asyncio.wait_for(ars["B"].get(), 1) == 2
+        assert await asyncio.wait_for(ars["C"].get(), 1) == 3

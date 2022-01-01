@@ -130,14 +130,17 @@ class Backend(base.Backend):
     @base.Backend.task
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
         task_id: UUID = task_instance.data.task_id
-        try:
-            await self._results[task_id][0].wait()
-            try:
-                return self.serializer.loads_task_result(self._results[task_id][1])
-            finally:
-                del self._results[task_id]
-        except KeyError:
+        if not task_instance.task.result_return:
             raise TaskNoResultError(str(task_id))
+
+        if task_id not in self._results:
+            self._results[task_id] = [asyncio.Event(), None]
+
+        await self._results[task_id][0].wait()
+        try:
+            return self.serializer.loads_task_result(self._results[task_id][1])
+        finally:
+            del self._results[task_id]
 
     @base.Backend.task
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):
