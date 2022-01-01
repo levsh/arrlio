@@ -1,8 +1,9 @@
-import inspect
 from dataclasses import dataclass, field
 from types import FunctionType, TracebackType
-from typing import Any, Tuple, Union
+from typing import Any, Dict, List, Set, Tuple, Union
 from uuid import UUID, uuid4
+
+from roview import rodict, roset
 
 from arrlio.settings import (
     MESSAGE_ACK_LATE,
@@ -30,12 +31,14 @@ class TaskData:
     priority: int = None
     timeout: int = None
     ttl: int = None
+    encrypt: bool = None
     ack_late: bool = None
     result_ttl: int = None
     result_return: bool = None
     result_encrypt: bool = None
     thread: bool = None
     extra: dict = field(default_factory=dict)
+    graph: "Graph" = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,7 @@ class Task:
     priority: int = None
     timeout: int = None
     ttl: int = None
+    encrypt: bool = None
     ack_late: bool = None
     result_ttl: int = None
     result_return: bool = None
@@ -73,7 +77,7 @@ class Task:
         if self.result_encrypt is None:
             object.__setattr__(self, "result_encrypt", RESULT_ENCRYPT)
 
-    def instatiate(self, data: TaskData = None) -> "TaskInstance":
+    def instantiate(self, data: TaskData = None) -> "TaskInstance":
         if data is None:
             data = TaskData()
         if isinstance(data.task_id, str):
@@ -88,6 +92,8 @@ class Task:
             data.timeout = self.timeout
         if data.ttl is None:
             data.ttl = self.ttl
+        if data.encrypt is None:
+            data.encrypt = self.encrypt
         if data.ack_late is None:
             data.ack_late = self.ack_late
         if data.result_ttl is None:
@@ -101,7 +107,7 @@ class Task:
         return TaskInstance(task=self, data=data)
 
     def __call__(self, *args, **kwds) -> Any:
-        return self.instatiate(TaskData(args=args, kwds=kwds))()
+        return self.instantiate(TaskData(args=args, kwds=kwds))()
 
 
 @dataclass(frozen=True)
@@ -142,3 +148,64 @@ class Message:
             object.__setattr__(self, "ttl", MESSAGE_TTL)
         if self.ack_late is None:
             object.__setattr__(self, "ack_late", MESSAGE_ACK_LATE)
+
+
+class Graph:
+    def __init__(
+        self,
+        id: str,
+        nodes: Dict = None,
+        edges: Dict = None,
+        roots: Set = None,
+    ):
+        self.id = id
+        self.nodes: Dict[str, List[str]] = rodict({}, nested=True)
+        self.edges: Dict[str, Set[str]] = rodict({}, nested=True)
+        self.roots: Set[str] = roset(set())
+        nodes = nodes or {}
+        edges = edges or {}
+        roots = roots or set()
+        for node_id, (task, kwds) in nodes.items():
+            self.add_node(node_id, task, root=node_id in roots, **kwds)
+        for node_id_from, nodes_id_to in edges.items():
+            for node_id_to in nodes_id_to:
+                self.add_edge(node_id_from, node_id_to)
+
+    def __str__(self):
+        return f"{self.__class__.__name__}(id={self.id} nodes={self.nodes} edges={self.edges} roots={self.roots}"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def add_node(self, node_id: str, task: Union[Task, str], root: bool = None, **kwds):
+        if node_id in self.nodes:
+            raise Exception(f"Node '{node_id}' already in graph")
+        if isinstance(task, Task):
+            task = task.name
+        self.nodes.__original__[node_id] = [task, kwds]
+        if root:
+            self.roots.__original__.add(node_id)
+
+    def add_edge(self, node_id_from: str, node_id_to: str):
+        if node_id_from not in self.nodes:
+            raise Exception(f"Node '{node_id_from}' not found in graph")
+        if node_id_to not in self.nodes:
+            raise Exception(f"Node '{node_id_to}' not found in graph")
+        self.edges.__original__.setdefault(node_id_from, set()).add(node_id_to)
+
+    def dict(self):
+        return {
+            "id": self.id,
+            "nodes": self.nodes,
+            "edges": self.edges,
+            "roots": self.roots,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            id=data["id"],
+            nodes=data["nodes"],
+            edges=data["edges"],
+            roots=data["roots"],
+        )

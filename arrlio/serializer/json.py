@@ -1,13 +1,13 @@
-import dataclasses
 import json
 import logging
 import traceback
+from dataclasses import asdict
 from typing import Any, Callable
 
 from arrlio import __tasks__
-from arrlio.utils import ExtendedJSONEncoder
-from arrlio.models import Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Graph, Task, TaskData, TaskInstance, TaskResult
 from arrlio.serializer import base
+from arrlio.utils import ExtendedJSONEncoder
 
 
 logger = logging.getLogger("arrlio")
@@ -18,16 +18,28 @@ class Json(base.Serializer):
         self.encoder = encoder or ExtendedJSONEncoder
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
-        data = dataclasses.asdict(task_instance.data)
-        data["name"] = task_instance.task.name
+        def fn(task_instance: dict):
+            if graph := task_instance["data"]["graph"]:
+                task_instance["data"]["graph"] = graph.dict()
+            return {"name": task_instance["task"]["name"], **task_instance["data"]}
+
+        data = fn(asdict(task_instance))
         return json.dumps(data, cls=self.encoder).encode()
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
         data = json.loads(data)
-        name = data.pop("name")
-        if name in __tasks__:
-            return __tasks__[name].instatiate(data=TaskData(**data))
-        return Task(None, name).instatiate(data=TaskData(**data))
+
+        def fn(data: dict, graph=None):
+            if data["graph"]:
+                data["graph"] = Graph.from_dict(data["graph"])
+            name = data.pop("name")
+            if name in __tasks__:
+                task_instance = __tasks__[name].instantiate(data=TaskData(**data))
+            else:
+                task_instance = Task(None, name).instantiate(data=TaskData(**data))
+            return task_instance
+
+        return fn(data)
 
     def dumps_task_result(self, task_result: TaskResult, **kwds) -> bytes:
         if task_result.exc:
@@ -60,9 +72,9 @@ class CryptoJson(Json):
         self.encryptor = encryptor
         self.decryptor = decryptor
 
-    def dumps_task_instance(self, task_instance: TaskInstance, encrypt: bool = None, **kwds) -> bytes:
+    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
         data: bytes = super().dumps_task_instance(task_instance, **kwds)
-        if encrypt:
+        if task_instance.data.encrypt:
             data: bytes = b"1" + self.encryptor(data)
         else:
             data: bytes = b"0" + data

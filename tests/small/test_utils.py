@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from arrlio import utils
+from arrlio import task, utils
 
 
 pytestmark = pytest.mark.asyncio
@@ -36,6 +36,18 @@ def test_ExtendedJSONEncoder():
         )
         == '"ea47d0af-c6b2-45d0-9a05-6bd1e34aa58c"'
     )
+
+    @task
+    def foo():
+        pass
+
+    assert json.dumps(foo, cls=utils.ExtendedJSONEncoder) == (
+        """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", \"bind\": false, """
+        """\"queue\": \"arrlio.tasks\", \"priority\": 1, \"timeout\": 300, \"ttl\": 300, \"encrypt\": null, """
+        """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, \"result_encrypt\": false, """
+        """\"thread\": null}"""
+    )
+
     with pytest.raises(TypeError):
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)
 

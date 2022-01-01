@@ -5,12 +5,12 @@ import sys
 import threading
 import time
 from types import FunctionType, MethodType
-from typing import Any, Union
+from typing import Any, Dict, List, Tuple, Union
 from uuid import UUID
 
 from arrlio import __tasks__, settings
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError
-from arrlio.models import Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ConsumerConfig, ProducerConfig
 
 
@@ -132,19 +132,17 @@ class Producer(Base):
     def __init__(self, config: ProducerConfig, backend_config_kwds: dict = None):
         super().__init__(config, backend_config_kwds=backend_config_kwds)
 
-
-class TaskProducer(Producer):
-    async def send(
+    async def send_task(
         self,
-        task_or_name: Union[Task, str],
+        task: Union[Task, str],
         args: tuple = None,
         kwds: dict = None,
         queue: str = None,
         priority: int = None,
         timeout: int = None,
         ttl: int = None,
-        ack_late: bool = None,
         encrypt: bool = None,
+        ack_late: bool = None,
         result_ttl: int = None,
         result_return: bool = None,
         result_encrypt: bool = None,
@@ -152,10 +150,9 @@ class TaskProducer(Producer):
         extra: dict = None,
         **kwargs,
     ) -> "AsyncResult":
-
-        name = task_or_name
-        if isinstance(task_or_name, Task):
-            name = task_or_name.name
+        name = task
+        if isinstance(task, Task):
+            name = task.name
 
         if args is None:
             args = ()
@@ -171,6 +168,7 @@ class TaskProducer(Producer):
             priority=priority,
             timeout=timeout,
             ttl=ttl,
+            encrypt=encrypt,
             ack_late=ack_late,
             result_ttl=result_ttl,
             result_return=result_return,
@@ -180,15 +178,48 @@ class TaskProducer(Producer):
         )
 
         if name in __tasks__:
-            task_instance = __tasks__[name].instatiate(data=task_data)
+            task_instance = __tasks__[name].instantiate(data=task_data)
         else:
-            task_instance = Task(None, name).instatiate(data=task_data)
+            task_instance = Task(None, name).instantiate(data=task_data)
 
         logger.info("%s: send %s", self, task_instance)
 
-        await self.backend.send_task(task_instance, encrypt=encrypt, **kwargs)
+        await self.backend.send_task(task_instance, **kwargs)
 
         return AsyncResult(self, task_instance)
+
+    async def send_graph(self, graph: Graph, args: Union[Tuple, List] = None, kwds: dict = None):
+        logger.info("%s: send %s with args: %s and kwds: %s", self, graph, args, kwds)
+
+        for root in graph.roots:
+            name, root_kwds = graph.nodes[root]
+
+            task_data = TaskData(**root_kwds)
+            task_data.args += tuple(args or ())
+            task_data.kwds.update(kwds or {})
+            task_data.graph = Graph(graph.id, nodes=graph.nodes, edges=graph.edges, roots={root})
+
+            if name in __tasks__:
+                task_instance = __tasks__[name].instantiate(data=task_data)
+            else:
+                task_instance = Task(None, name).instantiate(data=task_data)
+
+            logger.info("%s: send %s", self, task_instance)
+
+            await self.backend.send_task(task_instance)
+
+    async def send_message(
+        self,
+        message: Any,
+        exchange: str = None,
+        routing_key: str = None,
+        priority: int = None,
+        ttl: int = None,
+        encrypt: bool = None,
+    ):
+        message = Message(exchange=exchange, data=message, priority=priority, ttl=ttl)
+        logger.info("%s: send %s", self, message)
+        await self.backend.send_message(message, routing_key=routing_key, encrypt=encrypt)
 
     async def pop_result(self, task_instance: TaskInstance):
         task_result = await self.backend.pop_task_result(task_instance)
@@ -198,35 +229,6 @@ class TaskProducer(Producer):
             else:
                 raise TaskError(task_result.exc, task_result.trb)
         return task_result.res
-
-
-class MessageProducer(Producer):
-    async def send(
-        self,
-        message: Any,
-        exchange: str = None,
-        routing_key: str = None,
-        priority: int = None,
-        ttl: int = None,
-        encrypt: bool = None,
-    ):
-
-        message = Message(exchange=exchange, data=message, priority=priority, ttl=ttl)
-
-        logger.info("%s: send %s", self, message)
-
-        await self.backend.send_message(message, routing_key=routing_key, encrypt=encrypt)
-
-
-class Consumer(Base):
-    def __init__(self, config: ConsumerConfig, backend_config_kwds: dict = None):
-        super().__init__(config, backend_config_kwds=backend_config_kwds)
-        self._running_tasks: dict = {}
-        self._lock: asyncio.Lock = asyncio.Lock()
-
-    async def close(self):
-        await self.stop_consume()
-        await super().close()
 
 
 class Executor:
@@ -301,13 +303,32 @@ class ThreadExecutor(Executor):
         return task_result
 
 
-class TaskConsumer(Consumer):
-    async def consume(self):
-        if self.config.queues:
-            logger.info("%s: consuming task queues %s", self, self.config.queues)
-            await self.backend.consume_tasks(self.config.queues, self._on_task)
+class Consumer(Base):
+    def __init__(self, config: ConsumerConfig, backend_config_kwds: dict = None, on_message=None):
+        super().__init__(config, backend_config_kwds=backend_config_kwds)
+        self.producer = Producer(
+            ProducerConfig(**{k: v for k, v in config.dict().items() if k in ProducerConfig.__fields__}),
+            backend_config_kwds=backend_config_kwds,
+        )
 
-    async def stop_consume(self):
+        if on_message:
+            self.on_message = on_message
+
+        self._running_tasks: dict = {}
+        self._running_messages: dict = {}
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    async def close(self):
+        await self.stop_consume_tasks()
+        await self.stop_consume_messages()
+        await super().close()
+
+    async def consume_tasks(self):
+        if self.config.task_queues:
+            logger.info("%s: consuming task queues %s", self, self.config.task_queues)
+            await self.backend.consume_tasks(self.config.task_queues, self._on_task)
+
+    async def stop_consume_tasks(self):
         async with self._lock:
             for task_id, aio_task in self._running_tasks.items():
                 logger.debug("Cancel processing task '%s'", task_id)
@@ -322,7 +343,7 @@ class TaskConsumer(Consumer):
                 if self.is_closed:
                     return
 
-                if len(self._running_tasks) + 1 >= self.config.pool_size:
+                if len(self._running_tasks) + len(self._running_messages) + 1 >= self.config.pool_size:
                     await self.backend.stop_consume_tasks()
                     try:
                         aio_task = asyncio.create_task(self._execute_task(task_instance))
@@ -331,7 +352,7 @@ class TaskConsumer(Consumer):
                         await aio_task
                     finally:
                         if not self.is_closed:
-                            await self.backend.consume_tasks(self.config.queues, self._on_task)
+                            await self.backend.consume_tasks(self.config.task_queues, self._on_task)
                     return
 
             aio_task = asyncio.create_task(self._execute_task(task_instance))
@@ -343,44 +364,55 @@ class TaskConsumer(Consumer):
 
     async def _execute_task(self, task_instance: TaskInstance):
         try:
-            if task_instance.data.thread is True:
+            task_data: TaskData = task_instance.data
+
+            if task_data.thread is True:
                 executor = ThreadExecutor()
             else:
                 executor = Executor()
 
             task_result: TaskResult = await executor(task_instance)
 
+            graph: Graph = task_data.graph
+            if graph is not None:
+                if task_result.exc is None:
+                    root: str = next(iter(graph.roots))
+                    if root in graph.edges:
+                        for child in graph.edges[root]:
+                            graph: Graph = Graph(
+                                id=graph.id,
+                                nodes=graph.nodes,
+                                edges=graph.edges,
+                                roots={child},
+                            )
+                            await self.producer.send_graph(
+                                graph,
+                                args=(task_result.res,),
+                                kwds={"graph_source_node": root},
+                            )
+
             if task_instance.data.result_return:
                 try:
-                    await self.backend.push_task_result(
-                        task_instance,
-                        task_result,
-                        encrypt=task_instance.task.result_encrypt,
-                    )
+                    await self.backend.push_task_result(task_instance, task_result)
                 except Exception as e:
                     logger.exception(e)
 
         except asyncio.CancelledError:
             pass
+        except Exception as e:
+            logger.exception(e)
 
+    async def consume_messages(self):
+        if self.config.message_queues:
+            logger.info("%s: consuming message queues %s", self, self.config.message_queues)
+            await self.backend.consume_messages(self.config.message_queues, self._on_message)
 
-class MessageConsumer(Consumer):
-    def __init__(self, *args, on_message=None, **kwds):
-        super().__init__(*args, **kwds)
-        if on_message:
-            self.on_message = on_message
-
-    async def consume(self):
-        if self.config.queues:
-            logger.info("%s: consuming message queues %s", self, self.config.queues)
-            await self.backend.consume_messages(self.config.queues, self._on_message)
-
-    async def stop_consume(self):
+    async def stop_consume_messages(self):
         async with self._lock:
-            for message_id, aio_task in self._running_tasks.items():
+            for message_id, aio_task in self._running_messages.items():
                 logger.debug("Cancel processing message '%s'", message_id)
                 aio_task.cancel()
-            self._running_tasks = {}
+            self._running_messages = {}
 
     async def on_message(self, message: Any):
         pass
@@ -390,7 +422,7 @@ class MessageConsumer(Consumer):
             message_id: UUID = message.message_id
 
             async with self._lock:
-                if len(self._running_tasks) + 1 >= self.config.pool_size:
+                if len(self._running_tasks) + len(self._running_messages) + 1 >= self.config.pool_size:
                     await self.backend.stop_consume_messages()
                     try:
                         aio_task = asyncio.create_task(self.on_message(message.data))
@@ -399,12 +431,12 @@ class MessageConsumer(Consumer):
                         await aio_task
                     finally:
                         if not self.is_closed:
-                            await self.backend.consume_messages(self.config.queues, self._on_message)
+                            await self.backend.consume_messages(self.config.message_queues, self._on_message)
                     return
 
             aio_task = asyncio.create_task(self.on_message(message.data))
-            aio_task.add_done_callback(lambda *args: self._running_tasks.pop(message_id, None))
-            self._running_tasks[message_id] = aio_task
+            aio_task.add_done_callback(lambda *args: self._running_messages.pop(message_id, None))
+            self._running_messages[message_id] = aio_task
 
         except Exception as e:
             logger.exception(e)

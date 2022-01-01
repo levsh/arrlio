@@ -48,7 +48,7 @@ async def test_Task():
     assert task.result_encrypt == settings.RESULT_ENCRYPT
     assert task.thread is None
 
-    task_instance = task.instatiate()
+    task_instance = task.instantiate()
     assert isinstance(task_instance.data.task_id, uuid.UUID)
     assert task_instance.data.args == ()
     assert task_instance.data.kwds == {}
@@ -64,9 +64,9 @@ async def test_Task():
 
     assert task() == "Foo!"
 
-    task_instance = models.Task(bar, "bar").instatiate(
+    task_instance = models.Task(bar, "bar").instantiate(
         models.TaskData(
-            task_id='e67b80b9-a9f0-4ff1-89e8-0beb70993ffd',
+            task_id="e67b80b9-a9f0-4ff1-89e8-0beb70993ffd",
             args=[1],
             kwds={"a": "a"},
             queue="abc",
@@ -93,7 +93,7 @@ async def test_Task():
     assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
     assert task_instance.task.thread is None
 
-    assert task_instance.data.task_id == uuid.UUID('e67b80b9-a9f0-4ff1-89e8-0beb70993ffd')
+    assert task_instance.data.task_id == uuid.UUID("e67b80b9-a9f0-4ff1-89e8-0beb70993ffd")
     assert task_instance.data.args == (1,)
     assert task_instance.data.kwds == {"a": "a"}
     assert task_instance.data.queue == "abc"
@@ -125,3 +125,41 @@ def test_sync_task():
         return "Hello from sync_task!"
 
     assert sync_task() == "Hello from sync_task!"
+
+
+def test_graph():
+    @arrlio.task
+    def A():
+        pass
+
+    @arrlio.task
+    def B():
+        pass
+
+    @arrlio.task
+    def C():
+        pass
+
+    graph = models.Graph("Test")
+    assert graph.id == "Test"
+    assert graph.nodes == {}
+    assert graph.edges == {}
+    assert graph.roots == set()
+
+    graph.add_node("A", A, root=True)
+    graph.add_node("B", B, args=(1,), kwds={"a": "b"})
+    graph.add_node("C", C)
+    graph.add_node("Z", A)
+    assert graph.nodes == {
+        "A": ["test_models.A", {}],
+        "B": ["test_models.B", {"args": (1,), "kwds": {"a": "b"}}],
+        "C": ["test_models.C", {}],
+        "Z": ["test_models.A", {}],
+    }
+
+    graph.add_edge("A", "B")
+    graph.add_edge("B", "B")
+    graph.add_edge("A", "C")
+    assert graph.edges == {"A": {"B", "C"}, "B": {"B"}}
+
+    assert graph.roots == {"A"}

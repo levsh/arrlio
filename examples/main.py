@@ -16,28 +16,28 @@ BACKEND = "arrlio.backend.local"
 
 async def main():
     async def example_1():
-        producer = arrlio.TaskProducer(arrlio.TaskProducerConfig(backend=BACKEND))
-        consumer = arrlio.TaskConsumer(arrlio.TaskConsumerConfig(backend=BACKEND))
+        producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
+        consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
 
         async with producer, consumer:
 
-            await consumer.consume()
+            await consumer.consume_tasks()
 
             # call by task
-            ar = await producer.send(tasks.hello_world)
+            ar = await producer.send_task(tasks.hello_world)
             logger.info(await ar.get())
 
             # call by task name
-            ar = await producer.send("foo")
+            ar = await producer.send_task("foo")
             logger.info(await ar.get())
 
             # task bind example
-            ar = await producer.send(tasks.bind)
+            ar = await producer.send_task(tasks.bind)
             logger.info(await ar.get())
 
             # exception
             try:
-                ar = await producer.send(tasks.exception)
+                ar = await producer.send_task(tasks.exception)
                 logger.info(await ar.get())
             except Exception as e:
                 print(f"\nThis is example exception for {producer.backend}:\n")
@@ -55,20 +55,20 @@ async def main():
             )
 
         backend_config_kwds = {"serializer": serializer}
-        consumer = arrlio.TaskConsumer(
-            arrlio.TaskConsumerConfig(backend=BACKEND),
+        consumer = arrlio.Consumer(
+            arrlio.ConsumerConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
-        producer = arrlio.TaskProducer(
-            arrlio.TaskProducerConfig(backend=BACKEND),
+        producer = arrlio.Producer(
+            arrlio.ProducerConfig(backend=BACKEND),
             backend_config_kwds=backend_config_kwds,
         )
 
         async with producer, consumer:
 
-            await consumer.consume()
+            await consumer.consume_tasks()
 
-            ar = await producer.send(tasks.hello_world, encrypt=True, result_encrypt=True)
+            ar = await producer.send_task(tasks.hello_world, encrypt=True, result_encrypt=True)
             logger.info(await ar.get())
 
     await example_1()

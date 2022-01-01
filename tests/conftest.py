@@ -3,16 +3,7 @@ import logging
 
 import pytest
 
-from arrlio import (
-    MessageConsumer,
-    MessageConsumerConfig,
-    MessageProducer,
-    MessageProducerConfig,
-    TaskConsumer,
-    TaskConsumerConfig,
-    TaskProducer,
-    TaskProducerConfig,
-)
+from arrlio import Consumer, ConsumerConfig, Producer, ProducerConfig
 
 from tests import utils
 
@@ -63,9 +54,9 @@ def backend(request, container_executor):
 
 
 @pytest.fixture(scope="function")
-async def task_producer(backend):
-    config = TaskProducerConfig(backend=backend.module)
-    producer = TaskProducer(config, backend_config_kwds=backend.config_kwds)
+async def producer(backend):
+    config = ProducerConfig(backend=backend.module)
+    producer = Producer(config, backend_config_kwds=backend.config_kwds)
     try:
         yield producer
     finally:
@@ -73,32 +64,10 @@ async def task_producer(backend):
 
 
 @pytest.fixture(scope="function")
-async def task_consumer(backend):
-    config = TaskConsumerConfig(backend=backend.module)
-    consumer = TaskConsumer(config, backend_config_kwds=backend.config_kwds)
+async def consumer(backend):
+    config = ConsumerConfig(backend=backend.module)
+    consumer = Consumer(config, backend_config_kwds=backend.config_kwds)
     try:
         yield consumer
     finally:
-        await consumer.stop_consume()
-        await consumer.close()
-
-
-@pytest.fixture(scope="function")
-async def message_producer(backend):
-    config = MessageProducerConfig(backend=backend.module)
-    producer = MessageProducer(config, backend_config_kwds=backend.config_kwds)
-    try:
-        yield producer
-    finally:
-        await producer.close()
-
-
-@pytest.fixture(scope="function")
-async def message_consumer(backend):
-    config = MessageConsumerConfig(backend=backend.module)
-    consumer = MessageConsumer(config, backend_config_kwds=backend.config_kwds)
-    try:
-        yield consumer
-    finally:
-        await consumer.stop_consume()
         await consumer.close()

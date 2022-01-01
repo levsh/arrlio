@@ -6,9 +6,10 @@ name = "pypi"
 [packages]
 aiormq = ">=5.2.2"
 cryptography = "*"
-pydantic = ">=1.8.2"
+pydantic = ">=1.9.0"
 yarl = "*"
 hiredis = "*"
+roview = {git = "https://github.com/levsh/roview.git"}
 siderpy = "*"
 
 [dev-packages]

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseSettings, Field
 
@@ -16,7 +16,7 @@ TASK_ACK_LATE = False
 
 RESULT_TTL = 300
 RESULT_RETURN = True
-RESULT_ENCRYPT = None
+RESULT_ENCRYPT = False
 
 MESSAGE_EXCHANGE = "arrlio.messages"
 MESSAGE_PRIORITY = 1
@@ -32,11 +32,11 @@ class TaskConfig(BaseSettings):
     bind: bool = Field(default_factory=lambda: TASK_BIND)
     queue: str = Field(default_factory=lambda: TASK_QUEUE)
     priority: PriorityT = Field(default_factory=lambda: TASK_PRIORITY)
-    timeout: TimeoutT = Field(default_factory=lambda: TASK_TIMEOUT)
-    ttl: PositiveIntT = Field(default_factory=lambda: TASK_TTL)
-    ack_late: bool = Field(default_factory=lambda: TASK_ACK_LATE)
-    result_return: bool = Field(default_factory=lambda: RESULT_RETURN)
-    result_encrypt: bool = Field(default_factory=lambda: RESULT_ENCRYPT)
+    timeout: Optional[TimeoutT] = Field(default_factory=lambda: TASK_TIMEOUT)
+    ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_TTL)
+    ack_late: Optional[bool] = Field(default_factory=lambda: TASK_ACK_LATE)
+    result_return: Optional[bool] = Field(default_factory=lambda: RESULT_RETURN)
+    result_encrypt: Optional[bool] = Field(default_factory=lambda: RESULT_ENCRYPT)
 
     class Config:
         validate_assignment = True
@@ -44,62 +44,41 @@ class TaskConfig(BaseSettings):
 
 
 class ResultConfig(BaseSettings):
-    ttl: PositiveIntT = Field(default_factory=lambda: RESULT_TTL)
+    ttl: Optional[PositiveIntT] = Field(default_factory=lambda: RESULT_TTL)
 
     class Config:
         validate_assignment = True
         env_prefix = "ARRLIO_RESULT_"
 
 
-class ProducerConfig(BaseSettings):
-    backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
-
-
-class TaskProducerConfig(ProducerConfig):
-    task: TaskConfig = Field(default_factory=TaskConfig)
-    result: ResultConfig = Field(default_factory=ResultConfig)
-
-    class Config:
-        validate_assignment = True
-        env_prefix = "ARRLIO_TASK_PRODUCER_"
-
-
 class MessageConfig(BaseSettings):
     exchange: str = Field(default_factory=lambda: MESSAGE_EXCHANGE)
     priority: PriorityT = Field(default_factory=lambda: MESSAGE_PRIORITY)
-    ttl: PositiveIntT = Field(default_factory=lambda: MESSAGE_TTL)
-    ack_late: bool = Field(default_factory=lambda: MESSAGE_ACK_LATE)
+    ttl: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGE_TTL)
+    ack_late: Optional[bool] = Field(default_factory=lambda: MESSAGE_ACK_LATE)
 
     class Config:
         validate_assignment = True
         env_prefix = "ARRLIO_MESSAGE_"
 
 
-class MessageProducerConfig(ProducerConfig):
+class ProducerConfig(BaseSettings):
+    backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
+    task: TaskConfig = Field(default_factory=TaskConfig)
+    result: ResultConfig = Field(default_factory=ResultConfig)
     message: MessageConfig = Field(default_factory=MessageConfig)
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_MESSAGE_PRODUCER_"
+        env_prefix = "ARRLIO_PRODUCER_"
 
 
 class ConsumerConfig(BaseSettings):
     backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
-
-
-class TaskConsumerConfig(ConsumerConfig):
-    queues: List[str] = Field(default_factory=lambda: CONSUMER_TASK_QUEUES)
+    task_queues: List[str] = Field(default_factory=lambda: CONSUMER_TASK_QUEUES)
+    message_queues: List[str] = Field(default_factory=lambda: CONSUMER_MESSAGE_QUEUES)
     pool_size: PositiveIntT = Field(default_factory=lambda: CONSUMER_POOL_SIZE)
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_TASK_CONSUMER_"
-
-
-class MessageConsumerConfig(ConsumerConfig):
-    queues: List[str] = Field(default_factory=lambda: CONSUMER_MESSAGE_QUEUES)
-    pool_size: PositiveIntT = Field(default_factory=lambda: CONSUMER_POOL_SIZE)
-
-    class Config:
-        validate_assignment = True
-        env_prefix = "ARRLIO_MESSAGE_CONSUMER_"
+        env_prefix = "ARRLIO_CONSUMER_"

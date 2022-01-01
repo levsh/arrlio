@@ -3,6 +3,10 @@ Simplest asyncio task system
 
 ![tests](https://github.com/levsh/arrlio/workflows/tests/badge.svg)
 
+```bash
+pip install arrlio
+```
+
 ```python
 import asyncio
 import os
@@ -31,18 +35,18 @@ def serializer():
 
 async def main():
     backend_config_kwds = {"serializer": serializer}
-    producer = arrlio.TaskProducer(
-        arrlio.TaskProducerConfig(backend=BACKEND),
+    producer = arrlio.Producer(
+        arrlio.ProducerConfig(backend=BACKEND),
         backend_config_kwds=backend_config_kwds
     )
-    consumer = arrlio.TaskConsumer(
-        arrlio.TaskConsumerConfig(backend=BACKEND),
+    consumer = arrlio.Consumer(
+        arrlio.ConsumerConfig(backend=BACKEND),
         backend_config_kwds=backend_config_kwds
     )
 
     async with producer, consumer:
-        await consumer.consume()
-        ar = await producer.send("hello_world")
+        await consumer.consume_tasks()
+        ar = await producer.send_task("hello_world")
         await ar.get()
 
 

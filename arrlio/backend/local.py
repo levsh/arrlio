@@ -3,7 +3,7 @@ import collections
 import dataclasses
 import logging
 import time
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import Field
@@ -22,7 +22,7 @@ SERIALIZER: str = "arrlio.serializer.nop.Nop"
 
 
 class BackendConfig(base.BackendConfig):
-    name: str = Field(default_factory=lambda: BACKEND_NAME)
+    name: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
 
     class Config:
@@ -73,7 +73,7 @@ class Backend(base.Backend):
         self._shared["refs"] = value
 
     @base.Backend.task
-    async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
+    async def send_task(self, task_instance: TaskInstance, **kwds):
         task_data = task_instance.data
         if task_instance.task.result_return:
             self._results[task_data.task_id] = [asyncio.Event(), None]
@@ -83,16 +83,16 @@ class Backend(base.Backend):
                 (PriorityT.le - task_data.priority) if task_data.priority else PriorityT.ge,
                 time.monotonic(),
                 task_instance.data.ttl,
-                self.serializer.dumps_task_instance(task_instance, encrypt=encrypt),
+                self.serializer.dumps_task_instance(task_instance),
             )
         )
 
     @base.Backend.task
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         async def consume_queue(queue: str):
+            logger.info("%s: consuming tasks queue '%s'", self, queue)
             while True:
                 try:
-                    logger.info("%s: consuming tasks queue '%s'", self, queue)
                     _, ts, ttl, data = await self._task_queues[queue].get()
                     if ttl is not None and time.monotonic() >= ts + ttl:
                         continue
@@ -114,11 +114,14 @@ class Backend(base.Backend):
         self._task_consumers = {}
 
     @base.Backend.task
-    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult, encrypt: bool = None):
+    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
         if not task_instance.task.result_return:
             return
         task_id: UUID = task_instance.data.task_id
-        self._results[task_id][1] = self.serializer.dumps_task_result(task_result, encrypt=encrypt)
+        self._results[task_id][1] = self.serializer.dumps_task_result(
+            task_result,
+            encrypt=task_instance.data.result_encrypt,
+        )
         self._results[task_id][0].set()
         if task_instance.data.result_ttl is not None:
             loop = asyncio.get_event_loop()

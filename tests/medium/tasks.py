@@ -1,7 +1,11 @@
 import asyncio
+import logging
 import threading
 
 import arrlio
+
+
+logger = logging.getLogger("arrlio.tests")
 
 
 @arrlio.task(name="hello_world")
@@ -41,3 +45,10 @@ async def thread_name():
 @arrlio.task(name="sync_task")
 def sync_task():
     return "Hello from sync_task!"
+
+
+@arrlio.task
+def add_one(x: str, **kwds):
+    res = int(x) + 1
+    logger.info(res)
+    return res

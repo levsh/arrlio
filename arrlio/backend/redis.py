@@ -2,7 +2,7 @@ import asyncio
 import dataclasses
 import itertools
 import logging
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 import siderpy
 from pydantic import Field
@@ -28,14 +28,14 @@ VERIFY_SSL: bool = True
 
 
 class BackendConfig(base.BackendConfig):
-    name: str = Field(default_factory=lambda: BACKEND_NAME)
+    name: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     url: RedisDsn = Field(default_factory=lambda: URL)
-    timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)
-    connect_timeout: TimeoutT = Field(default_factory=lambda: CONNECT_TIMEOUT)
-    retry_timeouts: List = Field(default_factory=lambda: RETRY_TIMEOUTS)
-    pool_size: PositiveIntT = Field(default_factory=lambda: POOL_SIZE)
-    verify_ssl: bool = Field(default_factory=lambda: True)
+    timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
+    connect_timeout: Optional[TimeoutT] = Field(default_factory=lambda: CONNECT_TIMEOUT)
+    retry_timeouts: Optional[List] = Field(default_factory=lambda: RETRY_TIMEOUTS)
+    pool_size: Optional[PositiveIntT] = Field(default_factory=lambda: POOL_SIZE)
+    verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
 
     class Config:
         validate_assignment = True
@@ -71,10 +71,10 @@ class Backend(base.Backend):
         return f"q.m.{queue}"
 
     @base.Backend.task
-    async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
+    async def send_task(self, task_instance: TaskInstance, **kwds):
         queue = task_instance.data.queue
         queue_key = self._make_task_queue_key(queue)
-        data = self.serializer.dumps_task_instance(task_instance, encrypt=encrypt)
+        data = self.serializer.dumps_task_instance(task_instance)
 
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():
@@ -124,7 +124,7 @@ class Backend(base.Backend):
         self._task_consumers = {}
 
     @base.Backend.task
-    async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult, encrypt: bool = None):
+    async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult):
         if not task_instance.task.result_return:
             raise TaskNoResultError(task_instance.data.task_id)
         result_key = self._make_result_key(task_instance.data.task_id)
@@ -132,7 +132,10 @@ class Backend(base.Backend):
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():
                 await redis.multi()
-                await redis.rpush(result_key, self.serializer.dumps_task_result(task_result, encrypt=encrypt))
+                await redis.rpush(
+                    result_key,
+                    self.serializer.dumps_task_result(task_result, encrypt=task_instance.data.result_encrypt),
+                )
                 await redis.expire(result_key, task_instance.data.result_ttl)
                 await redis.execute()
                 await redis.pipeline_execute()

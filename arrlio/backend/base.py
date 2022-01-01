@@ -2,7 +2,7 @@ import abc
 import asyncio
 import logging
 from types import MethodType
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseSettings
 
@@ -15,9 +15,9 @@ logger = logging.getLogger("arrlio")
 
 
 class BackendConfig(BaseSettings):
-    name: str = None
+    name: Optional[str]
     serializer: SerializerT
-    timeout: TimeoutT = None
+    timeout: Optional[TimeoutT]
 
 
 class Backend(abc.ABC):
@@ -60,7 +60,7 @@ class Backend(abc.ABC):
         await self.stop_consume_messages()
 
     @abc.abstractmethod
-    async def send_task(self, task_instance: TaskInstance, encrypt: bool = None, **kwds):
+    async def send_task(self, task_instance: TaskInstance, **kwds):
         pass
 
     @abc.abstractmethod
@@ -72,7 +72,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult, encrypt: bool = None):
+    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
         pass
 
     @abc.abstractmethod

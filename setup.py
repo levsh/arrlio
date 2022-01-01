@@ -27,9 +27,13 @@ setup(
     install_requires=[
         "aiormq>=5.2.0",
         "cryptography",
-        "pydantic>=1.8.2",
+        "pydantic>=1.9.0",
         "yarl",
+        "roview",
         "siderpy[hiredis]",
+    ],
+    dependency_links=[
+        "git+git://github.com/levsh/roview.git#egg=roview",
     ],
     python_requires=">=3.8",
     classifiers=[

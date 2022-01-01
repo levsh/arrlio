@@ -4,7 +4,7 @@ import datetime
 import functools
 import inspect
 import logging
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 from uuid import UUID
 
 import aiormq
@@ -36,17 +36,17 @@ MESSAGE_PREFETCH_COUNT: int = 1
 
 
 class BackendConfig(base.BackendConfig):
-    name: str = Field(default_factory=lambda: BACKEND_NAME)
+    name: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     url: RMQDsn = Field(default_factory=lambda: URL)
-    timeout: TimeoutT = Field(default_factory=lambda: TIMEOUT)
-    retry_timeouts: List = Field(default_factory=lambda: RETRY_TIMEOUTS)
-    verify_ssl: bool = Field(default_factory=lambda: True)
+    timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
+    retry_timeouts: Optional[List] = Field(default_factory=lambda: RETRY_TIMEOUTS)
+    verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
     task_exchange: str = Field(default_factory=lambda: TASK_EXCHANGE)
     task_queue_durable: bool = Field(default_factory=lambda: TASK_QUEUE_DURABLE)
-    task_queue_ttl: PositiveIntT = Field(default_factory=lambda: TASK_QUEUE_TTL)
-    task_prefetch_count: PositiveIntT = Field(default_factory=lambda: TASK_PREFETCH_COUNT)
-    message_prefetch_count: PositiveIntT = Field(default_factory=lambda: MESSAGE_PREFETCH_COUNT)
+    task_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_QUEUE_TTL)
+    task_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_PREFETCH_COUNT)
+    message_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGE_PREFETCH_COUNT)
 
     class Config:
         validate_assignment = True
@@ -297,20 +297,14 @@ class Backend(base.Backend):
             await channel.queue_bind(queue, self.config.task_exchange, routing_key=queue, timeout=self.config.timeout)
 
     @base.Backend.task
-    async def send_task(
-        self,
-        task_instance: TaskInstance,
-        encrypt: bool = None,
-        result_queue_durable: bool = False,
-        **kwds,
-    ):
+    async def send_task(self, task_instance: TaskInstance, result_queue_durable: bool = False, **kwds):
         task_data = task_instance.data
         task_data.extra["result_queue_durable"] = result_queue_durable
         await self.declare_task_queue(task_data.queue)
         logger.debug("%s: put %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps_task_instance(task_instance, encrypt=encrypt),
+                self.serializer.dumps_task_instance(task_instance),
                 exchange=self.config.task_exchange,
                 routing_key=task_data.queue,
                 properties=aiormq.spec.Basic.Properties(
@@ -329,14 +323,17 @@ class Backend(base.Backend):
             timeout = self.config.timeout
 
             async def on_msg(channel: aiormq.Channel, msg):
-                task_instance = self.serializer.loads_task_instance(msg.body)
-                logger.debug("%s: got %s", self, task_instance)
-                ack_late = task_instance.task.ack_late
-                if not ack_late:
-                    await channel.basic_ack(msg.delivery.delivery_tag)
-                await asyncio.shield(on_task(task_instance))
-                if ack_late:
-                    await channel.basic_ack(msg.delivery.delivery_tag)
+                try:
+                    task_instance = self.serializer.loads_task_instance(msg.body)
+                    logger.debug("%s: got %s", self, task_instance)
+                    ack_late = task_instance.task.ack_late
+                    if not ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+                    await asyncio.shield(on_task(task_instance))
+                    if ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+                except Exception:
+                    logger.exception("Internal error")
 
             async with self._conn.channel_ctx() as channel:
                 await channel.basic_qos(prefetch_count=self.config.task_prefetch_count, timeout=timeout)
@@ -392,14 +389,14 @@ class Backend(base.Backend):
         return queue
 
     @base.Backend.task
-    async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult, encrypt: bool = None):
+    async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult):
         if not task_instance.task.result_return:
             raise TaskNoResultError(task_instance.data.task_id)
         routing_key = await self.declare_result_queue(task_instance)
         logger.debug("%s: push result for %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps_task_result(task_result, encrypt=encrypt),
+                self.serializer.dumps_task_result(task_result, encrypt=task_instance.data.result_encrypt),
                 exchange=self.config.task_exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(
@@ -485,21 +482,26 @@ class Backend(base.Backend):
             timeout = self.config.timeout
 
             async def on_msg(channel: aiormq.Channel, msg):
-                data = {
-                    "data": self.serializer.loads(msg.body),
-                    "message_id": UUID(msg.header.properties.message_id),
-                    "exchange": msg.delivery.exchange,
-                    "priority": msg.delivery.routing_key,
-                    "ttl": int(msg.header.properties.expiration) // 1000 if msg.header.properties.expiration else None,
-                }
-                message = Message(**data)
-                logger.debug("%s: got %s", self, message)
-                ack_late = message.ack_late
-                if not ack_late:
-                    await channel.basic_ack(msg.delivery.delivery_tag)
-                await asyncio.shield(on_message(message))
-                if ack_late:
-                    await channel.basic_ack(msg.delivery.delivery_tag)
+                try:
+                    data = {
+                        "data": self.serializer.loads(msg.body),
+                        "message_id": UUID(msg.header.properties.message_id),
+                        "exchange": msg.delivery.exchange,
+                        "priority": msg.delivery.routing_key,
+                        "ttl": int(msg.header.properties.expiration) // 1000
+                        if msg.header.properties.expiration
+                        else None,
+                    }
+                    message = Message(**data)
+                    logger.debug("%s: got %s", self, message)
+                    ack_late = message.ack_late
+                    if not ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+                    await asyncio.shield(on_message(message))
+                    if ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+                except Exception:
+                    logger.exception("Internal error")
 
             async with self._conn.channel_ctx() as channel:
                 await channel.basic_qos(prefetch_count=self.config.message_prefetch_count, timeout=timeout)

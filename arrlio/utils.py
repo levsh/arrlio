@@ -4,6 +4,7 @@ import inspect
 import itertools
 import json
 import logging
+from dataclasses import asdict
 from datetime import datetime
 from types import MethodType
 from typing import Iterable
@@ -11,6 +12,7 @@ from uuid import UUID
 
 import pydantic
 
+from arrlio.models import Task
 from arrlio.tp import ExceptionFilterT
 
 
@@ -23,6 +25,12 @@ class ExtendedJSONEncoder(json.JSONEncoder):
             return o.isoformat()
         if isinstance(o, (UUID, pydantic.SecretStr, pydantic.SecretBytes)):
             return str(o)
+        if isinstance(o, set):
+            return list(o)
+        if isinstance(o, Task):
+            o = asdict(o)
+            o["func"] = f"{o['func'].__module__}.{o['func'].__name__}"
+            return o
         return super().default(o)
 
 
