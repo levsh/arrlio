@@ -75,7 +75,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, **kwds):
         task_data = task_instance.data
-        if task_instance.task.result_return:
+        if task_instance.task.result_return and task_data.task_id not in self._results:
             self._results[task_data.task_id] = [asyncio.Event(), None]
         logger.debug("%s: put %s", self, task_instance)
         await self._task_queues[task_data.queue].put(
