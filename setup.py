@@ -32,15 +32,11 @@ setup(
         "roview",
         "siderpy[hiredis]",
     ],
-    dependency_links=[
-        "git+git://github.com/levsh/roview.git#egg=roview",
-    ],
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3 :: Only",
-        "Topic :: System :: Distributed Computing",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
     ],
