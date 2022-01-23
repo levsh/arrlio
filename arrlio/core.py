@@ -436,7 +436,7 @@ class Consumer(Base):
                     await self.backend.stop_consume_messages()
                     try:
                         aio_task = asyncio.create_task(self.on_message(message.data))
-                        aio_task.add_done_callback(lambda *args: self._running_tasks.pop(message_id, None))
+                        aio_task.add_done_callback(lambda *args: self._running_messages.pop(message_id, None))
                         self._running_tasks[message_id] = aio_task
                         await aio_task
                     finally:
