@@ -77,6 +77,38 @@ async def main():
 asyncio.run(main())
 ```
 
+```python
+import asyncio
+import os
+
+import arrlio
+import invoke
+
+
+@arrlio.task(thread=True)
+async def bash(cmd):
+    return invoke.run(cmd).stdout
+
+graph = arrlio.Graph("My Graph")
+graph.add_node("A", bash, root=True)
+graph.add_node("B", bash, args=("wc -w",))
+
+BACKEND = "arrlio.backend.local"
+
+async def main():
+    producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
+    consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+
+    async with producer, consumer:
+        await consumer.consume_tasks()
+
+        ars = await producer.send_graph(graph, args=("This sentence contains 5 words",))
+        print(await ars["B"].get())
+
+
+asyncio.run(main())
+```
+
 ```bash
 pipenv install
 pipenv run python examples/main.py

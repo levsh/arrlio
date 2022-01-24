@@ -88,9 +88,25 @@ async def main():
             logger.info("B: %i", await ars["B"].get())
             logger.info("C: %i", await ars["C"].get())
 
+    async def example_4():
+        graph = arrlio.Graph("My Graph")
+        graph.add_node("A", tasks.bash, root=True)
+        graph.add_node("B", tasks.bash, args=("wc -w",))
+        graph.add_edge("A", "B")
+
+        producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
+        consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+
+        async with producer, consumer:
+            await consumer.consume_tasks()
+
+            ars = await producer.send_graph(graph, args=('echo "Number of words in this sentence:"',))
+            logger.info(await asyncio.wait_for(ars["B"].get(), timeout=2))
+
     await example_1()
     await example_2()
     await example_3()
+    await example_4()
 
 
 if __name__ == "__main__":

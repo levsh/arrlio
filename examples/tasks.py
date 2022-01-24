@@ -1,4 +1,7 @@
+import io
+
 import arrlio
+import invoke
 
 
 @arrlio.task
@@ -25,3 +28,11 @@ async def exception():
 @arrlio.task
 async def add_one(value: str, **kwds):
     return int(value) + 1
+
+
+@arrlio.task
+async def bash(cmd, stdin: str = None, **kwds):
+    in_stream=io.StringIO(stdin)
+    out_stream=io.StringIO()
+    result = invoke.run(cmd, in_stream=in_stream, out_stream=out_stream)
+    return result.stdout
