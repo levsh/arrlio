@@ -11,6 +11,7 @@ yarl = "*"
 hiredis = "*"
 roview = {git = "https://github.com/levsh/roview.git"}
 siderpy = "*"
+arrlio = {editable = true, path = "."}
 
 [dev-packages]
 build = "*"
@@ -21,7 +22,6 @@ invoke = "*"
 pytest = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
-six = "*"  # docker-py bug
 twine = "*"
 
 [requires]
