@@ -118,10 +118,13 @@ class Backend(base.Backend):
         for queue in queues:
             self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
-    async def stop_consume_tasks(self):
-        for queue, task in self._task_consumers.items():
-            task.cancel()
-        self._task_consumers = {}
+    async def stop_consume_tasks(self, queues: List[str] = None):
+        if queues is None:
+            queues = set(self._task_consumers.keys())
+        for queue in queues:
+            if queue in self._task_consumers:
+                self._task_consumers[queue].cancel()
+                del self._task_consumers[queue]
 
     @base.Backend.task
     async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult):
@@ -145,25 +148,6 @@ class Backend(base.Backend):
         result_key = self._make_result_key(task_instance.data.task_id)
         raw_data = await self.redis_pool.blpop(result_key, 0)
         return self.serializer.loads_task_result(raw_data[1])
-
-    @base.Backend.task
-    async def push_event(self, task_instance: core.TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
-
-        queue_key = "arrlio.events"
-        data = self.serializer.dumps_event(event)
-
-        async with self.redis_pool.get_redis() as redis:
-            with redis.pipeline():
-                await redis.multi()
-                await redis.setex(f"{event.event_id}", task_instance.data.event_ttl, data)
-                await redis.rpush(queue_key, event.task_id)
-                await redis.execute()
-                await redis.pipeline_execute()
-
-    async def stop_consume_events(self):
-        pass
 
     @base.Backend.task
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):
@@ -215,7 +199,29 @@ class Backend(base.Backend):
         for queue in queues:
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
-    async def stop_consume_messages(self):
-        for queue, task in self._message_consumers.items():
-            task.cancel()
-        self._message_consumers = {}
+    async def stop_consume_messages(self, queues: List[str] = None):
+        if queues is None:
+            queues = set(self._message_consumers.keys())
+        for queue in queues:
+            if queue in self._message_consumers:
+                self._message_consumers[queue].cancel()
+                del self._message_consumers[queue]
+
+    @base.Backend.task
+    async def push_event(self, task_instance: core.TaskInstance, event: Event):
+        if not task_instance.data.events:
+            return
+
+        queue_key = "arrlio.events"
+        data = self.serializer.dumps_event(event)
+
+        async with self.redis_pool.get_redis() as redis:
+            with redis.pipeline():
+                await redis.multi()
+                await redis.setex(f"{event.event_id}", task_instance.data.event_ttl, data)
+                await redis.rpush(queue_key, event.task_id)
+                await redis.execute()
+                await redis.pipeline_execute()
+
+    async def stop_consume_events(self):
+        pass

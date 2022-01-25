@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from arrlio import Consumer, ConsumerConfig, Producer, ProducerConfig
+from arrlio import App, Config
 
 from tests import utils
 
@@ -54,20 +54,12 @@ def backend(request, container_executor):
 
 
 @pytest.fixture(scope="function")
-async def producer(backend):
-    config = ProducerConfig(backend=backend.module)
-    producer = Producer(config, backend_config_kwds=backend.config_kwds)
+async def app(backend):
+    config = Config(backend=backend.module)
+    app = App(config, backend_config_kwds=backend.config_kwds)
     try:
-        yield producer
+        yield app
     finally:
-        await producer.close()
-
-
-@pytest.fixture(scope="function")
-async def consumer(backend):
-    config = ConsumerConfig(backend=backend.module)
-    consumer = Consumer(config, backend_config_kwds=backend.config_kwds)
-    try:
-        yield consumer
-    finally:
-        await consumer.close()
+        await app.close()
+        import asyncio
+        await asyncio.sleep(1)

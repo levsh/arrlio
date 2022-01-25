@@ -25,9 +25,9 @@ MESSAGE_PRIORITY = 1
 MESSAGE_TTL = 300
 MESSAGE_ACK_LATE = False
 
-CONSUMER_TASK_QUEUES = [TASK_QUEUE]
-CONSUMER_MESSAGE_QUEUES = [MESSAGE_EXCHANGE]
-CONSUMER_POOL_SIZE = 100
+TASK_QUEUES = [TASK_QUEUE]
+MESSAGE_QUEUES = [MESSAGE_EXCHANGE]
+POOL_SIZE = 100
 
 
 class TaskConfig(BaseSettings):
@@ -57,22 +57,14 @@ class MessageConfig(BaseSettings):
         env_prefix = "ARRLIO_MESSAGE_"
 
 
-class ProducerConfig(BaseSettings):
+class Config(BaseSettings):
     backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
     task: TaskConfig = Field(default_factory=TaskConfig)
     message: MessageConfig = Field(default_factory=MessageConfig)
+    task_queues: List[str] = Field(default_factory=lambda: TASK_QUEUES)
+    message_queues: List[str] = Field(default_factory=lambda: MESSAGE_QUEUES)
+    pool_size: PositiveIntT = Field(default_factory=lambda: POOL_SIZE)
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_PRODUCER_"
-
-
-class ConsumerConfig(BaseSettings):
-    backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
-    task_queues: List[str] = Field(default_factory=lambda: CONSUMER_TASK_QUEUES)
-    message_queues: List[str] = Field(default_factory=lambda: CONSUMER_MESSAGE_QUEUES)
-    pool_size: PositiveIntT = Field(default_factory=lambda: CONSUMER_POOL_SIZE)
-
-    class Config:
-        validate_assignment = True
-        env_prefix = "ARRLIO_CONSUMER_"
+        env_prefix = "ARRLIO_"

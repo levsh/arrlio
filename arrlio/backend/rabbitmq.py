@@ -176,6 +176,8 @@ class RMQConnection:
             raise ConnectionError()
 
         async with self._conn_lock:
+            if self.is_open:
+                return
             if self.is_closed:
                 raise Exception("Can't reopen closed connection")
 
@@ -369,17 +371,20 @@ class Backend(base.Backend):
 
             self._conn.add_callback("on_lost", id(self), "consume_tasks", _consume_tasks)
 
-    async def stop_consume_tasks(self):
+    async def stop_consume_tasks(self, queues: List[str] = None):
         await self.__conn.remove_callback("on_lost", id(self), "consume_tasks")
         async with self._consume_lock:
-            try:
-                for queue, (channel, consume_ok) in self._task_consumers.items():
-                    if not self.__conn.is_closed and not channel.is_closed:
-                        logger.debug("%s: stop consuming queue '%s'", self, queue)
-                        await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-                        await channel.close()
-            finally:
-                self._task_consumers = {}
+            if queues is None:
+                queues = set(self._task_consumers.keys())
+            for queue in queues:
+                if queue not in self._task_consumers:
+                    continue
+                channel, consume_ok = self._task_consumers[queue]
+                if not self.__conn.is_closed and not channel.is_closed:
+                    logger.debug("%s: stop consuming queue '%s'", self, queue)
+                    await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                    await channel.close()
+                del self._task_consumers[queue]
 
     @base.Backend.task
     async def declare_result_queue(self, task_instance: TaskInstance):
@@ -465,24 +470,6 @@ class Backend(base.Backend):
                         await channel.close()
 
     @base.Backend.task
-    async def push_event(self, task_instance: TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
-        async with self._conn.channel_ctx() as channel:
-            await channel.basic_publish(
-                self.serializer.dumps_event(event),
-                exchange=self.config.events_queue,
-                properties=aiormq.spec.Basic.Properties(
-                    delivery_mode=2,
-                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
-                ),
-                timeout=self.config.timeout,
-            )
-
-    async def stop_consume_events(self):
-        pass
-
-    @base.Backend.task
     async def send_message(
         self,
         message: Message,
@@ -554,14 +541,35 @@ class Backend(base.Backend):
 
             self._conn.add_callback("on_lost", id(self), "consume_messages", _consume_messages)
 
-    async def stop_consume_messages(self):
+    async def stop_consume_messages(self, queues: List[str] = None):
         await self.__conn.remove_callback("on_lost", id(self), "consume_messages")
         async with self._consume_lock:
-            try:
-                for queue, (channel, consume_ok) in self._message_consumers.items():
-                    if not self.__conn.is_closed and not channel.is_closed:
-                        logger.debug("%s: stop consuming messages queue '%s'", self, queue)
-                        await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-                        await channel.close()
-            finally:
-                self._message_consumers = {}
+            if queues is None:
+                queues = set(self._message_consumers.keys())
+            for queue in queues:
+                if queue not in self._message_consumers:
+                    continue
+                channel, consume_ok = self._message_consumers[queue]
+                if not self.__conn.is_closed and not channel.is_closed:
+                    logger.debug("%s: stop consuming messages queue '%s'", self, queue)
+                    await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                    await channel.close()
+                del self._message_consumers[queue]
+
+    @base.Backend.task
+    async def push_event(self, task_instance: TaskInstance, event: Event):
+        if not task_instance.data.events:
+            return
+        async with self._conn.channel_ctx() as channel:
+            await channel.basic_publish(
+                self.serializer.dumps_event(event),
+                exchange=self.config.events_queue,
+                properties=aiormq.spec.Basic.Properties(
+                    delivery_mode=2,
+                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                ),
+                timeout=self.config.timeout,
+            )
+
+    async def stop_consume_events(self):
+        pass

@@ -32,6 +32,7 @@ class Backend(abc.ABC):
 
     def _cancel_tasks(self):
         for task in self._tasks:
+            logger.debug("Cancel task %s", task)
             task.cancel()
 
     def task(method: MethodType):
@@ -69,7 +70,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def stop_consume_tasks(self):
+    async def stop_consume_tasks(self, queues: List[str] = None):
         pass
 
     @abc.abstractmethod
@@ -101,5 +102,5 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def stop_consume_messages(self):
+    async def stop_consume_messages(self, queues: List[str] = None):
         pass
