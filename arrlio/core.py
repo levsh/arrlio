@@ -262,14 +262,17 @@ class Producer(Base):
         ack_late: bool = None,
         encrypt: bool = None,
     ):
+        settings = self.config.message.dict(exclude_unset=True)
+
         if exchange is None:
-            exchange = self.config.message.exchange
+            exchange = settings.get("exchange")
         if priority is None:
-            priority = self.config.message.priority
+            priority = settings.get("priority")
         if ttl is None:
-            ttl = self.config.message.ttl
+            ttl = settings.get("ttl")
         if ack_late is None:
-            ack_late = self.config.message.ack_late
+            ack_late = settings.get("ack_late")
+
         message = Message(exchange=exchange, data=message, priority=priority, ttl=ttl, ack_late=ack_late)
         logger.info("%s: send %s", self, message)
         await self.backend.send_message(message, routing_key=routing_key, encrypt=encrypt)
