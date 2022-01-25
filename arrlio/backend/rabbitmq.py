@@ -176,6 +176,8 @@ class RMQConnection:
             raise ConnectionError()
 
         async with self._conn_lock:
+            if self.is_open:
+                return
             if self.is_closed:
                 raise Exception("Can't reopen closed connection")
 
