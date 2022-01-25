@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from pydantic import BaseSettings
 
-from arrlio.models import Message, TaskInstance, TaskResult
+from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.serializer.base import Serializer
 from arrlio.tp import AsyncCallableT, SerializerT, TimeoutT
 
@@ -58,6 +58,7 @@ class Backend(abc.ABC):
         self._cancel_tasks()
         await self.stop_consume_tasks()
         await self.stop_consume_messages()
+        await self.stop_consume_events()
 
     @abc.abstractmethod
     async def send_task(self, task_instance: TaskInstance, **kwds):
@@ -78,6 +79,18 @@ class Backend(abc.ABC):
     @abc.abstractmethod
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
         pass
+
+    @abc.abstractmethod
+    async def push_event(self, task_instance: TaskInstance, event: Event):
+        pass
+
+    # @abc.abstractmethod
+    # async def consume_events(self, on_event: AsyncCallableT):
+    #     pass
+
+    # @abc.abstractmethod
+    # async def stop_consume_events(self):
+    #     pass
 
     @abc.abstractmethod
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):

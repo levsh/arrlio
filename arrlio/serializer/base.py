@@ -1,7 +1,7 @@
 import abc
 from typing import Any, Union
 
-from arrlio.models import TaskInstance, TaskResult
+from arrlio.models import Event, TaskInstance, TaskResult
 
 
 class Serializer(abc.ABC):
@@ -19,6 +19,14 @@ class Serializer(abc.ABC):
 
     @abc.abstractmethod
     def loads_task_result(self, data: Union[bytes, TaskResult]) -> TaskResult:
+        pass
+
+    @abc.abstractmethod
+    def dumps_event(self, event: Event, **kwds) -> Union[bytes, Event]:
+        pass
+
+    @abc.abstractmethod
+    def loads_event(self, data: Union[bytes, Event]) -> Event:
         pass
 
     @abc.abstractmethod

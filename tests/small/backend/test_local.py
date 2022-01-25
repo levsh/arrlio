@@ -89,7 +89,7 @@ async def test_Backend_push_pop_task_result():
     backend = local.Backend(local.BackendConfig())
     task_instance = TaskInstance(
         task=Task(None, "test_push_pop_task_result"),
-        data=TaskData(queue="queue", result_ttl=1),
+        data=TaskData(queue="queue", result_return=True, result_ttl=1),
     )
     result = mock.MagicMock()
     backend._results[task_instance.data.task_id] = [asyncio.Event(), None]

@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import inspect
 import itertools
 import json
 import logging
@@ -43,12 +42,10 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
         async def wrapper(*args, **kwds):
             while True:
                 try:
-                    if inspect.iscoroutinefunction(fn):
-                        return await fn(*args, **kwds)
-                    return fn(*args, **kwds)
+                    return await fn(*args, **kwds)
                 except Exception as e:
-                    logger.error(e)
                     if not exc_filter(e):
+                        logger.error(e)
                         raise e
                     try:
                         t = next(retry_timeouts)

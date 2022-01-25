@@ -10,7 +10,7 @@ from pydantic import Field
 
 from arrlio.backend import base
 from arrlio.core import TaskNoResultError
-from arrlio.models import Message, TaskInstance, TaskResult
+from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
 
 
@@ -43,14 +43,19 @@ class Backend(base.Backend):
                 "task_queues": collections.defaultdict(asyncio.PriorityQueue),
                 "message_queues": collections.defaultdict(asyncio.Queue),
                 "results": {},
+                "events": {},
+                "event_cond": asyncio.Condition(),
             }
         shared = shared[name]
         shared["refs"] += 1
         self._task_queues = shared["task_queues"]
         self._message_queues = shared["message_queues"]
         self._results = shared["results"]
+        self._events = shared["events"]
+        self._event_cond = shared["event_cond"]
         self._task_consumers = {}
         self._message_consumers = {}
+        self._events_consumer: asyncio.Task = None
 
     def __del__(self):
         self._refs = max(0, self._refs - 1)
@@ -75,7 +80,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, **kwds):
         task_data = task_instance.data
-        if task_instance.task.result_return and task_data.task_id not in self._results:
+        if task_instance.data.result_return and task_data.task_id not in self._results:
             self._results[task_data.task_id] = [asyncio.Event(), None]
         logger.debug("%s: put %s", self, task_instance)
         await self._task_queues[task_data.queue].put(
@@ -115,7 +120,7 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
-        if not task_instance.task.result_return:
+        if not task_instance.data.result_return:
             return
         task_id: UUID = task_instance.data.task_id
         self._results[task_id][1] = self.serializer.dumps_task_result(
@@ -130,7 +135,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
         task_id: UUID = task_instance.data.task_id
-        if not task_instance.task.result_return:
+        if not task_instance.data.result_return:
             raise TaskNoResultError(str(task_id))
 
         if task_id not in self._results:
@@ -141,6 +146,44 @@ class Backend(base.Backend):
             return self.serializer.loads_task_result(self._results[task_id][1])
         finally:
             del self._results[task_id]
+
+    @base.Backend.task
+    async def push_event(self, task_instance: TaskInstance, event: Event):
+        if not task_instance.data.events:
+            return
+        self._events[event.event_id] = self.serializer.dumps_event(event)
+        async with self._event_cond:
+            self._event_cond.notify()
+        if task_instance.data.event_ttl is not None:
+            loop = asyncio.get_event_loop()
+            loop.call_later(task_instance.data.event_ttl, lambda: self._events.pop(event.event_id, None))
+
+    @base.Backend.task
+    async def consume_events(self, on_event: AsyncCallableT):
+        async def consume():
+            logger.info("%s: consuming events", self)
+            while True:
+                try:
+                    async with self._event_cond:
+                        await self._event_cond.wait()
+                    for event_id in self._events:
+                        break
+                    data = self._events.pop(event_id)
+                    event = self.serializer.loads_event(data)
+                    logger.debug("%s: got %s", self, event)
+                    await asyncio.shield(on_event(event))
+                except asyncio.CancelledError:
+                    logger.info("%s: stop consume events", self)
+                    break
+                except Exception as e:
+                    logger.exception(e)
+
+        self._events_consumer = asyncio.create_task(consume())
+
+    async def stop_consume_events(self):
+        if self._events_consumer:
+            self._events_consumer.cancel()
+            self._events_consumer = None
 
     @base.Backend.task
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):

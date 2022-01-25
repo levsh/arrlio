@@ -5,7 +5,7 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from arrlio import __tasks__
-from arrlio.models import Graph, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
 from arrlio.serializer import base
 from arrlio.utils import ExtendedJSONEncoder
 
@@ -58,6 +58,13 @@ class Json(base.Serializer):
 
     def loads_task_result(self, data: bytes) -> TaskResult:
         return TaskResult(*json.loads(data))
+
+    def dumps_event(self, event: Event, **kwds) -> bytes:
+        data = asdict(event)
+        return json.dumps(data, cls=self.encoder).encode()
+
+    def loads_event(self, data: bytes) -> Event:
+        return Event(*json.loads(data))
 
     def dumps(self, data: Any, **kwds) -> bytes:
         return json.dumps(data, cls=self.encoder).encode()

@@ -1,3 +1,4 @@
+import datetime
 from dataclasses import dataclass, field
 from types import FunctionType, TracebackType
 from typing import Any, Dict, List, Set, Tuple, Union
@@ -6,17 +7,18 @@ from uuid import UUID, uuid4
 from roview import rodict, roset
 
 from arrlio.settings import (
+    EVENT_TTL,
+    EVENTS,
     MESSAGE_ACK_LATE,
     MESSAGE_EXCHANGE,
     MESSAGE_PRIORITY,
     MESSAGE_TTL,
-    RESULT_ENCRYPT,
-    RESULT_RETURN,
-    RESULT_TTL,
     TASK_ACK_LATE,
     TASK_BIND,
     TASK_PRIORITY,
     TASK_QUEUE,
+    TASK_RESULT_RETURN,
+    TASK_RESULT_TTL,
     TASK_TIMEOUT,
     TASK_TTL,
 )
@@ -37,6 +39,8 @@ class TaskData:
     result_return: bool = None
     result_encrypt: bool = None
     thread: bool = None
+    events: bool = None
+    event_ttl: int = None
     extra: dict = field(default_factory=dict)
     graph: "Graph" = None
 
@@ -56,6 +60,8 @@ class Task:
     result_return: bool = None
     result_encrypt: bool = None
     thread: bool = None
+    events: bool = None
+    event_ttl: int = None
 
     def __post_init__(self):
         if self.bind is None:
@@ -71,11 +77,13 @@ class Task:
         if self.ack_late is None:
             object.__setattr__(self, "ack_late", TASK_ACK_LATE)
         if self.result_ttl is None:
-            object.__setattr__(self, "result_ttl", RESULT_TTL)
+            object.__setattr__(self, "result_ttl", TASK_RESULT_TTL)
         if self.result_return is None:
-            object.__setattr__(self, "result_return", RESULT_RETURN)
-        if self.result_encrypt is None:
-            object.__setattr__(self, "result_encrypt", RESULT_ENCRYPT)
+            object.__setattr__(self, "result_return", TASK_RESULT_RETURN)
+        if self.events is None:
+            object.__setattr__(self, "events", EVENTS)
+        if self.event_ttl is None:
+            object.__setattr__(self, "event_ttl", EVENT_TTL)
 
     def instantiate(self, data: TaskData = None) -> "TaskInstance":
         if data is None:
@@ -104,6 +112,10 @@ class Task:
             data.result_encrypt = self.result_encrypt
         if data.thread is None:
             data.thread = self.thread
+        if data.events is None:
+            data.events = self.events
+        if data.event_ttl is None:
+            data.event_ttl = self.event_ttl
         return TaskInstance(task=self, data=data)
 
     def __call__(self, *args, **kwds) -> Any:
@@ -128,6 +140,14 @@ class TaskResult:
     res: Any = None
     exc: Union[Exception, Tuple[str, str, str]] = None
     trb: Union[TracebackType, str] = None
+
+
+@dataclass(frozen=True)
+class Event:
+    type: str
+    datetime: datetime.datetime
+    data: dict
+    event_id: UUID = field(default_factory=uuid4)
 
 
 @dataclass(frozen=True)

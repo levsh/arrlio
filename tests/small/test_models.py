@@ -22,6 +22,8 @@ def test_TaskData():
     assert task_data.result_ttl is None
     assert task_data.result_return is None
     assert task_data.result_encrypt is None
+    assert task_data.events is None
+    assert task_data.event_ttl is None
     assert task_data.thread is None
 
     task_data.queue = "default"
@@ -43,9 +45,11 @@ async def test_Task():
     assert task.timeout == settings.TASK_TIMEOUT
     assert task.ttl == settings.TASK_TTL
     assert task.ack_late == settings.TASK_ACK_LATE
-    assert task.result_ttl == settings.RESULT_TTL
-    assert task.result_return == settings.RESULT_RETURN
-    assert task.result_encrypt == settings.RESULT_ENCRYPT
+    assert task.result_ttl == settings.TASK_RESULT_TTL
+    assert task.result_return == settings.TASK_RESULT_RETURN
+    assert task.result_encrypt is None
+    assert task.events == settings.EVENTS
+    assert task.event_ttl == settings.EVENT_TTL
     assert task.thread is None
 
     task_instance = task.instantiate()
@@ -60,6 +64,8 @@ async def test_Task():
     assert task_instance.data.result_ttl == task.result_ttl
     assert task_instance.data.result_return == task.result_return
     assert task_instance.data.result_encrypt == task.result_encrypt
+    assert task_instance.data.events == task.events
+    assert task_instance.data.event_ttl == task.event_ttl
     assert task_instance.data.thread is None
 
     assert task() == "Foo!"
@@ -77,6 +83,8 @@ async def test_Task():
             result_ttl=30,
             result_return=False,
             result_encrypt=True,
+            events=True,
+            event_ttl=345,
             thread=True,
         )
     )
@@ -88,9 +96,11 @@ async def test_Task():
     assert task_instance.task.timeout == settings.TASK_TIMEOUT
     assert task_instance.task.ttl == settings.TASK_TTL
     assert task_instance.task.ack_late == settings.TASK_ACK_LATE
-    assert task_instance.task.result_ttl == settings.RESULT_TTL
-    assert task_instance.task.result_return == settings.RESULT_RETURN
-    assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
+    assert task_instance.task.result_ttl == settings.TASK_RESULT_TTL
+    assert task_instance.task.result_return == settings.TASK_RESULT_RETURN
+    assert task_instance.task.result_encrypt is None
+    assert task_instance.task.events == settings.EVENTS
+    assert task_instance.task.event_ttl == settings.EVENT_TTL
     assert task_instance.task.thread is None
 
     assert task_instance.data.task_id == uuid.UUID("e67b80b9-a9f0-4ff1-89e8-0beb70993ffd")
@@ -104,6 +114,8 @@ async def test_Task():
     assert task_instance.data.result_ttl == 30
     assert task_instance.data.result_return is False
     assert task_instance.data.result_encrypt is True
+    assert task_instance.data.events is True
+    assert task_instance.data.event_ttl == 345
     assert task_instance.data.thread is True
 
     assert await task_instance() == "Bar!"

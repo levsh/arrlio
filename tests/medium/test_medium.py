@@ -264,3 +264,27 @@ class TestArrlio:
         assert await asyncio.wait_for(ars["A"].get(), 1) == 1
         assert await asyncio.wait_for(ars["B"].get(), 1) == 2
         assert await asyncio.wait_for(ars["C"].get(), 1) == 3
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "arrlio.backend.local",
+            # "arrlio.backend.rabbitmq",
+            # "arrlio.backend.redis",
+        ],
+        indirect=True,
+    )
+    async def test_events(self, backend, producer, consumer):
+        ev = asyncio.Event()
+        ev.clear()
+
+        async def on_event(event):
+            if event.type == "task done" and event.data["status"] is True:
+                ev.set()
+
+        await consumer.consume_tasks()
+        await consumer.consume_events(on_event)
+
+        ar = await producer.send_task(tasks.hello_world, events=True)
+        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        await asyncio.wait_for(ev.wait(), 1)

@@ -14,7 +14,7 @@ from pydantic import Field
 from arrlio import core
 from arrlio.backend import base
 from arrlio.exc import TaskNoResultError
-from arrlio.models import Message, TaskInstance, TaskResult
+from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
 from arrlio.utils import retry
 
@@ -32,6 +32,8 @@ TASK_EXCHANGE: str = "arrlio"
 TASK_QUEUE_DURABLE: bool = False
 TASK_QUEUE_TTL: int = None
 TASK_PREFETCH_COUNT: int = 1
+EVENTS_QUEUE: str = "arrlio.events"
+EVENTS_QUEUE_TTL: int = None
 MESSAGE_PREFETCH_COUNT: int = 1
 
 
@@ -46,6 +48,8 @@ class BackendConfig(base.BackendConfig):
     task_queue_durable: bool = Field(default_factory=lambda: TASK_QUEUE_DURABLE)
     task_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_QUEUE_TTL)
     task_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_PREFETCH_COUNT)
+    events_queue: str = Field(default_factory=lambda: EVENTS_QUEUE)
+    events_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: EVENTS_QUEUE_TTL)
     message_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGE_PREFETCH_COUNT)
 
     class Config:
@@ -278,6 +282,17 @@ class Backend(base.Backend):
                 auto_delete=False,
                 timeout=self.config.timeout,
             )
+        async with self._conn.channel_ctx() as channel:
+            arguments = {}
+            if self.config.events_queue_ttl is not None:
+                arguments["x-message-ttl"] = self.config.events_queue_ttl * 1000
+            await channel.queue_declare(
+                self.config.events_queue,
+                durable=True,
+                auto_delete=False,
+                arguments=arguments,
+                timeout=self.config.timeout,
+            )
 
     @base.Backend.task
     async def declare_task_queue(self, queue: str):
@@ -448,6 +463,24 @@ class Backend(base.Backend):
                         await channel.queue_delete(queue)
                     if not self._conn.is_closed and not channel.is_closed:
                         await channel.close()
+
+    @base.Backend.task
+    async def push_event(self, task_instance: TaskInstance, event: Event):
+        if not task_instance.data.events:
+            return
+        async with self._conn.channel_ctx() as channel:
+            await channel.basic_publish(
+                self.serializer.dumps_event(event),
+                exchange=self.config.events_queue,
+                properties=aiormq.spec.Basic.Properties(
+                    delivery_mode=2,
+                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                ),
+                timeout=self.config.timeout,
+            )
+
+    async def stop_consume_events(self):
+        pass
 
     @base.Backend.task
     async def send_message(

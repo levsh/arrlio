@@ -45,9 +45,9 @@ async def test_Producer_send_task():
         assert task_instance.task.timeout == settings.TASK_TIMEOUT
         assert task_instance.task.ttl == settings.TASK_TTL
         assert task_instance.task.ack_late == settings.TASK_ACK_LATE
-        assert task_instance.task.result_ttl == settings.RESULT_TTL
-        assert task_instance.task.result_return == settings.RESULT_RETURN
-        assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
+        assert task_instance.task.result_ttl == settings.TASK_RESULT_TTL
+        assert task_instance.task.result_return == settings.TASK_RESULT_RETURN
+        assert task_instance.task.result_encrypt is None
         assert task_instance.task.thread is None
 
         assert task_instance.data.args == ()
@@ -91,9 +91,9 @@ async def test_Producer_send_task():
         assert task_instance.task.timeout == settings.TASK_TIMEOUT
         assert task_instance.task.ttl == settings.TASK_TTL
         assert task_instance.task.ack_late == settings.TASK_ACK_LATE
-        assert task_instance.task.result_ttl == settings.RESULT_TTL
-        assert task_instance.task.result_return == settings.RESULT_RETURN
-        assert task_instance.task.result_encrypt == settings.RESULT_ENCRYPT
+        assert task_instance.task.result_ttl == settings.TASK_RESULT_TTL
+        assert task_instance.task.result_return == settings.TASK_RESULT_RETURN
+        assert task_instance.task.result_encrypt is None
         assert task_instance.task.thread is None
 
         assert task_instance.data.args == (1, 2)

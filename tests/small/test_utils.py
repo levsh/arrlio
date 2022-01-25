@@ -44,8 +44,8 @@ def test_ExtendedJSONEncoder():
     assert json.dumps(foo, cls=utils.ExtendedJSONEncoder) == (
         """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", \"bind\": false, """
         """\"queue\": \"arrlio.tasks\", \"priority\": 1, \"timeout\": 300, \"ttl\": 300, \"encrypt\": null, """
-        """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, \"result_encrypt\": false, """
-        """\"thread\": null}"""
+        """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, \"result_encrypt\": null, """
+        """\"thread\": null, \"events\": false, \"event_ttl\": 300}"""
     )
 
     with pytest.raises(TypeError):

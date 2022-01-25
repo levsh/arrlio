@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import datetime
 import inspect
 import logging
 import sys
@@ -11,7 +12,7 @@ from uuid import UUID
 
 from arrlio import __tasks__, settings
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError
-from arrlio.models import Graph, Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ConsumerConfig, ProducerConfig
 
 
@@ -32,6 +33,8 @@ def task(
     result_return: bool = None,
     result_encrypt: bool = None,
     thread: bool = None,
+    events: bool = None,
+    event_ttl: int = None,
 ) -> Task:
 
     if bind is None:
@@ -49,11 +52,13 @@ def task(
     if ack_late is None:
         ack_late = settings.TASK_ACK_LATE
     if result_ttl is None:
-        result_ttl = settings.RESULT_TTL
+        result_ttl = settings.TASK_RESULT_TTL
     if result_return is None:
-        result_return = settings.RESULT_RETURN
-    if result_encrypt is None:
-        result_encrypt = settings.RESULT_ENCRYPT
+        result_return = settings.TASK_RESULT_RETURN
+    if events is None:
+        events = settings.EVENTS
+    if event_ttl is None:
+        event_ttl = settings.EVENT_TTL
 
     if func is not None:
         if not isinstance(func, (FunctionType, MethodType)):
@@ -75,6 +80,8 @@ def task(
             result_return=result_return,
             result_encrypt=result_encrypt,
             thread=thread,
+            events=events,
+            event_ttl=event_ttl,
         )
         __tasks__[name] = t
         logger.info("Register %s", t)
@@ -96,6 +103,8 @@ def task(
                 result_return=result_return,
                 result_encrypt=result_encrypt,
                 thread=thread,
+                events=events,
+                event_ttl=event_ttl,
             )
 
         return wrapper
@@ -148,6 +157,8 @@ class Producer(Base):
         result_return: bool = None,
         result_encrypt: bool = None,
         thread: bool = None,
+        events: bool = None,
+        event_ttl: int = None,
         extra: dict = None,
         **kwargs,
     ) -> "AsyncResult":
@@ -162,6 +173,27 @@ class Producer(Base):
         if extra is None:
             extra = {}
 
+        settings = self.config.task.dict(exclude_unset=True)
+
+        if queue is None:
+            queue = settings.get("queue")
+        if priority is None:
+            priority = settings.get("priority")
+        if timeout is None:
+            timeout = settings.get("timeout")
+        if ttl is None:
+            ttl = settings.get("ttl")
+        if ack_late is None:
+            ack_late = settings.get("ack_late")
+        if result_ttl is None:
+            result_ttl = settings.get("result_ttl")
+        if result_return is None:
+            result_return = settings.get("result_return")
+        if events is None:
+            events = settings.get("events")
+        if event_ttl is None:
+            event_ttl = settings.get("event_ttl")
+
         task_data = TaskData(
             args=args,
             kwds=kwds,
@@ -175,6 +207,8 @@ class Producer(Base):
             result_return=result_return,
             result_encrypt=result_encrypt,
             thread=thread,
+            events=events,
+            event_ttl=event_ttl,
             extra=extra,
         )
 
@@ -225,9 +259,18 @@ class Producer(Base):
         routing_key: str = None,
         priority: int = None,
         ttl: int = None,
+        ack_late: bool = None,
         encrypt: bool = None,
     ):
-        message = Message(exchange=exchange, data=message, priority=priority, ttl=ttl)
+        if exchange is None:
+            exchange = self.config.message.exchange
+        if priority is None:
+            priority = self.config.message.priority
+        if ttl is None:
+            ttl = self.config.message.ttl
+        if ack_late is None:
+            ack_late = self.config.message.ack_late
+        message = Message(exchange=exchange, data=message, priority=priority, ttl=ttl, ack_late=ack_late)
         logger.info("%s: send %s", self, message)
         await self.backend.send_message(message, routing_key=routing_key, encrypt=encrypt)
 
@@ -338,6 +381,10 @@ class Consumer(Base):
             logger.info("%s: consuming task queues %s", self, self.config.task_queues)
             await self.backend.consume_tasks(self.config.task_queues, self._on_task)
 
+    async def consume_events(self, on_event):
+        logger.info("%s: consuming events", self)
+        await self.backend.consume_events(on_event)
+
     async def stop_consume_tasks(self):
         async with self._lock:
             for task_id, aio_task in self._running_tasks.items():
@@ -404,6 +451,20 @@ class Consumer(Base):
             if task_instance.data.result_return:
                 try:
                     await self.backend.push_task_result(task_instance, task_result)
+                except Exception as e:
+                    logger.exception(e)
+
+            if task_instance.data.events:
+                event: Event = Event(
+                    type="task done",
+                    datetime=datetime.datetime.now(tz=datetime.timezone.utc),
+                    data={
+                        "task_id": task_instance.data.task_id,
+                        "status": task_result.exc is None,
+                    }
+                )
+                try:
+                    await self.backend.push_event(task_instance, event)
                 except Exception as e:
                     logger.exception(e)
 
