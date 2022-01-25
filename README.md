@@ -92,6 +92,7 @@ async def bash(cmd):
 graph = arrlio.Graph("My Graph")
 graph.add_node("A", bash, root=True)
 graph.add_node("B", bash, args=("wc -w",))
+graph.add_edge("A", "B")
 
 BACKEND = "arrlio.backend.local"
 
@@ -102,8 +103,11 @@ async def main():
     async with producer, consumer:
         await consumer.consume_tasks()
 
-        ars = await producer.send_graph(graph, args=("This sentence contains 5 words",))
-        print(await ars["B"].get())
+        ars = await producer.send_graph(
+            graph,
+            args=('echo "Number of words in this sentence:"',)
+        )
+        print(await asyncio.wait_for(ars["B"].get(), timeout=2))
 
 
 asyncio.run(main())
