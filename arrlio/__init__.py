@@ -15,7 +15,7 @@ __version__ = "0.8.0"
 __tasks__ = {}
 
 
-from arrlio.core import Consumer, Producer, logger, task  # noqa
+from arrlio.core import App, logger, task  # noqa
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError  # noqa
 from arrlio.models import Graph  # noqa
-from arrlio.settings import ConsumerConfig, ProducerConfig  # noqa
+from arrlio.settings import Config  # noqa

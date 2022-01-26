@@ -32,6 +32,7 @@ class Backend(abc.ABC):
 
     def _cancel_tasks(self):
         for task in self._tasks:
+            logger.debug("Cancel task %s", task)
             task.cancel()
 
     def task(method: MethodType):

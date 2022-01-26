@@ -11,35 +11,34 @@ from arrlio.serializer.json import CryptoJson
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
-BACKEND = "arrlio.backend.local"
+BACKEND = "arrlio.backends.local"
 
 
 async def main():
     async def example_1():
-        producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
-        consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+        app = arrlio.App(arrlio.Config(backend=BACKEND))
 
-        async with producer, consumer:
-            await consumer.consume_tasks()
+        async with app:
+            await app.consume_tasks()
 
             # call by task
-            ar = await producer.send_task(tasks.hello_world)
+            ar = await app.run_task(tasks.hello_world)
             logger.info(await ar.get())
 
             # call by task name
-            ar = await producer.send_task("foo")
+            ar = await app.run_task("foo")
             logger.info(await ar.get())
 
             # task bind example
-            ar = await producer.send_task(tasks.bind)
+            ar = await app.run_task(tasks.bind)
             logger.info(await ar.get())
 
             # exception
             try:
-                ar = await producer.send_task(tasks.exception)
+                ar = await app.run_task(tasks.exception)
                 logger.info(await ar.get())
             except Exception as e:
-                print(f"\nThis is example exception for {producer.backend}:\n")
+                print(f"\nThis is example exception for {app.backend}:\n")
                 logger.exception(e)
                 print()
 
@@ -54,19 +53,12 @@ async def main():
             )
 
         backend_config_kwds = {"serializer": serializer}
-        consumer = arrlio.Consumer(
-            arrlio.ConsumerConfig(backend=BACKEND),
-            backend_config_kwds=backend_config_kwds,
-        )
-        producer = arrlio.Producer(
-            arrlio.ProducerConfig(backend=BACKEND),
-            backend_config_kwds=backend_config_kwds,
-        )
+        app = arrlio.App(arrlio.Config(backend=BACKEND), backend_config_kwds=backend_config_kwds)
 
-        async with producer, consumer:
-            await consumer.consume_tasks()
+        async with app:
+            await app.consume_tasks()
 
-            ar = await producer.send_task(tasks.hello_world, encrypt=True, result_encrypt=True)
+            ar = await app.run_task(tasks.hello_world, encrypt=True, result_encrypt=True)
             logger.info(await ar.get())
 
     async def example_3():
@@ -77,13 +69,12 @@ async def main():
         graph.add_edge("A", "B")
         graph.add_edge("B", "C")
 
-        producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
-        consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+        app = arrlio.App(arrlio.Config(backend=BACKEND))
 
-        async with producer, consumer:
-            await consumer.consume_tasks()
+        async with app:
+            await app.consume_tasks()
 
-            ars = await producer.send_graph(graph, args=(0,))
+            ars = await app.run_graph(graph, args=(0,))
             logger.info("A: %i", await ars["A"].get())
             logger.info("B: %i", await ars["B"].get())
             logger.info("C: %i", await ars["C"].get())
@@ -94,13 +85,12 @@ async def main():
         graph.add_node("B", tasks.bash, args=("wc -w",))
         graph.add_edge("A", "B")
 
-        producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
-        consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+        app = arrlio.App(arrlio.Config(backend=BACKEND))
 
-        async with producer, consumer:
-            await consumer.consume_tasks()
+        async with app:
+            await app.consume_tasks()
 
-            ars = await producer.send_graph(graph, args=('echo "Number of words in this sentence:"',))
+            ars = await app.run_graph(graph, args=('echo "Number of words in this sentence:"',))
             logger.info(await asyncio.wait_for(ars["B"].get(), timeout=2))
 
     await example_1()

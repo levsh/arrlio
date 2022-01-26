@@ -143,14 +143,6 @@ class TaskResult:
 
 
 @dataclass(frozen=True)
-class Event:
-    type: str
-    datetime: datetime.datetime
-    data: dict
-    event_id: UUID = field(default_factory=uuid4)
-
-
-@dataclass(frozen=True)
 class Message:
     data: Any
     message_id: UUID = field(default_factory=uuid4)
@@ -168,6 +160,14 @@ class Message:
             object.__setattr__(self, "ttl", MESSAGE_TTL)
         if self.ack_late is None:
             object.__setattr__(self, "ack_late", MESSAGE_ACK_LATE)
+
+
+@dataclass(frozen=True)
+class Event:
+    type: str
+    datetime: datetime.datetime
+    data: dict
+    event_id: UUID = field(default_factory=uuid4)
 
 
 class Graph:

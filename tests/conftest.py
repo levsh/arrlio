@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from arrlio import Consumer, ConsumerConfig, Producer, ProducerConfig
+from arrlio import App, Config
 
 from tests import utils
 
@@ -25,20 +25,20 @@ def container_executor():
 @pytest.fixture(scope="function")
 def backend(request, container_executor):
     if request.param not in [
-        "arrlio.backend.local",
-        "arrlio.backend.rabbitmq",
-        "arrlio.backend.redis",
+        "arrlio.backends.local",
+        "arrlio.backends.rabbitmq",
+        "arrlio.backends.redis",
     ]:
         raise Exception("Unsupported backend %s" % request.param)
 
     address = None
     container = None
     config_kwds = {}
-    if request.param == "arrlio.backend.rabbitmq":
+    if request.param == "arrlio.backends.rabbitmq":
         container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
         config_kwds["url"] = f"amqp://guest:guest@{address[0]}:{address[1]}"
-    if request.param == "arrlio.backend.redis":
+    if request.param == "arrlio.backends.redis":
         container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
         address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
         config_kwds["url"] = f"redis://{address[0]}:{address[1]}"
@@ -54,20 +54,12 @@ def backend(request, container_executor):
 
 
 @pytest.fixture(scope="function")
-async def producer(backend):
-    config = ProducerConfig(backend=backend.module)
-    producer = Producer(config, backend_config_kwds=backend.config_kwds)
+async def app(backend):
+    config = Config(backend=backend.module)
+    app = App(config, backend_config_kwds=backend.config_kwds)
     try:
-        yield producer
+        yield app
     finally:
-        await producer.close()
-
-
-@pytest.fixture(scope="function")
-async def consumer(backend):
-    config = ConsumerConfig(backend=backend.module)
-    consumer = Consumer(config, backend_config_kwds=backend.config_kwds)
-    try:
-        yield consumer
-    finally:
-        await consumer.close()
+        await app.close()
+        import asyncio
+        await asyncio.sleep(1)

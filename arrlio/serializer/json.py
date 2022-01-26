@@ -64,7 +64,7 @@ class Json(base.Serializer):
         return json.dumps(data, cls=self.encoder).encode()
 
     def loads_event(self, data: bytes) -> Event:
-        return Event(*json.loads(data))
+        return Event(**json.loads(data))
 
     def dumps(self, data: Any, **kwds) -> bytes:
         return json.dumps(data, cls=self.encoder).encode()

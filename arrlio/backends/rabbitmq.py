@@ -12,7 +12,7 @@ import yarl
 from pydantic import Field
 
 from arrlio import core
-from arrlio.backend import base
+from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
@@ -28,12 +28,15 @@ URL: str = "amqp://guest:guest@localhost"
 TIMEOUT: int = 10
 RETRY_TIMEOUTS: Iterable[int] = None
 VERIFY_SSL: bool = True
-TASK_EXCHANGE: str = "arrlio"
-TASK_QUEUE_DURABLE: bool = False
-TASK_QUEUE_TTL: int = None
-TASK_PREFETCH_COUNT: int = 1
+TASKS_EXCHANGE: str = "arrlio"
+TASKS_QUEUE_DURABLE: bool = False
+TASKS_QUEUE_TTL: int = None
+TASKS_PREFETCH_COUNT: int = 1
+EVENTS_EXCHANGE: str = "arrlio"
+EVENTS_QUEUE_DURABLE: bool = False
 EVENTS_QUEUE: str = "arrlio.events"
 EVENTS_QUEUE_TTL: int = None
+EVENTS_PREFETCH_COUNT: int = 1
 MESSAGE_PREFETCH_COUNT: int = 1
 
 
@@ -44,12 +47,15 @@ class BackendConfig(base.BackendConfig):
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
     retry_timeouts: Optional[List] = Field(default_factory=lambda: RETRY_TIMEOUTS)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
-    task_exchange: str = Field(default_factory=lambda: TASK_EXCHANGE)
-    task_queue_durable: bool = Field(default_factory=lambda: TASK_QUEUE_DURABLE)
-    task_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_QUEUE_TTL)
-    task_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_PREFETCH_COUNT)
+    tasks_exchange: str = Field(default_factory=lambda: TASKS_EXCHANGE)
+    tasks_queue_durable: bool = Field(default_factory=lambda: TASKS_QUEUE_DURABLE)
+    tasks_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASKS_QUEUE_TTL)
+    tasks_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: TASKS_PREFETCH_COUNT)
+    events_exchange: str = Field(default_factory=lambda: EVENTS_EXCHANGE)
+    events_queue_durable: bool = Field(default_factory=lambda: EVENTS_QUEUE_DURABLE)
     events_queue: str = Field(default_factory=lambda: EVENTS_QUEUE)
     events_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: EVENTS_QUEUE_TTL)
+    events_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: EVENTS_PREFETCH_COUNT)
     message_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGE_PREFETCH_COUNT)
 
     class Config:
@@ -238,6 +244,7 @@ class Backend(base.Backend):
 
         self._task_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
         self._message_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
+        self._events_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = []
         self._consume_lock: asyncio.Lock = asyncio.Lock()
 
         self.__conn: RMQConnection = RMQConnection(config.url, retry_timeouts=config.retry_timeouts)
@@ -245,8 +252,10 @@ class Backend(base.Backend):
         self.__conn.add_callback("on_open", id(self), "declare", self.declare)
         self.__conn.add_callback("on_lost", id(self), "cleanup", self._task_consumers.clear)
         self.__conn.add_callback("on_lost", id(self), "cleanup", self._message_consumers.clear)
-        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_messages)
+        self.__conn.add_callback("on_lost", id(self), "cleanup", self._events_consumer.clear)
         self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_tasks)
+        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_messages)
+        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_events)
 
     def __del__(self):
         if not self.is_closed:
@@ -278,21 +287,33 @@ class Backend(base.Backend):
     async def declare(self):
         async with self._conn.channel_ctx() as channel:
             await channel.exchange_declare(
-                self.config.task_exchange,
+                self.config.tasks_exchange,
                 exchange_type="direct",
                 durable=False,
                 auto_delete=False,
                 timeout=self.config.timeout,
             )
-        async with self._conn.channel_ctx() as channel:
+            await channel.exchange_declare(
+                self.config.events_exchange,
+                exchange_type="direct",
+                durable=False,
+                auto_delete=False,
+                timeout=self.config.timeout,
+            )
             arguments = {}
             if self.config.events_queue_ttl is not None:
                 arguments["x-message-ttl"] = self.config.events_queue_ttl * 1000
             await channel.queue_declare(
                 self.config.events_queue,
-                durable=True,
-                auto_delete=False,
+                durable=self.config.events_queue_durable,
+                auto_delete=not self.config.events_queue_durable,
                 arguments=arguments,
+                timeout=self.config.timeout,
+            )
+            await channel.queue_bind(
+                self.config.events_queue,
+                self.config.events_exchange,
+                routing_key=self.config.events_queue,
                 timeout=self.config.timeout,
             )
 
@@ -301,9 +322,9 @@ class Backend(base.Backend):
         async with self._conn.channel_ctx() as channel:
             arguments = {}
             arguments["x-max-priority"] = PriorityT.le
-            if self.config.task_queue_ttl is not None:
-                arguments["x-message-ttl"] = self.config.task_queue_ttl * 1000
-            durable = self.config.task_queue_durable
+            if self.config.tasks_queue_ttl is not None:
+                arguments["x-message-ttl"] = self.config.tasks_queue_ttl * 1000
+            durable = self.config.tasks_queue_durable
             await channel.queue_declare(
                 queue,
                 durable=durable,
@@ -311,7 +332,7 @@ class Backend(base.Backend):
                 arguments=arguments,
                 timeout=self.config.timeout,
             )
-            await channel.queue_bind(queue, self.config.task_exchange, routing_key=queue, timeout=self.config.timeout)
+            await channel.queue_bind(queue, self.config.tasks_exchange, routing_key=queue, timeout=self.config.timeout)
 
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, result_queue_durable: bool = False, **kwds):
@@ -322,7 +343,7 @@ class Backend(base.Backend):
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
                 self.serializer.dumps_task_instance(task_instance),
-                exchange=self.config.task_exchange,
+                exchange=self.config.tasks_exchange,
                 routing_key=task_data.queue,
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
@@ -352,14 +373,12 @@ class Backend(base.Backend):
                 except Exception:
                     logger.exception("Internal error")
 
-            async with self._conn.channel_ctx() as channel:
-                await channel.basic_qos(prefetch_count=self.config.task_prefetch_count, timeout=timeout)
-
             for queue in queues:
                 if queue in self._task_consumers and not self._task_consumers[queue][0].is_closed:
                     continue
                 await self.declare_task_queue(queue)
                 channel = await self._conn.channel()
+                await channel.basic_qos(prefetch_count=self.config.tasks_prefetch_count, timeout=timeout)
                 self._task_consumers[queue] = [
                     channel,
                     await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),
@@ -373,15 +392,14 @@ class Backend(base.Backend):
 
     async def stop_consume_tasks(self):
         await self.__conn.remove_callback("on_lost", id(self), "consume_tasks")
+        await self.__conn.remove_callback("on_close", id(self), "consume_tasks")
         async with self._consume_lock:
-            try:
-                for queue, (channel, consume_ok) in self._task_consumers.items():
-                    if not self.__conn.is_closed and not channel.is_closed:
-                        logger.debug("%s: stop consuming queue '%s'", self, queue)
-                        await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-                        await channel.close()
-            finally:
-                self._task_consumers = {}
+            for queue, (channel, consume_ok) in self._task_consumers.items():
+                if not self.__conn.is_closed and not channel.is_closed:
+                    logger.debug("%s: stop consuming queue '%s'", self, queue)
+                    await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                    await channel.close()
+            self._task_consumers = {}
 
     @base.Backend.task
     async def declare_result_queue(self, task_instance: TaskInstance):
@@ -399,7 +417,7 @@ class Backend(base.Backend):
             )
             await channel.queue_bind(
                 queue,
-                self.config.task_exchange,
+                self.config.tasks_exchange,
                 routing_key=routing_key,
                 timeout=self.config.timeout,
             )
@@ -414,7 +432,7 @@ class Backend(base.Backend):
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
                 self.serializer.dumps_task_result(task_result, encrypt=task_instance.data.result_encrypt),
-                exchange=self.config.task_exchange,
+                exchange=self.config.tasks_exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
@@ -465,24 +483,6 @@ class Backend(base.Backend):
                         await channel.queue_delete(queue)
                     if not self._conn.is_closed and not channel.is_closed:
                         await channel.close()
-
-    @base.Backend.task
-    async def push_event(self, task_instance: TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
-        async with self._conn.channel_ctx() as channel:
-            await channel.basic_publish(
-                self.serializer.dumps_event(event),
-                exchange=self.config.events_queue,
-                properties=aiormq.spec.Basic.Properties(
-                    delivery_mode=2,
-                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
-                ),
-                timeout=self.config.timeout,
-            )
-
-    async def stop_consume_events(self):
-        pass
 
     @base.Backend.task
     async def send_message(
@@ -538,13 +538,11 @@ class Backend(base.Backend):
                 except Exception:
                     logger.exception("Internal error")
 
-            async with self._conn.channel_ctx() as channel:
-                await channel.basic_qos(prefetch_count=self.config.message_prefetch_count, timeout=timeout)
-
             for queue in queues:
                 if queue in self._message_consumers and not self._message_consumers[queue][0].is_closed:
                     continue
                 channel = await self._conn.channel()
+                await channel.basic_qos(prefetch_count=self.config.message_prefetch_count, timeout=timeout)
                 self._message_consumers[queue] = [
                     channel,
                     await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),
@@ -558,12 +556,79 @@ class Backend(base.Backend):
 
     async def stop_consume_messages(self):
         await self.__conn.remove_callback("on_lost", id(self), "consume_messages")
+        await self.__conn.remove_callback("on_close", id(self), "consume_messages")
         async with self._consume_lock:
-            try:
-                for queue, (channel, consume_ok) in self._message_consumers.items():
-                    if not self.__conn.is_closed and not channel.is_closed:
-                        logger.debug("%s: stop consuming messages queue '%s'", self, queue)
-                        await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-                        await channel.close()
-            finally:
-                self._message_consumers = {}
+            for queue, (channel, consume_ok) in self._message_consumers.items():
+                if not self.__conn.is_closed and not channel.is_closed:
+                    logger.debug("%s: stop consuming messages queue '%s'", self, queue)
+                    await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                    await channel.close()
+            self._message_consumers = {}
+
+    @base.Backend.task
+    async def push_event(self, task_instance: TaskInstance, event: Event):
+        if not task_instance.data.events:
+            return
+        async with self._conn.channel_ctx() as channel:
+            await channel.basic_publish(
+                self.serializer.dumps_event(event),
+                exchange=self.config.events_exchange,
+                routing_key=self.config.events_queue,
+                properties=aiormq.spec.Basic.Properties(
+                    delivery_mode=2,
+                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                ),
+                timeout=self.config.timeout,
+            )
+
+    @base.Backend.task
+    async def consume_events(self, on_event: AsyncCallableT):
+        async with self._consume_lock:
+            timeout = self.config.timeout
+
+            async def on_msg(channel: aiormq.Channel, msg):
+                try:
+                    event = self.serializer.loads_event(msg.body)
+                    logger.debug("%s: got %s", self, event)
+                    # ack_late = event.ack_late
+                    ack_late = False
+                    if not ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+                    await asyncio.shield(on_event(event))
+                    if ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+                except Exception:
+                    logger.exception("Internal error")
+
+                if self._events_consumer and not self._events_consumer[0].is_closed:
+                    return
+
+            channel = await self._conn.channel()
+            await channel.basic_qos(prefetch_count=self.config.events_prefetch_count, timeout=timeout)
+            self._events_consumer = [
+                channel,
+                await channel.basic_consume(
+                    self.config.events_queue,
+                    functools.partial(on_msg, channel),
+                    timeout=timeout,
+                ),
+            ]
+            logger.debug("%s: consuming events queue '%s'", self, self.config.events_queue)
+
+            async def _consume_events():
+                await self.consume_events(on_event)
+
+            self._conn.add_callback("on_lost", id(self), "consume_events", _consume_events)
+
+    async def stop_consume_events(self):
+        await self.__conn.remove_callback("on_lost", id(self), "consume_events")
+        await self.__conn.remove_callback("on_close", id(self), "consume_events")
+        async with self._consume_lock:
+            if not self._events_consumer:
+                return
+            channel, consume_ok = self._events_consumer
+            if not self.__conn.is_closed and not channel.is_closed:
+                logger.debug("%s: stop consuming events queue '%s'", self, self.config.events_queue)
+                await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                await channel.close()
+            self._events_consumer = []

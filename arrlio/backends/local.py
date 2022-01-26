@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from arrlio.backend import base
+from arrlio.backends import base
 from arrlio.core import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
@@ -114,8 +114,8 @@ class Backend(base.Backend):
             self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_tasks(self):
-        for _, task in self._task_consumers.items():
-            task.cancel()
+        for queue in self._task_consumers.keys():
+            self._task_consumers[queue].cancel()
         self._task_consumers = {}
 
     @base.Backend.task
@@ -146,44 +146,6 @@ class Backend(base.Backend):
             return self.serializer.loads_task_result(self._results[task_id][1])
         finally:
             del self._results[task_id]
-
-    @base.Backend.task
-    async def push_event(self, task_instance: TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
-        self._events[event.event_id] = self.serializer.dumps_event(event)
-        async with self._event_cond:
-            self._event_cond.notify()
-        if task_instance.data.event_ttl is not None:
-            loop = asyncio.get_event_loop()
-            loop.call_later(task_instance.data.event_ttl, lambda: self._events.pop(event.event_id, None))
-
-    @base.Backend.task
-    async def consume_events(self, on_event: AsyncCallableT):
-        async def consume():
-            logger.info("%s: consuming events", self)
-            while True:
-                try:
-                    async with self._event_cond:
-                        await self._event_cond.wait()
-                    for event_id in self._events:
-                        break
-                    data = self._events.pop(event_id)
-                    event = self.serializer.loads_event(data)
-                    logger.debug("%s: got %s", self, event)
-                    await asyncio.shield(on_event(event))
-                except asyncio.CancelledError:
-                    logger.info("%s: stop consume events", self)
-                    break
-                except Exception as e:
-                    logger.exception(e)
-
-        self._events_consumer = asyncio.create_task(consume())
-
-    async def stop_consume_events(self):
-        if self._events_consumer:
-            self._events_consumer.cancel()
-            self._events_consumer = None
 
     @base.Backend.task
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):
@@ -222,6 +184,44 @@ class Backend(base.Backend):
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_messages(self):
-        for _, task in self._message_consumers.items():
-            task.cancel()
+        for queue in self._message_consumers.keys():
+            self._message_consumers[queue].cancel()
         self._message_consumers = {}
+
+    @base.Backend.task
+    async def push_event(self, task_instance: TaskInstance, event: Event):
+        if not task_instance.data.events:
+            return
+        self._events[event.event_id] = self.serializer.dumps_event(event)
+        async with self._event_cond:
+            self._event_cond.notify()
+        if task_instance.data.event_ttl is not None:
+            loop = asyncio.get_event_loop()
+            loop.call_later(task_instance.data.event_ttl, lambda: self._events.pop(event.event_id, None))
+
+    @base.Backend.task
+    async def consume_events(self, on_event: AsyncCallableT):
+        async def consume():
+            logger.info("%s: consuming events", self)
+            while True:
+                try:
+                    async with self._event_cond:
+                        await self._event_cond.wait()
+                    for event_id in self._events:
+                        break
+                    data = self._events.pop(event_id)
+                    event = self.serializer.loads_event(data)
+                    logger.debug("%s: got %s", self, event)
+                    await asyncio.shield(on_event(event))
+                except asyncio.CancelledError:
+                    logger.info("%s: stop consume events", self)
+                    break
+                except Exception as e:
+                    logger.exception(e)
+
+        self._events_consumer = asyncio.create_task(consume())
+
+    async def stop_consume_events(self):
+        if self._events_consumer:
+            self._events_consumer.cancel()
+            self._events_consumer = None

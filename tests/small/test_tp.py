@@ -11,10 +11,10 @@ def test_BackendType():
     class M(pydantic.BaseModel):
         backend: tp.BackendT
 
-    m = M(backend="arrlio.backend.local")
+    m = M(backend="arrlio.backends.local")
     assert isinstance(m.backend, types.ModuleType)
 
-    from arrlio.backend import rabbitmq
+    from arrlio.backends import rabbitmq
     m = M(backend=rabbitmq)
     assert isinstance(m.backend, types.ModuleType)
 
