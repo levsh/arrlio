@@ -25,20 +25,20 @@ def container_executor():
 @pytest.fixture(scope="function")
 def backend(request, container_executor):
     if request.param not in [
-        "arrlio.backend.local",
-        "arrlio.backend.rabbitmq",
-        "arrlio.backend.redis",
+        "arrlio.backends.local",
+        "arrlio.backends.rabbitmq",
+        "arrlio.backends.redis",
     ]:
         raise Exception("Unsupported backend %s" % request.param)
 
     address = None
     container = None
     config_kwds = {}
-    if request.param == "arrlio.backend.rabbitmq":
+    if request.param == "arrlio.backends.rabbitmq":
         container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
         config_kwds["url"] = f"amqp://guest:guest@{address[0]}:{address[1]}"
-    if request.param == "arrlio.backend.redis":
+    if request.param == "arrlio.backends.redis":
         container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
         address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
         config_kwds["url"] = f"redis://{address[0]}:{address[1]}"

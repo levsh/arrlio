@@ -204,11 +204,14 @@ class App:
         await self.close()
 
     @property
+    def backend(self):
+        return self._backend
+
+    @property
     def is_closed(self):
         return self._closed.done()
 
     async def close(self):
-        logger.warning("APP CLOSE")
         await self.stop_consume_tasks()
         await self.stop_consume_messages()
         await self.stop_consume_events()
@@ -366,7 +369,7 @@ class App:
 
     async def stop_consume_tasks(self):
         async with self._lock:
-            await self._backend.stop_consume_tasks(queues=self.config.task_queues)
+            await self._backend.stop_consume_tasks()
             for task_id, aio_task in self._running_tasks.items():
                 logger.debug("Cancel processing task '%s'", task_id)
                 aio_task.cancel()
@@ -485,7 +488,7 @@ class App:
 
     async def stop_consume_messages(self):
         async with self._lock:
-            await self._backend.stop_consume_messages(queues=self.config.message_queues)
+            await self._backend.stop_consume_messages()
             for message_id, aio_task in self._running_messages.items():
                 logger.debug("Cancel processing message '%s'", message_id)
                 aio_task.cancel()

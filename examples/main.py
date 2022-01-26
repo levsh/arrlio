@@ -11,7 +11,7 @@ from arrlio.serializer.json import CryptoJson
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
-BACKEND = "arrlio.backend.local"
+BACKEND = "arrlio.backends.local"
 
 
 async def main():

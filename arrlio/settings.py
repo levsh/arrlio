@@ -5,7 +5,7 @@ from pydantic import BaseSettings, Field
 from arrlio.tp import BackendT, PositiveIntT, PriorityT, TimeoutT
 
 
-BACKEND = "arrlio.backend.local"
+BACKEND = "arrlio.backends.local"
 
 TASK_BIND = False
 TASK_QUEUE = "arrlio.tasks"

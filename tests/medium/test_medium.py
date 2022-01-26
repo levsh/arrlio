@@ -19,9 +19,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -37,9 +37,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -52,9 +52,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -67,9 +67,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -82,9 +82,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -99,8 +99,8 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
         ],
         indirect=True,
     )
@@ -117,8 +117,8 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -135,9 +135,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -150,9 +150,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -168,9 +168,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -188,9 +188,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -204,14 +204,14 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
     async def test_message(self, backend, app):
-        if backend.module == "arrlio.backend.rabbitmq":
+        if backend.module == "arrlio.backends.rabbitmq":
             async with app._backend.channel_ctx() as channel:
                 exchange = arrlio.settings.MESSAGE_EXCHANGE
                 await channel.exchange_declare(
@@ -242,9 +242,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            "arrlio.backend.rabbitmq",
-            "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
         ],
         indirect=True,
     )
@@ -266,9 +266,9 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            "arrlio.backend.local",
-            # "arrlio.backend.rabbitmq",
-            # "arrlio.backend.redis",
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            # "arrlio.backends.redis",
         ],
         indirect=True,
     )

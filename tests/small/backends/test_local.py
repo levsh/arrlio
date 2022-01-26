@@ -4,7 +4,7 @@ from unittest import mock
 import pytest
 
 from arrlio import TaskNoResultError
-from arrlio.backend import local
+from arrlio.backends import local
 from arrlio.models import Task, TaskData, TaskInstance
 from arrlio.serializer.nop import Nop
 

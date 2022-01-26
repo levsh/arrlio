@@ -2,7 +2,7 @@ from unittest import mock
 
 import pytest
 
-from arrlio import Producer, ProducerConfig, settings, task
+from arrlio import App, Config, settings, task
 from arrlio.core import AsyncResult
 
 
@@ -19,21 +19,21 @@ def test_task():
         pass
 
 
-async def test_Producer():
-    config = ProducerConfig()
-    producer = Producer(config)
-    assert producer.config == config
-    assert isinstance(producer.backend, config.backend.Backend)
+async def test_App():
+    config = Config()
+    app = App(config)
+    assert app.config == config
+    assert isinstance(app.backend, config.backend.Backend)
 
-    await producer.close()
+    await app.close()
 
 
-async def test_Producer_send_task():
-    config = ProducerConfig()
-    producer = Producer(config)
+async def test_App_run_task():
+    config = Config()
+    app = App(config)
 
-    with mock.patch.object(producer.backend, "send_task") as mock_send_task:
-        ar = await producer.send_task("foo")
+    with mock.patch.object(app.backend, "send_task") as mock_send_task:
+        ar = await app.run_task("foo")
         mock_send_task.assert_awaited_once()
         task_instance = mock_send_task.call_args[0][0]
 
@@ -65,8 +65,8 @@ async def test_Producer_send_task():
         assert isinstance(ar, AsyncResult)
         assert ar.task_instance == task_instance
 
-    with mock.patch.object(producer.backend, "send_task") as mock_send_task:
-        ar = await producer.send_task(
+    with mock.patch.object(app.backend, "send_task") as mock_send_task:
+        ar = await app.run_task(
             "bar",
             args=(1, 2),
             kwds={"a": "b"},
@@ -111,4 +111,4 @@ async def test_Producer_send_task():
         assert isinstance(ar, AsyncResult)
         assert ar.task_instance == task_instance
 
-    await producer.close()
+    await app.close()

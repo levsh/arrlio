@@ -70,7 +70,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def stop_consume_tasks(self, queues: List[str] = None):
+    async def stop_consume_tasks(self):
         pass
 
     @abc.abstractmethod
@@ -102,5 +102,5 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def stop_consume_messages(self, queues: List[str] = None):
+    async def stop_consume_messages(self):
         pass

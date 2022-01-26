@@ -8,7 +8,7 @@ import siderpy
 from pydantic import Field
 
 from arrlio import core
-from arrlio.backend import base
+from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
@@ -118,13 +118,10 @@ class Backend(base.Backend):
         for queue in queues:
             self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
-    async def stop_consume_tasks(self, queues: List[str] = None):
-        if queues is None:
-            queues = set(self._task_consumers.keys())
-        for queue in queues:
-            if queue in self._task_consumers:
-                self._task_consumers[queue].cancel()
-                del self._task_consumers[queue]
+    async def stop_consume_tasks(self):
+        for queue in self._task_consumers.keys():
+            self._task_consumers[queue].cancel()
+        self._task_consumers = {}
 
     @base.Backend.task
     async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult):
@@ -199,13 +196,10 @@ class Backend(base.Backend):
         for queue in queues:
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
-    async def stop_consume_messages(self, queues: List[str] = None):
-        if queues is None:
-            queues = set(self._message_consumers.keys())
-        for queue in queues:
-            if queue in self._message_consumers:
-                self._message_consumers[queue].cancel()
-                del self._message_consumers[queue]
+    async def stop_consume_messages(self):
+        for queue in self._message_consumers.keys():
+            self._message_consumers[queue].cancel()
+        self._message_consumers = {}
 
     @base.Backend.task
     async def push_event(self, task_instance: core.TaskInstance, event: Event):
