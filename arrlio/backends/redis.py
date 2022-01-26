@@ -2,7 +2,7 @@ import asyncio
 import dataclasses
 import itertools
 import logging
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import siderpy
 from pydantic import Field
@@ -51,8 +51,9 @@ class Backend(base.Backend):
             timeout=config.timeout,
             size=config.pool_size,
         )
-        self._task_consumers = {}
-        self._message_consumers = {}
+        self._task_consumers: Dict[str, asyncio.Task] = {}
+        self._message_consumers: Dict[str, asyncio.Task] = {}
+        self._events_consumer: asyncio.Task = None
 
     def __str__(self):
         return f"[RedisBackend[{self.redis_pool}]]"
@@ -92,7 +93,7 @@ class Backend(base.Backend):
             queue_key = self._make_task_queue_key(queue)
             while True:
                 try:
-                    logger.debug("%s: consuming task queue '%s'", self, queue)
+                    logger.debug("%s: consuming tasks queue '%s'", self, queue)
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
                     priority, task_id = queue_value.decode().split("|")
                     serialized_data = await self.redis_pool.get(task_id)
@@ -168,7 +169,7 @@ class Backend(base.Backend):
             queue_key = self._make_message_queue_key(queue)
             while True:
                 try:
-                    logger.debug("%s: consuming message queue '%s'", self, queue)
+                    logger.debug("%s: consuming messages queue '%s'", self, queue)
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
                     priority, message_id = queue_value.decode().split("|")
                     serialized_data = await self.redis_pool.get(message_id)
@@ -213,9 +214,43 @@ class Backend(base.Backend):
             with redis.pipeline():
                 await redis.multi()
                 await redis.setex(f"{event.event_id}", task_instance.data.event_ttl, data)
-                await redis.rpush(queue_key, event.task_id)
+                await redis.rpush(queue_key, f"{event.event_id}")
                 await redis.execute()
                 await redis.pipeline_execute()
 
+    @base.Backend.task
+    async def consume_events(self, on_event: AsyncCallableT):
+        async def consume_queue():
+            queue_key = "arrlio.events"
+            while True:
+                try:
+                    logger.debug("%s: consuming events")
+                    _, queue_value = await self.redis_pool.blpop(queue_key, 0)
+                    event_id = queue_value.decode()
+                    serialized_data = await self.redis_pool.get(event_id)
+                    if serialized_data is None:
+                        continue
+                    event = self.serializer.loads_event(serialized_data)
+                    logger.debug("%s: got %s", self, event)
+                    await asyncio.shield(on_event(event))
+                except asyncio.CancelledError:
+                    logger.info("%s: stop consume events")
+                    break
+                except (ConnectionError, TimeoutError) as e:
+                    logger.error("%s: %s %s", self, e.__class__, e)
+                    retry_timeouts = (
+                        iter(self.config.retry_timeouts) if self.config.retry_timeouts else itertools.repeat(1)
+                    )
+                    seconds = next(retry_timeouts, None)
+                    if seconds is None:
+                        raise e
+                    await asyncio.sleep(seconds)
+                except Exception:
+                    logger.exception("Internal error")
+
+        self._events_consumer = asyncio.create_task(consume_queue())
+
     async def stop_consume_events(self):
-        pass
+        if self._events_consumer:
+            self._events_consumer.cancel()
+        self._events_consumer = None
