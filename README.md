@@ -27,16 +27,15 @@ BACKEND = "arrlio.backends.local"
 # BACKEND = "arrlio.backends.redis"
 
 async def main():
-    producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
-    consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+    app = arrlio.App(arrlio.Config(backend=BACKEND))
 
-    async with producer, consumer:
-        await consumer.consume_tasks()
+    async with app:
+        await app.consume_tasks()
 
-        ar = await producer.send_task("sync hello_world")
+        ar = await app.run_task("sync hello_world")
         print(await ar.get())
 
-        ar = await producer.send_task("async hello_world")
+        ar = await app.run_task("async hello_world")
         print(await ar.get())
 
 
@@ -64,13 +63,12 @@ graph.add_edge("B", "C")
 BACKEND = "arrlio.backends.local"
 
 async def main():
-    producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
-    consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+    app = arrlio.App(arrlio.Config(backend=BACKEND))
 
-    async with producer, consumer:
-        await consumer.consume_tasks()
+    async with app:
+        await app.consume_tasks()
 
-        ars = await producer.send_graph(graph, args=(0,))
+        ars = await app.run_graph(graph, args=(0,))
         print(await ars["C"].get())
 
 
@@ -97,13 +95,12 @@ graph.add_edge("A", "B")
 BACKEND = "arrlio.backends.local"
 
 async def main():
-    producer = arrlio.Producer(arrlio.ProducerConfig(backend=BACKEND))
-    consumer = arrlio.Consumer(arrlio.ConsumerConfig(backend=BACKEND))
+    app = arrlio.App(arrlio.Config(backend=BACKEND))
 
-    async with producer, consumer:
-        await consumer.consume_tasks()
+    async with app:
+        await app.consume_tasks()
 
-        ars = await producer.send_graph(
+        ars = await app.run_graph(
             graph,
             args=('echo "Number of words in this sentence:"',)
         )
