@@ -11,6 +11,7 @@ from arrlio import core
 from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
+from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
 
 
@@ -39,7 +40,7 @@ class BackendConfig(base.BackendConfig):
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_REDIS_BACKEND_"
+        env_prefix = f"{ENV_PREFIX}REDIS_BACKEND_"
 
 
 class Backend(base.Backend):

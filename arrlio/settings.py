@@ -1,8 +1,12 @@
+import os
 from typing import List, Optional
 
 from pydantic import BaseSettings, Field
 
 from arrlio.tp import BackendT, PositiveIntT, PriorityT, TimeoutT
+
+
+ENV_PREFIX = os.environ.get("ARRLIO_ENV_PREFIX", "ARRLIO_")
 
 
 BACKEND = "arrlio.backends.local"
@@ -43,7 +47,7 @@ class TaskConfig(BaseSettings):
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_TASK_"
+        env_prefix = f"{ENV_PREFIX}TASK_"
 
 
 class MessageConfig(BaseSettings):
@@ -54,11 +58,11 @@ class MessageConfig(BaseSettings):
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_MESSAGE_"
+        env_prefix = f"{ENV_PREFIX}MESSAGE_"
 
 
 class Config(BaseSettings):
-    backend: BackendT = Field(default_factory=lambda: BACKEND, env="ARRLIO_BACKEND")
+    backend: BackendT = Field(default_factory=lambda: BACKEND, env=f"{ENV_PREFIX}BACKEND")
     task: TaskConfig = Field(default_factory=TaskConfig)
     message: MessageConfig = Field(default_factory=MessageConfig)
     task_queues: List[str] = Field(default_factory=lambda: TASK_QUEUES)
@@ -67,4 +71,4 @@ class Config(BaseSettings):
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_"
+        env_prefix = ENV_PREFIX

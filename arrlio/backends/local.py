@@ -11,6 +11,7 @@ from pydantic import Field
 from arrlio.backends import base
 from arrlio.core import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
+from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
 
 
@@ -27,7 +28,7 @@ class BackendConfig(base.BackendConfig):
 
     class Config:
         validate_assignment = True
-        env_prefix = "ARRLIO_LOCAL_BACKEND_"
+        env_prefix = f"{ENV_PREFIX}LOCAL_BACKEND_"
 
 
 class Backend(base.Backend):
