@@ -311,6 +311,8 @@ class App:
 
         task_instances = {}
         for node_name, (task, node_kwds) in nodes.items():
+            if node_name not in roots and node_kwds.get("task_id"):
+                continue
             task_data = TaskData(**node_kwds)
             node_kwds["task_id"] = task_data.task_id
             if task in __tasks__:
