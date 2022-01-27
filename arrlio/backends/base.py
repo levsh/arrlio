@@ -85,13 +85,13 @@ class Backend(abc.ABC):
     async def push_event(self, task_instance: TaskInstance, event: Event):
         pass
 
-    # @abc.abstractmethod
-    # async def consume_events(self, on_event: AsyncCallableT):
-    #     pass
+    @abc.abstractmethod
+    async def consume_events(self, on_event: AsyncCallableT):
+        pass
 
-    # @abc.abstractmethod
-    # async def stop_consume_events(self):
-    #     pass
+    @abc.abstractmethod
+    async def stop_consume_events(self):
+        pass
 
     @abc.abstractmethod
     async def send_message(self, message: Message, encrypt: bool = None, **kwds):
