@@ -5,7 +5,7 @@ import arrlio
 import tasks
 
 from arrlio import crypto
-from arrlio.serializer.json import CryptoJson
+from arrlio.serializers.json import CryptoJson
 
 
 logger = logging.getLogger("arrlio")

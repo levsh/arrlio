@@ -24,7 +24,7 @@ logger = logging.getLogger("arrlio")
 
 
 BACKEND_NAME: str = "arrlio"
-SERIALIZER: str = "arrlio.serializer.json.Json"
+SERIALIZER: str = "arrlio.serializers.json.Json"
 URL: str = "amqp://guest:guest@localhost"
 TIMEOUT: int = 10
 RETRY_TIMEOUTS: Iterable[int] = None

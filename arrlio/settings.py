@@ -40,8 +40,8 @@ class TaskConfig(BaseSettings):
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TASK_TIMEOUT)
     ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_TTL)
     ack_late: Optional[bool] = Field(default_factory=lambda: TASK_ACK_LATE)
-    result_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_RESULT_TTL)
     result_return: Optional[bool] = Field(default_factory=lambda: TASK_RESULT_RETURN)
+    result_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASK_RESULT_TTL)
     events: Optional[bool] = Field(default_factory=lambda: EVENTS)
     event_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: EVENT_TTL)
 

@@ -19,7 +19,7 @@ logger = logging.getLogger("arrlio")
 
 
 BACKEND_NAME: str = "arrlio"
-SERIALIZER: str = "arrlio.serializer.json.Json"
+SERIALIZER: str = "arrlio.serializers.json.Json"
 URL: str = "redis://localhost?db=0"
 TIMEOUT: int = 60
 CONNECT_TIMEOUT: int = 30

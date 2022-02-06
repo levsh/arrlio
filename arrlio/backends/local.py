@@ -19,7 +19,7 @@ logger = logging.getLogger("arrlio")
 
 
 BACKEND_NAME: str = "arrlio"
-SERIALIZER: str = "arrlio.serializer.nop.Nop"
+SERIALIZER: str = "arrlio.serializers.nop.Nop"
 
 
 class BackendConfig(base.BackendConfig):

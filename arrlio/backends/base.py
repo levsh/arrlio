@@ -7,8 +7,8 @@ from typing import List, Optional
 from pydantic import BaseSettings
 
 from arrlio.models import Event, Message, TaskInstance, TaskResult
-from arrlio.serializer.base import Serializer
-from arrlio.tp import AsyncCallableT, SerializerT, TimeoutT
+from arrlio.serializers.base import Serializer
+from arrlio.tp import AsyncCallableT, SerializerT
 
 
 logger = logging.getLogger("arrlio")
@@ -17,7 +17,6 @@ logger = logging.getLogger("arrlio")
 class BackendConfig(BaseSettings):
     name: Optional[str]
     serializer: SerializerT
-    timeout: Optional[TimeoutT]
 
 
 class Backend(abc.ABC):

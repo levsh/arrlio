@@ -1,7 +1,7 @@
 from typing import Any
 
 from arrlio.models import Event, TaskInstance, TaskResult
-from arrlio.serializer import base
+from arrlio.serializers import base
 
 
 class Nop(base.Serializer):

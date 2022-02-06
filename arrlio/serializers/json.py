@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from arrlio import __tasks__
 from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
-from arrlio.serializer import base
+from arrlio.serializers import base
 from arrlio.utils import ExtendedJSONEncoder
 
 

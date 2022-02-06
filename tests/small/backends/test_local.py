@@ -6,7 +6,7 @@ import pytest
 from arrlio import TaskNoResultError
 from arrlio.backends import local
 from arrlio.models import Task, TaskData, TaskInstance
-from arrlio.serializer.nop import Nop
+from arrlio.serializers.nop import Nop
 
 
 pytestmark = pytest.mark.asyncio
