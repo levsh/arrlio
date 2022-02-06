@@ -172,6 +172,6 @@ def test_graph():
     graph.add_edge("A", "B")
     graph.add_edge("B", "B")
     graph.add_edge("A", "C")
-    assert graph.edges == {"A": {"B", "C"}, "B": {"B"}}
+    assert graph.edges == {"A": [["B", None], ["C", None]], "B": [["B", None]]}
 
     assert graph.roots == {"A"}

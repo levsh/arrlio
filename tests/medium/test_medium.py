@@ -248,6 +248,30 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    async def test_events(self, backend, app):
+        ev = asyncio.Event()
+        ev.clear()
+
+        async def on_event(event):
+            if event.type == "task done" and event.data["status"] is True:
+                ev.set()
+
+        await app.consume_tasks()
+        await app.consume_events(on_event)
+
+        ar = await app.run_task(tasks.hello_world, events=True)
+        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        await asyncio.wait_for(ev.wait(), 1)
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "arrlio.backends.local",
+            "arrlio.backends.rabbitmq",
+            "arrlio.backends.redis",
+        ],
+        indirect=True,
+    )
     async def test_graph(self, backend, app):
         await app.consume_tasks()
 
@@ -272,17 +296,22 @@ class TestArrlio:
         ],
         indirect=True,
     )
-    async def test_events(self, backend, app):
-        ev = asyncio.Event()
-        ev.clear()
-
-        async def on_event(event):
-            if event.type == "task done" and event.data["status"] is True:
-                ev.set()
-
+    async def test_graph_complex(self, backend, app):
         await app.consume_tasks()
-        await app.consume_events(on_event)
 
-        ar = await app.run_task(tasks.hello_world, events=True)
-        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
-        await asyncio.wait_for(ev.wait(), 1)
+        graph = arrlio.Graph("Test")
+        graph.add_node("A", tasks.compare, root=True)
+        graph.add_node("B", tasks.logger_info, args=("True",))
+        graph.add_node("C", tasks.logger_info, args=("False",))
+        graph.add_edge("A", "B", routes="true")
+        graph.add_edge("A", "C", routes="false")
+
+        ars = await app.run_graph(graph, args=(0, 0))
+        assert await asyncio.wait_for(ars["B"].get(), 1) is None
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ars["C"].get(), 1)
+
+        ars = await app.run_graph(graph, args=(0, 1))
+        assert await asyncio.wait_for(ars["C"].get(), 1) is None
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(ars["B"].get(), 1)

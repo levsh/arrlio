@@ -48,5 +48,16 @@ def sync_task():
 
 
 @arrlio.task
-def add_one(x: str, **kwds):
+def add_one(x: str):
     return int(x) + 1
+
+
+@arrlio.task
+def logger_info(data, *, meta: dict = None):
+    assert meta["source_node"]
+    logger.info(data)
+
+
+@arrlio.task
+def compare(a, b) -> bool:
+    return arrlio.Result(routes={True: "true", False: "false"}[a == b])

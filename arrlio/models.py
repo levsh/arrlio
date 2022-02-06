@@ -29,6 +29,7 @@ class TaskData:
     task_id: UUID = field(default_factory=uuid4)
     args: tuple = field(default_factory=tuple)
     kwds: dict = field(default_factory=dict)
+    meta: dict = field(default_factory=dict)
     queue: str = None
     priority: int = None
     timeout: int = None
@@ -127,9 +128,11 @@ class TaskInstance:
     task: Task
     data: TaskData
 
-    def __call__(self):
+    def __call__(self, meta: bool = False):
         args = self.data.args
         kwds = self.data.kwds
+        if meta is True:
+            kwds["meta"] = self.data.meta
         if self.task.bind:
             args = (self,) + args
         return self.task.func(*args, **kwds)
@@ -180,16 +183,16 @@ class Graph:
     ):
         self.id = id
         self.nodes: Dict[str, List[str]] = rodict({}, nested=True)
-        self.edges: Dict[str, Set[str]] = rodict({}, nested=True)
+        self.edges: Dict[str, List[str]] = rodict({}, nested=True)
         self.roots: Set[str] = roset(set())
         nodes = nodes or {}
         edges = edges or {}
         roots = roots or set()
         for node_id, (task, kwds) in nodes.items():
             self.add_node(node_id, task, root=node_id in roots, **kwds)
-        for node_id_from, nodes_id_to in edges.items():
-            for node_id_to in nodes_id_to:
-                self.add_edge(node_id_from, node_id_to)
+        for node_id_from, nodes_to in edges.items():
+            for node_id_to, routes in nodes_to:
+                self.add_edge(node_id_from, node_id_to, routes=routes)
 
     def __str__(self):
         return f"{self.__class__.__name__}(id={self.id} nodes={self.nodes} edges={self.edges} roots={self.roots}"
@@ -206,12 +209,14 @@ class Graph:
         if root:
             self.roots.__original__.add(node_id)
 
-    def add_edge(self, node_id_from: str, node_id_to: str):
+    def add_edge(self, node_id_from: str, node_id_to: str, routes: Union[str, List[str]] = None):
         if node_id_from not in self.nodes:
             raise Exception(f"Node '{node_id_from}' not found in graph")
         if node_id_to not in self.nodes:
             raise Exception(f"Node '{node_id_to}' not found in graph")
-        self.edges.__original__.setdefault(node_id_from, set()).add(node_id_to)
+        if isinstance(routes, str):
+            routes = [routes]
+        self.edges.__original__.setdefault(node_id_from, []).append([node_id_to, routes])
 
     def dict(self):
         return {
@@ -229,3 +234,9 @@ class Graph:
             edges=data["edges"],
             roots=data["roots"],
         )
+
+
+@dataclass(frozen=True)
+class Result:
+    routes: Union[str, List[str]] = None
+    result: Any = None

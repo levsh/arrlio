@@ -26,12 +26,12 @@ async def exception():
 
 
 @arrlio.task
-async def add_one(value: str, **kwds):
+async def add_one(value: str):
     return int(value) + 1
 
 
 @arrlio.task
-async def bash(cmd, stdin: str = None, **kwds):
+async def bash(cmd, stdin: str = None):
     in_stream=io.StringIO(stdin)
     out_stream=io.StringIO()
     result = invoke.run(cmd, in_stream=in_stream, out_stream=out_stream)

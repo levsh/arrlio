@@ -18,28 +18,28 @@ class Json(base.Serializer):
         self.encoder = encoder or ExtendedJSONEncoder
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
-        def fn(task_instance: dict):
-            if graph := task_instance["data"]["graph"]:
-                task_instance["data"]["graph"] = graph.dict()
-            return {"name": task_instance["task"]["name"], **task_instance["data"]}
-
-        data = fn(asdict(task_instance))
-        return json.dumps(data, cls=self.encoder).encode()
+        dct = asdict(task_instance)
+        if graph := dct["data"]["graph"]:
+            dct["data"]["graph"] = graph.dict()
+        return json.dumps(
+            {
+                "name": dct["task"]["name"],
+                **{k: v for k, v in dct["data"].items() if v is not None},
+                # **dct["data"],
+            },
+            cls=self.encoder,
+        ).encode()
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
         data = json.loads(data)
-
-        def fn(data: dict, graph=None):
-            if data["graph"]:
-                data["graph"] = Graph.from_dict(data["graph"])
-            name = data.pop("name")
-            if name in __tasks__:
-                task_instance = __tasks__[name].instantiate(data=TaskData(**data))
-            else:
-                task_instance = Task(None, name).instantiate(data=TaskData(**data))
-            return task_instance
-
-        return fn(data)
+        if data.get("graph"):
+            data["graph"] = Graph.from_dict(data["graph"])
+        name = data.pop("name")
+        if name in __tasks__:
+            task_instance = __tasks__[name].instantiate(data=TaskData(**data))
+        else:
+            task_instance = Task(None, name).instantiate(data=TaskData(**data))
+        return task_instance
 
     def dumps_task_result(self, task_result: TaskResult, **kwds) -> bytes:
         if task_result.exc:

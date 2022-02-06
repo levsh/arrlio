@@ -50,7 +50,7 @@ import arrlio
 
 
 @arrlio.task
-async def add_one(value: str, **kwds):
+async def add_one(value: str):
     return int(value) + 1
 
 graph = arrlio.Graph("My Graph")

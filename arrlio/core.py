@@ -12,7 +12,7 @@ from uuid import UUID
 
 from arrlio import __tasks__, settings
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError
-from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Message, Result, Task, TaskData, TaskInstance, TaskResult
 from arrlio.settings import Config
 
 
@@ -129,11 +129,15 @@ class Executor:
         try:
             if task_instance.task.func is None:
                 raise NotFoundError(f"Task '{task_instance.task.name}' not found")
+
+            kwdefaults = task_instance.task.func.__kwdefaults__
+            meta = kwdefaults and "meta" in kwdefaults
+
             try:
                 if inspect.iscoroutinefunction(task_instance.task.func):
-                    res = await asyncio.wait_for(task_instance(), task_data.timeout)
+                    res = await asyncio.wait_for(task_instance(meta=meta), task_data.timeout)
                 else:
-                    res = task_instance()
+                    res = task_instance(meta=meta)
             except asyncio.TimeoutError:
                 raise TaskTimeoutError(task_data.timeout)
         except Exception as e:
@@ -299,12 +303,13 @@ class App:
 
         return AsyncResult(self, task_instance)
 
-    async def run_graph(self, graph: Graph, args: Union[Tuple, List] = None, kwds: dict = None):
+    async def run_graph(self, graph: Graph, args: Union[Tuple, List] = None, kwds: dict = None, meta: dict = None):
         nodes = copy.deepcopy(graph.nodes)
         edges = graph.edges
         roots = graph.roots
 
         if not nodes or not roots:
+            logger.warning("Empty graph or missing roots")
             return
 
         logger.info("%s: run %s with args: %s and kwds: %s", self, graph, args, kwds)
@@ -324,6 +329,7 @@ class App:
         for root in roots:
             task_instances[root].data.args += tuple(args or ())
             task_instances[root].data.kwds.update(kwds or {})
+            task_instances[root].data.meta.update(meta or {})
             task_instances[root].data.graph = Graph(graph.id, nodes=nodes, edges=edges, roots={root})
             logger.info("%s: run %s", self, task_instances[root])
             await self._backend.send_task(task_instances[root])
@@ -416,22 +422,29 @@ class App:
             task_result: TaskResult = await executor(task_instance)
 
             graph: Graph = task_data.graph
-            if graph is not None:
-                if task_result.exc is None:
-                    root: str = next(iter(graph.roots))
-                    if root in graph.edges:
-                        for child in graph.edges[root]:
-                            graph: Graph = Graph(
-                                id=graph.id,
-                                nodes=graph.nodes,
-                                edges=graph.edges,
-                                roots={child},
-                            )
-                            await self.run_graph(
-                                graph,
-                                args=(task_result.res,),
-                                kwds={"graph_source_node": root},
-                            )
+            if graph is not None and task_result.exc is None:
+                if isinstance(task_result.res, Result):
+                    routes = task_result.res.routes
+                    args = (task_result.res.result,) if task_result.res.result is not None else ()
+                else:
+                    routes = None
+                    args = (task_result.res,) if task_result.res is not None else ()
+
+                if isinstance(routes, str):
+                    routes = [routes]
+
+                root: str = next(iter(graph.roots))
+                if root in graph.edges:
+                    for node_id, node_id_routes in graph.edges[root]:
+                        if not ((routes is None and node_id_routes is None) or set(routes) & set(node_id_routes)):
+                            continue
+                        graph: Graph = Graph(
+                            id=graph.id,
+                            nodes=graph.nodes,
+                            edges=graph.edges,
+                            roots={node_id},
+                        )
+                        await self.run_graph(graph, args=args, meta={"source_node": root})
 
             if task_instance.data.result_return:
                 try:
