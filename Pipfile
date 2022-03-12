@@ -9,7 +9,7 @@ cryptography = "*"
 pydantic = ">=1.9.0"
 yarl = "*"
 hiredis = "*"
-roview = {git = "https://github.com/levsh/roview.git"}
+roview = "*"
 siderpy = "*"
 arrlio = {editable = true, path = "."}
 
@@ -19,6 +19,9 @@ coverage = "*"
 docker = "*"
 flake8 = "*"
 invoke = "*"
+mkdocs = "*"
+mkdocs-material = "*"
+Pygments = "*"
 pytest = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"

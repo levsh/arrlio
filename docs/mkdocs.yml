@@ -1,0 +1,19 @@
+site_name: Arrlio
+nav:
+  - About: index.md
+  - Installation: installation.md
+  - User Guide:
+    - Basic: user_guide/basic.md
+    - Task arguments: user_guide/task_args.md
+    - Task result: user_guide/task_result.md
+    - General settings: user_guide/settings.md
+    - Backends: user_guide/backends.md
+theme:
+  name: material
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - tables
