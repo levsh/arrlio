@@ -1,10 +1,10 @@
 from typing import Any
 
 from arrlio.models import Event, TaskInstance, TaskResult
-from arrlio.serializers import base
+from arrlio.serializers.base import Serializer
 
 
-class Nop(base.Serializer):
+class Serializer(Serializer):
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 

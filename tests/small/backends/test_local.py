@@ -6,18 +6,16 @@ import pytest
 from arrlio import TaskNoResultError
 from arrlio.backends import local
 from arrlio.models import Task, TaskData, TaskInstance
-from arrlio.serializers.nop import Nop
-
-
-pytestmark = pytest.mark.asyncio
+from arrlio.serializers import nop
 
 
 def test_BackendConfig():
     config = local.BackendConfig()
-    assert config.serializer == Nop
+    assert config.serializer == nop
     assert config.name == local.BACKEND_NAME
 
 
+@pytest.mark.asyncio
 async def test_Backend():
     backend1 = local.Backend(local.BackendConfig())
 
@@ -57,6 +55,7 @@ async def test_Backend():
     assert "custom" not in local.Backend._Backend__shared
 
 
+@pytest.mark.asyncio
 async def test_Backend_send_task():
     backend = local.Backend(local.BackendConfig())
     task_instance = TaskInstance(task=Task(None, "test_send_task"), data=TaskData(queue="queue"))
@@ -68,6 +67,7 @@ async def test_Backend_send_task():
     await backend.close()
 
 
+@pytest.mark.asyncio
 async def test_Backend_consume_tasks():
     backend = local.Backend(local.BackendConfig())
     task_instance = TaskInstance(task=Task(None, "test_consume_task"), data=TaskData(queue="queue"))
@@ -85,6 +85,7 @@ async def test_Backend_consume_tasks():
     await backend.close()
 
 
+@pytest.mark.asyncio
 async def test_Backend_push_pop_task_result():
     backend = local.Backend(local.BackendConfig())
     task_instance = TaskInstance(

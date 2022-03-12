@@ -2,30 +2,30 @@ import json
 import logging
 import traceback
 from dataclasses import asdict
-from typing import Any, Callable
+from typing import Any
 
 from arrlio import __tasks__
 from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
-from arrlio.serializers import base
+from arrlio.serializers.base import Serializer
 from arrlio.utils import ExtendedJSONEncoder
 
 
 logger = logging.getLogger("arrlio")
 
 
-class Json(base.Serializer):
+class Serializer(Serializer):
     def __init__(self, encoder=None):
         self.encoder = encoder or ExtendedJSONEncoder
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
         dct = asdict(task_instance)
-        if graph := dct["data"]["graph"]:
-            dct["data"]["graph"] = graph.dict()
+        data = dct["data"]
+        if graph := data["graph"]:
+            data["graph"] = graph.dict()
         return json.dumps(
             {
                 "name": dct["task"]["name"],
-                **{k: v for k, v in dct["data"].items() if v is not None},
-                # **dct["data"],
+                **{k: v for k, v in data.items() if v is not None},
             },
             cls=self.encoder,
         ).encode()
@@ -71,52 +71,3 @@ class Json(base.Serializer):
 
     def loads(self, data: bytes) -> Any:
         return json.loads(data)
-
-
-class CryptoJson(Json):
-    def __init__(self, encoder=None, encryptor: Callable = lambda x: x, decryptor: Callable = lambda x: x):
-        super().__init__(encoder=encoder)
-        self.encryptor = encryptor
-        self.decryptor = decryptor
-
-    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
-        data: bytes = super().dumps_task_instance(task_instance, **kwds)
-        if task_instance.data.encrypt:
-            data: bytes = b"1" + self.encryptor(data)
-        else:
-            data: bytes = b"0" + data
-        return data
-
-    def loads_task_instance(self, data: bytes) -> TaskInstance:
-        header, data = data[0:1], data[1:]
-        if header == b"1":
-            data: bytes = self.decryptor(data)
-        return super().loads_task_instance(data)
-
-    def dumps_task_result(self, task_result: TaskResult, encrypt: bool = None, **kwds) -> bytes:
-        data: bytes = super().dumps_task_result(task_result, **kwds)
-        if encrypt:
-            data: bytes = b"1" + self.encryptor(data)
-        else:
-            data: bytes = b"0" + data
-        return data
-
-    def loads_task_result(self, data: bytes) -> TaskResult:
-        header, data = data[0:1], data[1:]
-        if header == b"1":
-            data: bytes = self.decryptor(data)
-        return super().loads_task_result(data)
-
-    def dumps(self, data: Any, encrypt: bool = None, **kwds) -> bytes:
-        data: bytes = super().dumps(data, **kwds)
-        if encrypt:
-            data: bytes = b"1" + self.encryptor(data)
-        else:
-            data: bytes = b"0" + data
-        return data
-
-    def loads(self, data: bytes) -> Any:
-        header, data = data[0:1], data[1:]
-        if header == b"1":
-            data: bytes = self.decryptor(data)
-        return super().loads(data)

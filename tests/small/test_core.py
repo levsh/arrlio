@@ -2,11 +2,7 @@ from unittest import mock
 
 import pytest
 
-from arrlio import App, Config, settings, task
-from arrlio.core import AsyncResult
-
-
-pytestmark = pytest.mark.asyncio
+from arrlio import App, AsyncResult, Config, settings, task
 
 
 def test_task():
@@ -19,6 +15,7 @@ def test_task():
         pass
 
 
+@pytest.mark.asyncio
 async def test_App():
     config = Config()
     app = App(config)
@@ -28,6 +25,7 @@ async def test_App():
     await app.close()
 
 
+@pytest.mark.asyncio
 async def test_App_run_task():
     config = Config()
     app = App(config)

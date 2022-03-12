@@ -7,9 +7,6 @@ import pytest
 from arrlio import task, utils
 
 
-pytestmark = pytest.mark.asyncio
-
-
 class C:
     pass
 
@@ -52,6 +49,7 @@ def test_ExtendedJSONEncoder():
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)
 
 
+@pytest.mark.asyncio
 async def test_retry():
     async def foo(a, b=None):
         pass

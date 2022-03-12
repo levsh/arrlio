@@ -6,9 +6,6 @@ import arrlio
 from arrlio import models, settings
 
 
-pytestmark = pytest.mark.asyncio
-
-
 def test_TaskData():
     task_data = models.TaskData()
     assert isinstance(task_data.task_id, uuid.UUID)
@@ -29,6 +26,7 @@ def test_TaskData():
     task_data.queue = "default"
 
 
+@pytest.mark.asyncio
 async def test_Task():
     def foo():
         return "Foo!"
@@ -123,6 +121,7 @@ async def test_Task():
     assert await models.Task(bar, "bar", bind=True)() == "Bar!"
 
 
+@pytest.mark.asyncio
 async def test_async_task():
     @arrlio.task
     async def async_task():

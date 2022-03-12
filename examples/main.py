@@ -4,8 +4,8 @@ import logging
 import arrlio
 import tasks
 
-from arrlio import crypto
-from arrlio.serializers.json import CryptoJson
+from arrlio import backends, crypto
+from arrlio.serializers import crypto_json
 
 
 logger = logging.getLogger("arrlio")
@@ -46,14 +46,18 @@ async def main():
         pri_key = crypto.generate_private_key()
         pub_key = pri_key.public_key()
 
-        def serializer():
-            return CryptoJson(
-                encryptor=lambda x: crypto.a_encrypt(x, pub_key),
-                decryptor=lambda x: crypto.a_decrypt(x, pri_key),
+        app = arrlio.App(
+            arrlio.Config(
+                backend=lambda: backends.local.Backend(
+                    backends.local.BackendConfig(
+                        serializer=lambda: crypto_json.Serializer(
+                            encryptor=lambda x: crypto.a_encrypt(x, pub_key),
+                            decryptor=lambda x: crypto.a_decrypt(x, pri_key),
+                        )
+                    )
+                )
             )
-
-        backend_config_kwds = {"serializer": serializer}
-        app = arrlio.App(arrlio.Config(backend=BACKEND), backend_config_kwds=backend_config_kwds)
+        )
 
         async with app:
             await app.consume_tasks()

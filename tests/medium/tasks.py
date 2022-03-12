@@ -60,4 +60,5 @@ def logger_info(data, *, meta: dict = None):
 
 @arrlio.task
 def compare(a, b) -> bool:
-    return arrlio.Result(routes={True: "true", False: "false"}[a == b])
+    res = a == b
+    return arrlio.TaskResult(res=res, routes={True: "true", False: "false"}[res])

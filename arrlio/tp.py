@@ -1,16 +1,15 @@
 import importlib
 import re
-from types import ModuleType
+from types import FunctionType, ModuleType
 from typing import Any, Callable, Coroutine, Dict, Optional, no_type_check
 
-from pydantic import AnyUrl, PyObject, conint
+from pydantic import AnyUrl, conint
 
 
 AsyncCallableT = Callable[..., Coroutine]
 ExceptionFilterT = Callable[[Exception], bool]
 PositiveIntT = conint(ge=1)
 PriorityT = conint(ge=1, le=10)
-SerializerT = PyObject
 TimeoutT = conint(ge=0)
 
 
@@ -68,7 +67,7 @@ class RedisDsn(SecretAnyUrl):
         return super().validate_parts(parts)
 
 
-class ModuleT:
+class BackendT:
     validate_always = True
 
     @classmethod
@@ -79,9 +78,30 @@ class ModuleT:
     def validate(cls, v):
         if isinstance(v, str):
             v = importlib.import_module(v)
-        if not isinstance(v, ModuleType):
-            raise ValueError
+            if not hasattr(v, "BackendConfig"):
+                raise TypeError("Module doesn't provide BackendConfig class")
+            if not hasattr(v, "Backend"):
+                raise TypeError("Module doesn't provide Backend class")
+        if not isinstance(v, (FunctionType, ModuleType)):
+            raise ValueError("Expect Function or Module")
         return v
 
 
-BackendT = ModuleT
+class SerializerT:
+    validate_always = True
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v):
+        if isinstance(v, str):
+            v = importlib.import_module(v)
+            if not isinstance(v, ModuleType):
+                raise ValueError
+            if not hasattr(v, "Serializer"):
+                raise TypeError("Module doesn't provide Serializer class")
+        if not isinstance(v, (FunctionType, ModuleType)):
+            raise ValueError("Expect Function or Module")
+        return v

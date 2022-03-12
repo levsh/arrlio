@@ -31,6 +31,7 @@ BACKEND = "arrlio.backends.local"
 
 async def main():
     app = arrlio.App(arrlio.Config(backend=BACKEND))
+    # app = arrlio.App(arrlio.Config(backend=lambda: backends.local.Backend(backends.local.BackendConfig())))
 
     async with app:
         await app.consume_tasks()

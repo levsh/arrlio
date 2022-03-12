@@ -6,13 +6,13 @@ import logging
 import sys
 import threading
 import time
-from types import FunctionType, MethodType
+from types import FunctionType, MethodType, ModuleType
 from typing import Any, List, Tuple, Union
 from uuid import UUID
 
 from arrlio import __tasks__, settings
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError
-from arrlio.models import Event, Graph, Message, Result, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.settings import Config
 
 
@@ -157,6 +157,9 @@ class Executor:
             time.monotonic() - t0,
         )
 
+        if isinstance(res, TaskResult):
+            return res
+
         return TaskResult(res=res, exc=exc, trb=trb)
 
 
@@ -187,9 +190,19 @@ class ThreadExecutor(Executor):
 
 
 class App:
-    def __init__(self, config: Config, backend_config_kwds: dict = None):
+    def __init__(
+        self,
+        config: Config,
+        # backend_config_kwds: dict = None,
+    ):
         self.config = config
-        self._backend = self.config.backend.Backend(self.config.backend.BackendConfig(**(backend_config_kwds or {})))
+        if isinstance(config.backend, ModuleType):
+            self._backend = self.config.backend.Backend(
+                # self.config.backend.BackendConfig(**(backend_config_kwds or {}))
+                self.config.backend.BackendConfig()
+            )
+        else:
+            self._backend = self.config.backend()
         self._closed: asyncio.Future = asyncio.Future()
         self._running_tasks: dict = {}
         self._running_messages: dict = {}
@@ -423,13 +436,8 @@ class App:
 
             graph: Graph = task_data.graph
             if graph is not None and task_result.exc is None:
-                if isinstance(task_result.res, Result):
-                    routes = task_result.res.routes
-                    args = (task_result.res.result,) if task_result.res.result is not None else ()
-                else:
-                    routes = None
-                    args = (task_result.res,) if task_result.res is not None else ()
-
+                routes = task_result.routes
+                args = (task_result.res,) or ()
                 if isinstance(routes, str):
                     routes = [routes]
 
@@ -444,6 +452,7 @@ class App:
                             edges=graph.edges,
                             roots={node_id},
                         )
+                        logger.error(args)
                         await self.run_graph(graph, args=args, meta={"source_node": root})
 
             if task_instance.data.result_return:

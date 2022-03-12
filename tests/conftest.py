@@ -2,8 +2,9 @@ import collections
 import logging
 
 import pytest
+import pytest_asyncio
 
-from arrlio import App, Config
+from arrlio import App, Config, backends
 
 from tests import utils
 
@@ -25,20 +26,20 @@ def container_executor():
 @pytest.fixture(scope="function")
 def backend(request, container_executor):
     if request.param not in [
-        "arrlio.backends.local",
-        "arrlio.backends.rabbitmq",
-        "arrlio.backends.redis",
+        backends.local,
+        backends.rabbitmq,
+        backends.redis,
     ]:
         raise Exception("Unsupported backend %s" % request.param)
 
     address = None
     container = None
     config_kwds = {}
-    if request.param == "arrlio.backends.rabbitmq":
+    if request.param == backends.rabbitmq:
         container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
         config_kwds["url"] = f"amqp://guest:guest@{address[0]}:{address[1]}"
-    if request.param == "arrlio.backends.redis":
+    if request.param == backends.redis:
         container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
         address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
         config_kwds["url"] = f"redis://{address[0]}:{address[1]}"
@@ -53,10 +54,10 @@ def backend(request, container_executor):
     yield BackendTuple(container, request.param, config_kwds)
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def app(backend):
-    config = Config(backend=backend.module)
-    app = App(config, backend_config_kwds=backend.config_kwds)
+    config = Config(backend=lambda: backend.module.Backend(backend.module.BackendConfig(**backend.config_kwds)))
+    app = App(config)
     try:
         yield app
     finally:

@@ -143,6 +143,7 @@ class TaskResult:
     res: Any = None
     exc: Union[Exception, Tuple[str, str, str]] = None
     trb: Union[TracebackType, str] = None
+    routes: Union[str, List[str]] = None
 
 
 @dataclass(frozen=True)
@@ -234,9 +235,3 @@ class Graph:
             edges=data["edges"],
             roots=data["roots"],
         )
-
-
-@dataclass(frozen=True)
-class Result:
-    routes: Union[str, List[str]] = None
-    result: Any = None

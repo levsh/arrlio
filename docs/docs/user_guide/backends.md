@@ -12,7 +12,7 @@
 All environment varialbles should starts with `{ENV_PREFIX}LOCAL_BACKEND_`.
 
 - `NAME` (BackendConfig.name), default: "arrlio". Backend name.
-- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.nop.Nop". Serializer class to use.
+- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.nop". Serializer module with `Serializer` class or callable(Serializer factory).
 
 
 ## RabbitMQ
@@ -22,7 +22,7 @@ All environment varialbles should starts with `{ENV_PREFIX}LOCAL_BACKEND_`.
 All environment varialbles should starts with `{ENV_PREFIX}RMQ_BACKEND_`.
 
 - `NAME` (BackendConfig.name), default: "arrlio". Backend name.
-- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.json.Json". Serializer class to use.
+- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.json". Serializer module with `Serializer` class or callable(Serializer factory).
 - `URL` (BackendConfig.url), default: "amqp://guest:guest@localhost". RabbitMQ server url.
 - `TIMEOUT` (BackendConfig.timeout), default: 10. RabbitMQ operation timeout, seconds.
 - `RETRY_TIMEOUTS` (BackendConfig.retry_timeouts), default: None. Retry timeouts as sequence: [1, 2, 5].
@@ -44,7 +44,7 @@ All environment varialbles should starts with `{ENV_PREFIX}RMQ_BACKEND_`.
 ### Settings
 
 - `NAME` (BackendConfig.name), default: "arrlio". Backend name.
-- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.json.Json". Serializer class to use.
+- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.json". Serializer module with `Serializer` class or callable(Serializer factory).
 - `URL` (BackendConfig.url), default: "redis://localhost?db=0". Redis server url.
 - `TIMEOUT` (BackendConfig.timeout), default: 10. Redis operation timeout, seconds.
 - `CONNECT_TIMEOUT` (BackendConfig.connect_timeout), default: 10. Redis connect timeout, seconds.
