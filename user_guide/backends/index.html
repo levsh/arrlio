@@ -507,14 +507,14 @@
 <p>All environment varialbles should starts with <code>{ENV_PREFIX}LOCAL_BACKEND_</code>.</p>
 <ul>
 <li><code>NAME</code> (BackendConfig.name), default: "arrlio". Backend name.</li>
-<li><code>SERIALIZER</code> (BackendConfig.serializer), default: "arrlio.serializers.nop.Nop". Serializer class to use.</li>
+<li><code>SERIALIZER</code> (BackendConfig.serializer), default: "arrlio.serializers.nop". Serializer module with <code>Serializer</code> class or callable(Serializer factory).</li>
 </ul>
 <h2 id="rabbitmq">RabbitMQ</h2>
 <h3 id="settings_1">Settings</h3>
 <p>All environment varialbles should starts with <code>{ENV_PREFIX}RMQ_BACKEND_</code>.</p>
 <ul>
 <li><code>NAME</code> (BackendConfig.name), default: "arrlio". Backend name.</li>
-<li><code>SERIALIZER</code> (BackendConfig.serializer), default: "arrlio.serializers.json.Json". Serializer class to use.</li>
+<li><code>SERIALIZER</code> (BackendConfig.serializer), default: "arrlio.serializers.json". Serializer module with <code>Serializer</code> class or callable(Serializer factory).</li>
 <li><code>URL</code> (BackendConfig.url), default: "amqp://guest:guest@localhost". RabbitMQ server url.</li>
 <li><code>TIMEOUT</code> (BackendConfig.timeout), default: 10. RabbitMQ operation timeout, seconds.</li>
 <li><code>RETRY_TIMEOUTS</code> (BackendConfig.retry_timeouts), default: None. Retry timeouts as sequence: [1, 2, 5].</li>
@@ -534,7 +534,7 @@
 <h3 id="settings_2">Settings</h3>
 <ul>
 <li><code>NAME</code> (BackendConfig.name), default: "arrlio". Backend name.</li>
-<li><code>SERIALIZER</code> (BackendConfig.serializer), default: "arrlio.serializers.json.Json". Serializer class to use.</li>
+<li><code>SERIALIZER</code> (BackendConfig.serializer), default: "arrlio.serializers.json". Serializer module with <code>Serializer</code> class or callable(Serializer factory).</li>
 <li><code>URL</code> (BackendConfig.url), default: "redis://localhost?db=0". Redis server url.</li>
 <li><code>TIMEOUT</code> (BackendConfig.timeout), default: 10. Redis operation timeout, seconds.</li>
 <li><code>CONNECT_TIMEOUT</code> (BackendConfig.connect_timeout), default: 10. Redis connect timeout, seconds.</li>

@@ -437,7 +437,7 @@ All environment varialbles should starts with <code>{ENV_PREFIX}</code>.
 Default value for <code>ENV_PREFIX</code> is <code>ARRLIO_</code>.</p>
 <h2 id="general">General</h2>
 <ul>
-<li><code>BACKEND</code> (Config.backend), default: "arrlio.backends.local". Backend module.</li>
+<li><code>BACKEND</code> (Config.backend), default: "arrlio.backends.local". Backend module with <code>Backend</code> and <code>BackendConfig</code> classes or callable(Backend factory).</li>
 <li><code>TASK_QUEUES</code> (Config.task_queues), default: ["arrlio.tasks"]. Task queues to listen.</li>
 <li><code>MESSAGE_QUEUES</code> (Config.message_queues), defaut: ["arrlio.messages"]. Message queues to listen.</li>
 <li><code>POOL_SIZE</code> (Config.pool_size), default: 100. Worker pool size.</li>
