@@ -149,10 +149,10 @@ class Backend(base.Backend):
         return self.serializer.loads_task_result(raw_data[1])
 
     @base.Backend.task
-    async def send_message(self, message: Message, encrypt: bool = None, **kwds):
+    async def send_message(self, message: Message, **kwds):
         queue = message.exchange
         queue_key = self._make_message_queue_key(queue)
-        data = self.serializer.dumps(dataclasses.asdict(message), encrypt=encrypt)
+        data = self.serializer.dumps(dataclasses.asdict(message), encrypt=message.encrypt)
 
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():

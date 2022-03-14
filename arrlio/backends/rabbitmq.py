@@ -491,7 +491,6 @@ class Backend(base.Backend):
         message: Message,
         routing_key: str = None,
         delivery_mode: int = None,
-        encrypt: bool = None,
         **kwds,
     ):
         if not routing_key:
@@ -499,7 +498,7 @@ class Backend(base.Backend):
         logger.debug("%s: put %s", self, message)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps(message.data, encrypt=encrypt),
+                self.serializer.dumps(message.data, encrypt=message.encrypt),
                 exchange=message.exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(

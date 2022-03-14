@@ -47,6 +47,7 @@ class Backend(abc.ABC):
                 return await task
             finally:
                 self._tasks.discard(task)
+                del task
 
         return wrap
 
@@ -96,7 +97,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def send_message(self, message: Message, encrypt: bool = None, **kwds):
+    async def send_message(self, message: Message, **kwds):
         pass
 
     @abc.abstractmethod

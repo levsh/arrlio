@@ -154,6 +154,7 @@ class Message:
     priority: int = None
     ttl: int = None
     ack_late: bool = None
+    encrypt: bool = None
 
     def __post_init__(self):
         if self.exchange is None:
@@ -172,6 +173,12 @@ class Event:
     datetime: datetime.datetime
     data: dict
     event_id: UUID = field(default_factory=uuid4)
+
+    def __post_init__(self):
+        if not isinstance(self.datetime, datetime.datetime):
+            object.__setattr__(self, "datetime", datetime.datetime.fromisoformat(self.datetime))
+        if not isinstance(self.event_id, UUID):
+            object.__setattr__(self, "event_id", UUID(self.event_id))
 
 
 class Graph:

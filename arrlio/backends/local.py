@@ -149,9 +149,9 @@ class Backend(base.Backend):
             del self._results[task_id]
 
     @base.Backend.task
-    async def send_message(self, message: Message, encrypt: bool = None, **kwds):
+    async def send_message(self, message: Message, **kwds):
         data = dataclasses.asdict(message)
-        data["data"] = self.serializer.dumps(message.data, encrypt=encrypt)
+        data["data"] = self.serializer.dumps(message.data, encrypt=message.encrypt)
         logger.debug("%s: put %s", self, message)
         await self._message_queues[message.exchange].put(
             (
