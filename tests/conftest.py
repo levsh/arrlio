@@ -62,5 +62,4 @@ async def app(backend):
         yield app
     finally:
         await app.close()
-        import asyncio
-        await asyncio.sleep(1)
+        backends.local.Backend._Backend__shared.clear()

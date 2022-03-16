@@ -59,9 +59,10 @@ class Backend(base.Backend):
         self._events_consumer: asyncio.Task = None
 
     def __del__(self):
-        self._refs = max(0, self._refs - 1)
-        if self._refs == 0:
-            del self.__shared[self.config.name]
+        if self.config.name in self.__shared:
+            self._refs = max(0, self._refs - 1)
+            if self._refs == 0:
+                del self.__shared[self.config.name]
 
     def __str__(self):
         return f"[LocalBackend({self.config.name})]"

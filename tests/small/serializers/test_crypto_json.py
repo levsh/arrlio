@@ -45,9 +45,9 @@ class TestSerializer:
         task_result = TaskResult(exc=exc, trb=trb)
         assert serializer.loads_task_result(serializer.dumps_task_result(task_result)) == TaskResult(
             exc=["builtins", "ZeroDivisionError", "division by zero"],
-            trb='  File "/vagrant/dev/arrlio/tests/small/serializers/test_crypto_json.py", line 39, in test_dumps_loads_task_result\n    1 / 0\n',
+            trb=f'  File "{__file__}", line 39, in test_dumps_loads_task_result\n    1 / 0\n',
         )
         assert serializer.loads_task_result(serializer.dumps_task_result(task_result, encrypt=True)) == TaskResult(
             exc=["builtins", "ZeroDivisionError", "division by zero"],
-            trb='  File "/vagrant/dev/arrlio/tests/small/serializers/test_crypto_json.py", line 39, in test_dumps_loads_task_result\n    1 / 0\n',
+            trb=f'  File "{__file__}", line 39, in test_dumps_loads_task_result\n    1 / 0\n',
         )

@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-aiormq = ">=6.1.1"
+aiormq = ">=6.2.3"
 cryptography = "*"
 pydantic = ">=1.9.0"
 yarl = "*"

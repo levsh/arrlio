@@ -81,17 +81,23 @@ class RMQConnection:
 
         if self._key not in self.__shared:
             self.__shared[self._key] = {
+                "id": 0,
                 "refs": 0,
                 "objs": 0,
                 "conn": None,
                 "conn_lock": asyncio.Lock(),
                 "on_open_callbacks_lock": asyncio.Lock(),
-                "on_open": {},
-                "on_lost": {},
-                "on_close": {},
             }
 
+        self._shared["id"] += 1
         self._shared["objs"] += 1
+        self._shared[self] = {
+            "on_open": {},
+            "on_lost": {},
+            "on_close": {},
+        }
+
+        self._id = self._shared["id"]
 
         self._connect_timeout = yarl.URL(url).query.get("connection_timeout")
         if self._connect_timeout is not None:
@@ -104,6 +110,8 @@ class RMQConnection:
         if not self.is_closed:
             logger.warning("%s: unclosed", self)
         self._shared["objs"] -= 1
+        if self in self._shared:
+            del self._shared[self]
         if self._shared["objs"] == 0:
             del self.__shared[self._key]
 
@@ -131,21 +139,23 @@ class RMQConnection:
     def _refs(self, value: int):
         self._shared["refs"] = value
 
-    def add_callback(self, tp, group, name: str, cb):
-        self._shared[tp].setdefault(group, {})
-        self._shared[tp][group][name] = cb
+    def add_callback(self, tp, name: str, cb):
+        if self in self._shared:
+            self._shared[self][tp][name] = cb
 
-    async def remove_callback(self, tp, group, name):
-        if group in self._shared[tp] and name in self._shared[tp][group]:
-            del self._shared[tp][group][name]
+    def remove_callback(self, tp, name):
+        if self in self._shared and name in self._shared[self][tp]:
+            del self._shared[self][tp][name]
 
-    async def remove_callback_group(self, group):
-        for tp in ("on_open", "on_lost", "on_close"):
-            if group in self._shared[tp]:
-                del self._shared[tp][group]
+    def remove_callbacks(self):
+        if self in self._shared:
+            del self._shared[self]
 
     def __str__(self):
-        return f"{self.__class__.__name__}[{self.url.host}:{self.url.port}]"
+        return f"{self.__class__.__name__}#{self._id}[{self.url.host}:{self.url.port}]"
+
+    def __repr__(self):
+        return self.__str__()
 
     @property
     def is_open(self) -> bool:
@@ -156,7 +166,7 @@ class RMQConnection:
         return self._closed.done()
 
     async def _execute_callbacks(self, tp):
-        for callback in [callback for callbacks in self._shared[tp].values() for callback in callbacks.values()]:
+        for callback in self._shared[self][tp].values():
             try:
                 if inspect.iscoroutinefunction(callback):
                     await callback()
@@ -176,15 +186,16 @@ class RMQConnection:
             await self._execute_callbacks("on_lost")
 
     async def open(self):
-        if self.is_open:
+        if self.is_open and self._supervisor_task:
             return
 
         if self._on_open_callbacks_lock.locked():
             raise ConnectionError()
 
         async with self._conn_lock:
-            if self.is_open:
+            if self.is_open and self._supervisor_task:
                 return
+
             if self.is_closed:
                 raise Exception("Can't reopen closed connection")
 
@@ -201,7 +212,6 @@ class RMQConnection:
                 await connect()
 
             self._refs += 1
-
             self._supervisor_task = asyncio.create_task(self._supervisor())
 
             async with self._on_open_callbacks_lock:
@@ -212,6 +222,7 @@ class RMQConnection:
             return
 
         self._refs = max(0, self._refs - 1)
+
         async with self._conn_lock:
             self._closed.set_result(None)
             if self._refs == 0:
@@ -222,7 +233,8 @@ class RMQConnection:
                     logger.info("%s: closed", self)
             if self._supervisor_task:
                 await self._supervisor_task
-                self._supervisor_task = None
+
+        self.remove_callbacks()
 
     async def channel(self) -> aiormq.Channel:
         await self.open()
@@ -250,13 +262,13 @@ class Backend(base.Backend):
 
         self.__conn: RMQConnection = RMQConnection(config.url, retry_timeouts=config.retry_timeouts)
 
-        self.__conn.add_callback("on_open", id(self), "declare", self.declare)
-        self.__conn.add_callback("on_lost", id(self), "cleanup", self._task_consumers.clear)
-        self.__conn.add_callback("on_lost", id(self), "cleanup", self._message_consumers.clear)
-        self.__conn.add_callback("on_lost", id(self), "cleanup", self._events_consumer.clear)
-        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_tasks)
-        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_messages)
-        self.__conn.add_callback("on_close", id(self), "cleanup", self.stop_consume_events)
+        self.__conn.add_callback("on_open", "declare", self.declare)
+        self.__conn.add_callback("on_lost", "cleanup", self._task_consumers.clear)
+        self.__conn.add_callback("on_lost", "cleanup", self._message_consumers.clear)
+        self.__conn.add_callback("on_lost", "cleanup", self._events_consumer.clear)
+        self.__conn.add_callback("on_close", "cleanup", self.stop_consume_tasks)
+        self.__conn.add_callback("on_close", "cleanup", self.stop_consume_messages)
+        self.__conn.add_callback("on_close", "cleanup", self.stop_consume_events)
 
     def __del__(self):
         if not self.is_closed:
@@ -281,7 +293,6 @@ class Backend(base.Backend):
 
     async def close(self):
         await super().close()
-        await self.__conn.remove_callback_group(id(self))
         await self.__conn.close()
 
     @base.Backend.task
@@ -389,11 +400,11 @@ class Backend(base.Backend):
             async def _consume_tasks():
                 await self.consume_tasks(list(self._task_consumers.keys()), on_task)
 
-            self._conn.add_callback("on_lost", id(self), "consume_tasks", _consume_tasks)
+            self._conn.add_callback("on_lost", "consume_tasks", _consume_tasks)
 
     async def stop_consume_tasks(self):
-        await self.__conn.remove_callback("on_lost", id(self), "consume_tasks")
-        await self.__conn.remove_callback("on_close", id(self), "consume_tasks")
+        self.__conn.remove_callback("on_lost", "consume_tasks")
+        self.__conn.remove_callback("on_close", "consume_tasks")
         async with self._consume_lock:
             for queue, (channel, consume_ok) in self._task_consumers.items():
                 if not self.__conn.is_closed and not channel.is_closed:
@@ -464,8 +475,8 @@ class Backend(base.Backend):
                     if not fut.done():
                         fut.set_exception(e)
 
-            self._conn.add_callback("on_close", id(self), task_id, on_conn_error)
-            self._conn.add_callback("on_lost", id(self), task_id, on_conn_error)
+            self._conn.add_callback("on_close", task_id, on_conn_error)
+            self._conn.add_callback("on_lost", task_id, on_conn_error)
             channel = await self._conn.channel()
             consume_ok = await channel.basic_consume(queue, on_result, timeout=self.config.timeout)
             try:
@@ -476,8 +487,8 @@ class Backend(base.Backend):
                     continue
                 return fut.result()
             finally:
-                await self._conn.remove_callback("on_close", id(self), task_id)
-                await self._conn.remove_callback("on_lost", id(self), task_id)
+                self._conn.remove_callback("on_close", task_id)
+                self._conn.remove_callback("on_lost", task_id)
                 if not self._conn.is_closed and not channel.is_closed:
                     await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
                     if not self._conn.is_closed and not channel.is_closed:
@@ -552,11 +563,11 @@ class Backend(base.Backend):
             async def _consume_messages():
                 await self.consume_messages(list(self._message_consumers.keys()), on_message)
 
-            self._conn.add_callback("on_lost", id(self), "consume_messages", _consume_messages)
+            self._conn.add_callback("on_lost", "consume_messages", _consume_messages)
 
     async def stop_consume_messages(self):
-        await self.__conn.remove_callback("on_lost", id(self), "consume_messages")
-        await self.__conn.remove_callback("on_close", id(self), "consume_messages")
+        self.__conn.remove_callback("on_lost", "consume_messages")
+        self.__conn.remove_callback("on_close", "consume_messages")
         async with self._consume_lock:
             for queue, (channel, consume_ok) in self._message_consumers.items():
                 if not self.__conn.is_closed and not channel.is_closed:
@@ -618,11 +629,11 @@ class Backend(base.Backend):
             async def _consume_events():
                 await self.consume_events(on_event)
 
-            self._conn.add_callback("on_lost", id(self), "consume_events", _consume_events)
+            self._conn.add_callback("on_lost", "consume_events", _consume_events)
 
     async def stop_consume_events(self):
-        await self.__conn.remove_callback("on_lost", id(self), "consume_events")
-        await self.__conn.remove_callback("on_close", id(self), "consume_events")
+        self.__conn.remove_callback("on_lost", "consume_events")
+        self.__conn.remove_callback("on_close", "consume_events")
         async with self._consume_lock:
             if not self._events_consumer:
                 return

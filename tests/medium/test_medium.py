@@ -20,7 +20,11 @@ pytestmark = pytest.mark.asyncio
 class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_default(self, backend, app):
@@ -34,7 +38,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_sync_task_(self, backend, app):
@@ -45,7 +53,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_not_found(self, backend, app):
@@ -56,7 +68,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_args_kwds(self, backend, app):
@@ -67,7 +83,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_custom_queue(self, backend, app):
@@ -80,7 +100,10 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq],
+        [
+            backends.local,
+            backends.rabbitmq,
+        ],
         indirect=True,
     )
     async def test_task_priority(self, backend, app):
@@ -95,7 +118,10 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.rabbitmq, backends.redis],
+        [
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_lost_connection(self, backend, app):
@@ -110,7 +136,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_timeout(self, backend, app):
@@ -121,7 +151,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_thread(self, backend, app):
@@ -135,7 +169,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_no_result(self, backend, app):
@@ -151,7 +189,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_task_result_timeout(self, backend, app):
@@ -163,7 +205,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_message(self, backend, app):
@@ -197,7 +243,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_events(self, backend, app):
@@ -217,7 +267,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_graph(self, backend, app):
@@ -237,7 +291,11 @@ class TestArrlio:
 
     @pytest.mark.parametrize(
         "backend",
-        [backends.local, backends.rabbitmq, backends.redis],
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
         indirect=True,
     )
     async def test_graph_complex(self, backend, app):
