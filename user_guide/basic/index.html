@@ -340,7 +340,7 @@
 <p>Start consuming tasks and run <code>hello_world</code> task:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">app</span><span class="p">:</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">consume_tasks</span><span class="p">()</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">hello_world</span><span class="p">)</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">send_task</span><span class="p">(</span><span class="n">hello_world</span><span class="p">)</span>
 </code></pre></div>
 <p>Summary:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span> <span class="nn">arrlio</span> <span class="kn">import</span> <span class="n">App</span><span class="p">,</span> <span class="n">Config</span><span class="p">,</span> <span class="n">task</span>
@@ -353,7 +353,7 @@
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">app</span> <span class="o">=</span> <span class="n">App</span><span class="p">(</span><span class="n">Config</span><span class="p">())</span>
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="k">async</span> <span class="k">with</span> <span class="n">app</span><span class="p">:</span>
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">consume_tasks</span><span class="p">()</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">hello_world</span><span class="p">)</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">send_task</span><span class="p">(</span><span class="n">hello_world</span><span class="p">)</span>
 </code></pre></div>
 
               
