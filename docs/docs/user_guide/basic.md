@@ -22,7 +22,7 @@ Start consuming tasks and run `hello_world` task:
 ```python
 async with app:
     await app.consume_tasks()
-    await app.run_task(hello_world)
+    await app.send_task(hello_world)
 ```
 
 Summary:
@@ -38,5 +38,5 @@ def hello_world():
 app = App(Config())
 async with app:
     await app.consume_tasks()
-    await app.run_task(hello_world)
+    await app.send_task(hello_world)
 ```

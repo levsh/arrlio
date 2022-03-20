@@ -10,7 +10,7 @@ def hello_world(name: str):
 app = App(Config())
 async with app:
     await app.consume_tasks()
-    await app.run_task(hello_world, args=("World",))
+    await app.send_task(hello_world, args=("World",))
 ```
 
 Named arguments:
@@ -26,5 +26,5 @@ def hello_world(name: str = None):
 app = App(Config())
 async with app:
     await app.consume_tasks()
-    await app.run_task(hello_world, kwds={"name": "User"})
+    await app.send_task(hello_world, kwds={"name": "User"})
 ```

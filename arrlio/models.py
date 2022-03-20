@@ -8,13 +8,14 @@ from roview import rodict, roset
 
 from arrlio.settings import (
     EVENT_TTL,
-    EVENTS,
     MESSAGE_ACK_LATE,
     MESSAGE_EXCHANGE,
     MESSAGE_PRIORITY,
     MESSAGE_TTL,
     TASK_ACK_LATE,
     TASK_BIND,
+    TASK_EVENT_TTL,
+    TASK_EVENTS,
     TASK_PRIORITY,
     TASK_QUEUE,
     TASK_RESULT_RETURN,
@@ -30,97 +31,72 @@ class TaskData:
     args: tuple = field(default_factory=tuple)
     kwds: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
-    queue: str = None
-    priority: int = None
-    timeout: int = None
-    ttl: int = None
+    backend_extra: dict = field(default_factory=dict)
+    graph: "Graph" = None
+
+    queue: str = TASK_QUEUE
+    priority: int = TASK_PRIORITY
+    timeout: int = TASK_TIMEOUT
+    ttl: int = TASK_TTL
     encrypt: bool = None
-    ack_late: bool = None
-    result_ttl: int = None
-    result_return: bool = None
+    ack_late: bool = TASK_ACK_LATE
+    result_ttl: int = TASK_RESULT_TTL
+    result_return: bool = TASK_RESULT_RETURN
     result_encrypt: bool = None
     thread: bool = None
-    events: bool = None
-    event_ttl: int = None
-    extra: dict = field(default_factory=dict)
-    graph: "Graph" = None
+    events: Union[bool, Set[str]] = TASK_EVENTS
+    event_ttl: int = EVENT_TTL
+
+    def __post_init__(self):
+        if isinstance(self.task_id, str):
+            object.__setattr__(self, "task_id", UUID(self.task_id))
+        if isinstance(self.args, list):
+            object.__setattr__(self, "args", tuple(self.args))
 
 
 @dataclass(frozen=True)
 class Task:
     func: FunctionType
     name: str
-    bind: bool = None
-    queue: str = None
-    priority: int = None
-    timeout: int = None
-    ttl: int = None
+    bind: bool = TASK_BIND
+
+    queue: str = TASK_QUEUE
+    priority: int = TASK_PRIORITY
+    timeout: int = TASK_TIMEOUT
+    ttl: int = TASK_TTL
     encrypt: bool = None
-    ack_late: bool = None
-    result_ttl: int = None
-    result_return: bool = None
+    ack_late: bool = TASK_ACK_LATE
+    result_ttl: int = TASK_RESULT_TTL
+    result_return: bool = TASK_RESULT_RETURN
     result_encrypt: bool = None
     thread: bool = None
-    events: bool = None
-    event_ttl: int = None
+    events: Union[bool, Set[str]] = TASK_EVENTS
+    event_ttl: int = TASK_EVENT_TTL
 
-    def __post_init__(self):
-        if self.bind is None:
-            object.__setattr__(self, "bind", TASK_BIND)
-        if self.queue is None:
-            object.__setattr__(self, "queue", TASK_QUEUE)
-        if self.priority is None:
-            object.__setattr__(self, "priority", TASK_PRIORITY)
-        if self.timeout is None:
-            object.__setattr__(self, "timeout", TASK_TIMEOUT)
-        if self.ttl is None:
-            object.__setattr__(self, "ttl", TASK_TTL)
-        if self.ack_late is None:
-            object.__setattr__(self, "ack_late", TASK_ACK_LATE)
-        if self.result_ttl is None:
-            object.__setattr__(self, "result_ttl", TASK_RESULT_TTL)
-        if self.result_return is None:
-            object.__setattr__(self, "result_return", TASK_RESULT_RETURN)
-        if self.events is None:
-            object.__setattr__(self, "events", EVENTS)
-        if self.event_ttl is None:
-            object.__setattr__(self, "event_ttl", EVENT_TTL)
-
-    def instantiate(self, data: TaskData = None) -> "TaskInstance":
-        if data is None:
-            data = TaskData()
-        if isinstance(data.task_id, str):
-            data.task_id = UUID(data.task_id)
-        if isinstance(data.args, list):
-            data.args = tuple(data.args)
-        if data.queue is None:
-            data.queue = self.queue
-        if data.priority is None:
-            data.priority = self.priority
-        if data.timeout is None:
-            data.timeout = self.timeout
-        if data.ttl is None:
-            data.ttl = self.ttl
-        if data.encrypt is None:
-            data.encrypt = self.encrypt
-        if data.ack_late is None:
-            data.ack_late = self.ack_late
-        if data.result_ttl is None:
-            data.result_ttl = self.result_ttl
-        if data.result_return is None:
-            data.result_return = self.result_return
-        if data.result_encrypt is None:
-            data.result_encrypt = self.result_encrypt
-        if data.thread is None:
-            data.thread = self.thread
-        if data.events is None:
-            data.events = self.events
-        if data.event_ttl is None:
-            data.event_ttl = self.event_ttl
+    def instantiate(self, **kwds) -> "TaskInstance":
+        data: TaskData = TaskData(
+            **{
+                **{
+                    "queue": self.queue,
+                    "priority": self.priority,
+                    "timeout": self.timeout,
+                    "ttl": self.ttl,
+                    "encrypt": self.encrypt,
+                    "ack_late": self.ack_late,
+                    "result_ttl": self.result_ttl,
+                    "result_return": self.result_return,
+                    "result_encrypt": self.result_encrypt,
+                    "thread": self.thread,
+                    "events": self.events,
+                    "event_ttl": self.event_ttl,
+                },
+                **kwds,
+            }
+        )
         return TaskInstance(task=self, data=data)
 
     def __call__(self, *args, **kwds) -> Any:
-        return self.instantiate(TaskData(args=args, kwds=kwds))()
+        return self.instantiate(args=args, kwds=kwds)()
 
 
 @dataclass(frozen=True)
@@ -150,44 +126,37 @@ class TaskResult:
 class Message:
     data: Any
     message_id: UUID = field(default_factory=uuid4)
-    exchange: str = None
-    priority: int = None
-    ttl: int = None
-    ack_late: bool = None
+    exchange: str = MESSAGE_EXCHANGE
+    priority: int = MESSAGE_PRIORITY
+    ttl: int = MESSAGE_TTL
+    ack_late: bool = MESSAGE_ACK_LATE
     encrypt: bool = None
-
-    def __post_init__(self):
-        if self.exchange is None:
-            object.__setattr__(self, "exchange", MESSAGE_EXCHANGE)
-        if self.priority is None:
-            object.__setattr__(self, "priority", MESSAGE_PRIORITY)
-        if self.ttl is None:
-            object.__setattr__(self, "ttl", MESSAGE_TTL)
-        if self.ack_late is None:
-            object.__setattr__(self, "ack_late", MESSAGE_ACK_LATE)
 
 
 @dataclass(frozen=True)
 class Event:
     type: str
-    datetime: datetime.datetime
     data: dict
     event_id: UUID = field(default_factory=uuid4)
+    dt: datetime.datetime = None
+    ttl: int = EVENT_TTL
 
     def __post_init__(self):
-        if not isinstance(self.datetime, datetime.datetime):
-            object.__setattr__(self, "datetime", datetime.datetime.fromisoformat(self.datetime))
         if not isinstance(self.event_id, UUID):
             object.__setattr__(self, "event_id", UUID(self.event_id))
+        if self.dt is None:
+            object.__setattr__(self, "dt", datetime.datetime.now(tz=datetime.timezone.utc))
+        elif isinstance(self.dt, str):
+            object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
 
 class Graph:
     def __init__(
         self,
         id: str,
-        nodes: Dict = None,
-        edges: Dict = None,
-        roots: Set = None,
+        nodes: dict = None,
+        edges: dict = None,
+        roots: set = None,
     ):
         self.id = id
         self.nodes: Dict[str, List[str]] = rodict({}, nested=True)

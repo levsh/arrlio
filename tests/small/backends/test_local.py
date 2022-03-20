@@ -6,7 +6,7 @@ import pytest
 
 from arrlio import TaskNoResultError
 from arrlio.backends import local
-from arrlio.models import Event, Message, Task, TaskData, TaskInstance
+from arrlio.models import Event, Message, Task
 from arrlio.serializers import nop
 
 
@@ -86,10 +86,7 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_send_task(self):
         backend = local.Backend(local.BackendConfig())
-        task_instance = TaskInstance(
-            task=Task(None, "test_send_task"),
-            data=TaskData(queue="queue", result_return=True),
-        )
+        task_instance = Task(None, "test_send_task").instantiate(queue="queue", result_return=True)
         await backend.send_task(task_instance)
         assert backend._task_queues["queue"].qsize() == 1
         await backend.send_task(task_instance)
@@ -100,7 +97,7 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_consume_tasks(self):
         backend = local.Backend(local.BackendConfig())
-        task_instance = TaskInstance(task=Task(None, "test_consume_task"), data=TaskData(queue="queue"))
+        task_instance = Task(None, "test_consume_task").instantiate(queue="queue")
         fut = asyncio.Future()
 
         async def on_task(*args):
@@ -117,9 +114,8 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_push_pop_task_result(self):
         backend = local.Backend(local.BackendConfig())
-        task_instance = TaskInstance(
-            task=Task(None, "test_push_pop_task_result"),
-            data=TaskData(queue="queue", result_return=True, result_ttl=1),
+        task_instance = Task(None, "test_push_pop_task_result").instantiate(
+            queue="queue", result_return=True, result_ttl=1
         )
         result = mock.MagicMock()
         backend._results[task_instance.data.task_id] = [asyncio.Event(), None]
@@ -128,10 +124,7 @@ class TestBackend:
         assert await backend.pop_task_result(task_instance) == result
         assert task_instance.data.task_id not in backend._results
 
-        task_instance = TaskInstance(
-            task=Task(None, "test_push_pop_task_result", result_return=False),
-            data=TaskData(queue="queue"),
-        )
+        task_instance = Task(None, "test_push_pop_task_result", result_return=False).instantiate(queue="queue")
         result = mock.MagicMock()
 
         await backend.push_task_result(task_instance, result)
@@ -144,10 +137,7 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_pop_task_result(self):
         backend = local.Backend(local.BackendConfig())
-        task_instance = TaskInstance(
-            task=Task(None, "test_pop_task_result"),
-            data=TaskData(queue="queue", result_return=True, result_ttl=1),
-        )
+        task_instance = Task(None, "test_pop_task_result").instantiate(queue="queue", result_return=True, result_ttl=1)
 
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(backend.pop_task_result(task_instance), 0.1)
@@ -185,12 +175,8 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_push_event(self):
         backend = local.Backend(local.BackendConfig())
-        task_instance = TaskInstance(
-            task=Task(None, "test_push_event"),
-            data=TaskData(queue="queue", events=True, event_ttl=10),
-        )
-        event = Event(type="ev_type", datetime=datetime.datetime.now(), data={})
-        await backend.push_event(task_instance, event)
+        event = Event(type="ev_type", dt=datetime.datetime.now(), data={})
+        await backend.push_event(event)
         assert backend._events[event.event_id] == event
 
         await backend.close()
@@ -198,11 +184,7 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_consume_events(self):
         backend = local.Backend(local.BackendConfig())
-        task_instance = TaskInstance(
-            task=Task(None, "test_push_event"),
-            data=TaskData(queue="queue", events=True, event_ttl=10),
-        )
-        event = Event(type="ev_type", datetime=datetime.datetime.now(), data={})
+        event = Event(type="ev_type", dt=datetime.datetime.now(), data={})
         fut = asyncio.Future()
 
         async def on_event(*args):
@@ -210,7 +192,7 @@ class TestBackend:
             fut.set_result(True)
 
         await backend.consume_events(on_event)
-        await backend.push_event(task_instance, event)
+        await backend.push_event(event)
 
         await asyncio.wait_for(fut, 1)
 

@@ -85,7 +85,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def push_event(self, task_instance: TaskInstance, event: Event):
+    async def push_event(self, event: Event):
         pass
 
     @abc.abstractmethod

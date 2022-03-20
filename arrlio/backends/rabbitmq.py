@@ -349,7 +349,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, result_queue_durable: bool = False, **kwds):
         task_data = task_instance.data
-        task_data.extra["result_queue_durable"] = result_queue_durable
+        task_data.backend_extra["result_queue_durable"] = result_queue_durable
         await self.declare_task_queue(task_data.queue)
         logger.debug("%s: put %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
@@ -418,7 +418,7 @@ class Backend(base.Backend):
         task_id = task_instance.data.task_id
         result_ttl = task_instance.data.result_ttl
         queue = routing_key = f"result.{task_id}"
-        durable = task_instance.data.extra.get("result_queue_durable")
+        durable = task_instance.data.backend_extra.get("result_queue_durable")
         async with self._conn.channel_ctx() as channel:
             await channel.queue_declare(
                 queue,
@@ -577,9 +577,7 @@ class Backend(base.Backend):
             self._message_consumers = {}
 
     @base.Backend.task
-    async def push_event(self, task_instance: TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
+    async def push_event(self, event: Event):
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
                 self.serializer.dumps_event(event),
@@ -588,6 +586,7 @@ class Backend(base.Backend):
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
                     timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                    expiration=str(int(event.ttl * 1000)) if event.ttl is not None else None,
                 ),
                 timeout=self.config.timeout,
             )

@@ -1,4 +1,3 @@
-import datetime
 import json
 import logging
 import traceback
@@ -6,7 +5,7 @@ from dataclasses import asdict
 from typing import Any
 
 from arrlio import __tasks__
-from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.utils import ExtendedJSONEncoder
 
@@ -37,9 +36,9 @@ class Serializer(Serializer):
             data["graph"] = Graph.from_dict(data["graph"])
         name = data.pop("name")
         if name in __tasks__:
-            task_instance = __tasks__[name].instantiate(data=TaskData(**data))
+            task_instance = __tasks__[name].instantiate(**data)
         else:
-            task_instance = Task(None, name).instantiate(data=TaskData(**data))
+            task_instance = Task(None, name).instantiate(**data)
         return task_instance
 
     def dumps_task_result(self, task_result: TaskResult, **kwds) -> bytes:

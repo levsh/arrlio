@@ -19,6 +19,7 @@ setup(
     packages=find_packages(
         exclude=(
             "docs",
+            "site",
             "examples",
             "tests",
         )
@@ -26,7 +27,6 @@ setup(
     include_package_data=True,
     install_requires=[
         "aiormq>=5.2.0",
-        "cryptography",
         "pydantic>=1.9.0",
         "yarl",
         "roview",

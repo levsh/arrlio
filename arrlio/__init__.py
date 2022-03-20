@@ -11,7 +11,7 @@ log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)
 
 
-__version__ = "0.11.1"
+__version__ = "0.12.0"
 
 __tasks__ = {}
 

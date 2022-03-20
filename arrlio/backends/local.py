@@ -191,15 +191,13 @@ class Backend(base.Backend):
         self._message_consumers = {}
 
     @base.Backend.task
-    async def push_event(self, task_instance: TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
+    async def push_event(self, event: Event):
         self._events[event.event_id] = self.serializer.dumps_event(event)
         async with self._event_cond:
             self._event_cond.notify()
-        if task_instance.data.event_ttl is not None:
+        if event.ttl is not None:
             loop = asyncio.get_event_loop()
-            loop.call_later(task_instance.data.event_ttl, lambda: self._events.pop(event.event_id, None))
+            loop.call_later(event.ttl, lambda: self._events.pop(event.event_id, None))
 
     @base.Backend.task
     async def consume_events(self, on_event: AsyncCallableT):

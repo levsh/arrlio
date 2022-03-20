@@ -91,6 +91,7 @@ def bump_dev(c):
 
 @task
 def build(c):
+    c.run("rm -rf build dist")
     c.run("python -m build")
 
 

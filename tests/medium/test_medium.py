@@ -30,10 +30,10 @@ class TestArrlio:
     async def test_task_default(self, backend, app):
         await app.consume_tasks()
 
-        ar = await app.run_task(tasks.hello_world)
+        ar = await app.send_task(tasks.hello_world)
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
-        ar = await app.run_task("hello_world")
+        ar = await app.send_task("hello_world")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
     @pytest.mark.parametrize(
@@ -48,7 +48,7 @@ class TestArrlio:
     async def test_sync_task_(self, backend, app):
         await app.consume_tasks()
 
-        ar = await app.run_task(tasks.sync_task)
+        ar = await app.send_task(tasks.sync_task)
         assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
 
     @pytest.mark.parametrize(
@@ -63,7 +63,7 @@ class TestArrlio:
     async def test_task_not_found(self, backend, app):
         await app.consume_tasks()
         with pytest.raises(arrlio.exc.TaskError):
-            ar = await app.run_task("invalid")
+            ar = await app.send_task("invalid")
             await ar.get()
 
     @pytest.mark.parametrize(
@@ -77,7 +77,7 @@ class TestArrlio:
     )
     async def test_task_args_kwds(self, backend, app):
         await app.consume_tasks()
-        ar = await app.run_task(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4})
+        ar = await app.send_task(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4})
         res = await asyncio.wait_for(ar.get(), 5)
         assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
 
@@ -93,9 +93,9 @@ class TestArrlio:
     async def test_task_custom_queue(self, backend, app):
         app.config.task_queues = ["queue1", "queue2"]
         await app.consume_tasks()
-        ar = await app.run_task(tasks.hello_world, queue="queue1")
+        ar = await app.send_task(tasks.hello_world, queue="queue1")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
-        ar = await app.run_task(tasks.hello_world, queue="queue2")
+        ar = await app.send_task(tasks.hello_world, queue="queue2")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
     @pytest.mark.parametrize(
@@ -109,9 +109,9 @@ class TestArrlio:
     async def test_task_priority(self, backend, app):
         app.config.pool_size = 1
         await app.consume_tasks()
-        await app.run_task(tasks.sleep, args=(0.5,), priority=10)
-        aw1 = (await app.run_task(tasks.sleep, args=(1,), priority=1)).get()
-        aw2 = (await app.run_task(tasks.sleep, args=(1,), priority=2)).get()
+        await app.send_task(tasks.sleep, args=(0.5,), priority=10)
+        aw1 = (await app.send_task(tasks.sleep, args=(1,), priority=1)).get()
+        aw2 = (await app.send_task(tasks.sleep, args=(1,), priority=2)).get()
         done, pending = await asyncio.wait_for(asyncio.wait({aw1, aw2}, return_when=asyncio.FIRST_COMPLETED), 5)
         assert {t.get_coro() for t in done} == {aw2}
         assert {t.get_coro() for t in pending} == {aw1}
@@ -131,7 +131,7 @@ class TestArrlio:
         await asyncio.sleep(3)
         backend.container.start()
         await asyncio.sleep(1)
-        ar = await app.run_task(tasks.hello_world)
+        ar = await app.send_task(tasks.hello_world)
         assert await asyncio.wait_for(ar.get(), 10) == "Hello World!"
 
     @pytest.mark.parametrize(
@@ -145,7 +145,7 @@ class TestArrlio:
     )
     async def test_task_timeout(self, backend, app):
         await app.consume_tasks()
-        ar = await app.run_task(tasks.sleep, args=(3600,), timeout=1)
+        ar = await app.send_task(tasks.sleep, args=(3600,), timeout=1)
         with pytest.raises(arrlio.TaskError):
             await asyncio.wait_for(ar.get(), 5)
 
@@ -161,10 +161,10 @@ class TestArrlio:
     async def test_task_thread(self, backend, app):
         await app.consume_tasks()
 
-        ar = await app.run_task(tasks.thread_name)
+        ar = await app.send_task(tasks.thread_name)
         assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
 
-        ar = await app.run_task("thread_name")
+        ar = await app.send_task("thread_name")
         assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
 
     @pytest.mark.parametrize(
@@ -179,11 +179,11 @@ class TestArrlio:
     async def test_task_no_result(self, backend, app):
         await app.consume_tasks()
 
-        ar = await app.run_task(tasks.noresult)
+        ar = await app.send_task(tasks.noresult)
         with pytest.raises(arrlio.TaskNoResultError):
             await asyncio.wait_for(ar.get(), 5)
 
-        ar = await app.run_task(tasks.hello_world, result_return=False)
+        ar = await app.send_task(tasks.hello_world, result_return=False)
         with pytest.raises(arrlio.TaskNoResultError):
             await asyncio.wait_for(ar.get(), 5)
 
@@ -198,7 +198,7 @@ class TestArrlio:
     )
     async def test_task_result_timeout(self, backend, app):
         await app.consume_tasks()
-        ar = await app.run_task(tasks.hello_world, result_ttl=1)
+        ar = await app.send_task(tasks.hello_world, result_ttl=1)
         await asyncio.sleep(3)
         with pytest.raises((arrlio.TaskNoResultError, asyncio.TimeoutError)):
             await asyncio.wait_for(ar.get(), 2)
@@ -261,7 +261,7 @@ class TestArrlio:
         await app.consume_tasks()
         await app.consume_events(on_event)
 
-        ar = await app.run_task(tasks.hello_world, events=True)
+        ar = await app.send_task(tasks.hello_world, events=True)
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
         await asyncio.wait_for(ev.wait(), 1)
 
@@ -284,7 +284,7 @@ class TestArrlio:
         graph.add_edge("A", "B")
         graph.add_edge("B", "C")
 
-        ars = await app.run_graph(graph, args=(0,))
+        ars = await app.send_graph(graph, args=(0,))
         assert await asyncio.wait_for(ars["A"].get(), 1) == 1
         assert await asyncio.wait_for(ars["B"].get(), 1) == 2
         assert await asyncio.wait_for(ars["C"].get(), 1) == 3
@@ -308,13 +308,13 @@ class TestArrlio:
         graph.add_edge("A", "B", routes="true")
         graph.add_edge("A", "C", routes="false")
 
-        ars = await app.run_graph(graph, args=(0, 0))
+        ars = await app.send_graph(graph, args=(0, 0))
         assert await asyncio.wait_for(ars["B"].get(), 1) is None
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(ars["C"].get(), 1)
         assert await asyncio.wait_for(ars["A"].get(), 1) is True
 
-        ars = await app.run_graph(graph, args=(0, 1))
+        ars = await app.send_graph(graph, args=(0, 1))
         assert await asyncio.wait_for(ars["C"].get(), 1) is None
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(ars["B"].get(), 1)

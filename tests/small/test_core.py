@@ -26,12 +26,12 @@ async def test_App():
 
 
 @pytest.mark.asyncio
-async def test_App_run_task():
+async def test_App_send_task():
     config = Config()
     app = App(config)
 
     with mock.patch.object(app.backend, "send_task") as mock_send_task:
-        ar = await app.run_task("foo")
+        ar = await app.send_task("foo")
         mock_send_task.assert_awaited_once()
         task_instance = mock_send_task.call_args[0][0]
 
@@ -64,7 +64,7 @@ async def test_App_run_task():
         assert ar.task_instance == task_instance
 
     with mock.patch.object(app.backend, "send_task") as mock_send_task:
-        ar = await app.run_task(
+        ar = await app.send_task(
             "bar",
             args=(1, 2),
             kwds={"a": "b"},

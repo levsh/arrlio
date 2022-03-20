@@ -6,119 +6,176 @@ import arrlio
 from arrlio import models, settings
 
 
-def test_TaskData():
-    task_data = models.TaskData()
-    assert isinstance(task_data.task_id, uuid.UUID)
-    assert task_data.args == ()
-    assert task_data.kwds == {}
-    assert task_data.queue is None
-    assert task_data.priority is None
-    assert task_data.timeout is None
-    assert task_data.ttl is None
-    assert task_data.ack_late is None
-    assert task_data.result_ttl is None
-    assert task_data.result_return is None
-    assert task_data.result_encrypt is None
-    assert task_data.events is None
-    assert task_data.event_ttl is None
-    assert task_data.thread is None
+class Test_TaskData:
+    def test_init_default(self):
+        task_data = models.TaskData()
+        assert isinstance(task_data.task_id, uuid.UUID)
+        assert task_data.args == ()
+        assert task_data.kwds == {}
+        assert task_data.queue == settings.TASK_QUEUE
+        assert task_data.priority == settings.TASK_PRIORITY
+        assert task_data.timeout == settings.TASK_TIMEOUT
+        assert task_data.ttl == settings.TASK_TTL
+        assert task_data.ack_late == settings.TASK_ACK_LATE
+        assert task_data.result_ttl == settings.TASK_RESULT_TTL
+        assert task_data.result_return == settings.TASK_RESULT_RETURN
+        assert task_data.result_encrypt is None
+        assert task_data.events == settings.TASK_EVENTS
+        assert task_data.event_ttl == settings.TASK_EVENT_TTL
+        assert task_data.thread is None
 
-    task_data.queue = "default"
-
-
-@pytest.mark.asyncio
-async def test_Task():
-    def foo():
-        return "Foo!"
-
-    async def bar(*args, **kwds):
-        return "Bar!"
-
-    task = models.Task(foo, "foo")
-    assert task.func == foo
-    assert task.name == "foo"
-    assert task.bind == settings.TASK_BIND
-    assert task.queue == settings.TASK_QUEUE
-    assert task.priority == settings.TASK_PRIORITY
-    assert task.timeout == settings.TASK_TIMEOUT
-    assert task.ttl == settings.TASK_TTL
-    assert task.ack_late == settings.TASK_ACK_LATE
-    assert task.result_ttl == settings.TASK_RESULT_TTL
-    assert task.result_return == settings.TASK_RESULT_RETURN
-    assert task.result_encrypt is None
-    assert task.events == settings.EVENTS
-    assert task.event_ttl == settings.EVENT_TTL
-    assert task.thread is None
-
-    task_instance = task.instantiate()
-    assert isinstance(task_instance.data.task_id, uuid.UUID)
-    assert task_instance.data.args == ()
-    assert task_instance.data.kwds == {}
-    assert task_instance.data.queue == task.queue
-    assert task_instance.data.priority == task.priority
-    assert task_instance.data.timeout == task.timeout
-    assert task_instance.data.ttl == task.ttl
-    assert task_instance.data.ack_late == task.ack_late
-    assert task_instance.data.result_ttl == task.result_ttl
-    assert task_instance.data.result_return == task.result_return
-    assert task_instance.data.result_encrypt == task.result_encrypt
-    assert task_instance.data.events == task.events
-    assert task_instance.data.event_ttl == task.event_ttl
-    assert task_instance.data.thread is None
-
-    assert task() == "Foo!"
-
-    task_instance = models.Task(bar, "bar").instantiate(
-        models.TaskData(
-            task_id="e67b80b9-a9f0-4ff1-89e8-0beb70993ffd",
-            args=[1],
-            kwds={"a": "a"},
-            queue="abc",
-            priority=5,
-            timeout=10,
-            ttl=20,
+    def test_init_custom(self):
+        task_data = models.TaskData(
+            task_id="cbb6f1e9-2ae7-4674-bce1-83ab4b3d2ce9",
+            args=[1, 2],
+            kwds={"k": "v"},
+            queue="Q",
+            priority=777,
+            timeout=555,
+            ttl=333,
             ack_late=False,
-            result_ttl=30,
+            result_ttl=111,
+            result_return=False,
+            result_encrypt=True,
+            events=["task done"],
+            event_ttl=None,
+            thread=True,
+        )
+        assert isinstance(task_data.task_id, uuid.UUID)
+        assert task_data.task_id == uuid.UUID("cbb6f1e9-2ae7-4674-bce1-83ab4b3d2ce9")
+        assert task_data.args == (1, 2)
+        assert task_data.kwds == {"k": "v"}
+        assert task_data.queue == "Q"
+        assert task_data.priority == 777
+        assert task_data.timeout == 555
+        assert task_data.ttl == 333
+        assert task_data.ack_late is False
+        assert task_data.result_ttl == 111
+        assert task_data.result_return is False
+        assert task_data.result_encrypt is True
+        assert task_data.events == ["task done"]
+        assert task_data.event_ttl is None
+        assert task_data.thread is True
+
+
+class Test_Task:
+    def test_init_default(self):
+        def foo():
+            pass
+
+        task = models.Task(foo, "foo")
+        assert task.func == foo
+        assert task.name == "foo"
+        assert task.bind == settings.TASK_BIND
+        assert task.queue == settings.TASK_QUEUE
+        assert task.priority == settings.TASK_PRIORITY
+        assert task.timeout == settings.TASK_TIMEOUT
+        assert task.ttl == settings.TASK_TTL
+        assert task.ack_late == settings.TASK_ACK_LATE
+        assert task.result_ttl == settings.TASK_RESULT_TTL
+        assert task.result_return == settings.TASK_RESULT_RETURN
+        assert task.result_encrypt is None
+        assert task.events == settings.TASK_EVENTS
+        assert task.event_ttl == settings.TASK_EVENT_TTL
+        assert task.thread is None
+
+        task_instance = task.instantiate()
+        assert task_instance.task == task
+        assert isinstance(task_instance.data.task_id, uuid.UUID)
+        assert task_instance.data.args == ()
+        assert task_instance.data.kwds == {}
+        assert task_instance.data.queue == task.queue
+        assert task_instance.data.priority == task.priority
+        assert task_instance.data.timeout == task.timeout
+        assert task_instance.data.ttl == task.ttl
+        assert task_instance.data.ack_late == task.ack_late
+        assert task_instance.data.result_ttl == task.result_ttl
+        assert task_instance.data.result_return == task.result_return
+        assert task_instance.data.result_encrypt == task.result_encrypt
+        assert task_instance.data.events == task.events
+        assert task_instance.data.event_ttl == task.event_ttl
+        assert task_instance.data.thread is None
+
+    def test_init_custom(self):
+        def foo():
+            pass
+
+        task = models.Task(
+            foo,
+            "foo",
+            bind=True,
+            queue="Q",
+            priority=777,
+            timeout=555,
+            ttl=333,
+            ack_late=False,
+            result_ttl=111,
             result_return=False,
             result_encrypt=True,
             events=True,
-            event_ttl=345,
+            event_ttl=None,
             thread=True,
         )
-    )
-    assert task_instance.task.func == bar
-    assert task_instance.task.name == "bar"
-    assert task_instance.task.bind == settings.TASK_BIND
-    assert task_instance.task.queue == settings.TASK_QUEUE
-    assert task_instance.task.priority == settings.TASK_PRIORITY
-    assert task_instance.task.timeout == settings.TASK_TIMEOUT
-    assert task_instance.task.ttl == settings.TASK_TTL
-    assert task_instance.task.ack_late == settings.TASK_ACK_LATE
-    assert task_instance.task.result_ttl == settings.TASK_RESULT_TTL
-    assert task_instance.task.result_return == settings.TASK_RESULT_RETURN
-    assert task_instance.task.result_encrypt is None
-    assert task_instance.task.events == settings.EVENTS
-    assert task_instance.task.event_ttl == settings.EVENT_TTL
-    assert task_instance.task.thread is None
+        assert task.func == foo
+        assert task.name == "foo"
+        assert task.bind is True
+        assert task.queue == "Q"
+        assert task.priority == 777
+        assert task.timeout == 555
+        assert task.ttl == 333
+        assert task.ack_late is False
+        assert task.result_ttl == 111
+        assert task.result_return is False
+        assert task.result_encrypt is True
+        assert task.events is True
+        assert task.event_ttl is None
+        assert task.thread is True
 
-    assert task_instance.data.task_id == uuid.UUID("e67b80b9-a9f0-4ff1-89e8-0beb70993ffd")
-    assert task_instance.data.args == (1,)
-    assert task_instance.data.kwds == {"a": "a"}
-    assert task_instance.data.queue == "abc"
-    assert task_instance.data.priority == 5
-    assert task_instance.data.timeout == 10
-    assert task_instance.data.ttl == 20
-    assert task_instance.data.ack_late is False
-    assert task_instance.data.result_ttl == 30
-    assert task_instance.data.result_return is False
-    assert task_instance.data.result_encrypt is True
-    assert task_instance.data.events is True
-    assert task_instance.data.event_ttl == 345
-    assert task_instance.data.thread is True
+        task_instance = task.instantiate(
+            task_id="e67b80b9-a9f0-4ff1-89e8-0beb70993ffd",
+            args=[1],
+            kwds={"k": "v"},
+            queue="QQ",
+            priority=7,
+            timeout=5,
+            ttl=3,
+            ack_late=True,
+            result_ttl=1,
+            result_return=True,
+            result_encrypt=False,
+            events=["task done"],
+            event_ttl=0,
+            thread=False,
+        )
+        assert task_instance.task == task
+        assert task_instance.data.task_id == uuid.UUID("e67b80b9-a9f0-4ff1-89e8-0beb70993ffd")
+        assert task_instance.data.args == (1,)
+        assert task_instance.data.kwds == {"k": "v"}
+        assert task_instance.data.queue == "QQ"
+        assert task_instance.data.priority == 7
+        assert task_instance.data.timeout == 5
+        assert task_instance.data.ttl == 3
+        assert task_instance.data.ack_late is True
+        assert task_instance.data.result_ttl == 1
+        assert task_instance.data.result_return is True
+        assert task_instance.data.result_encrypt is False
+        assert task_instance.data.events == ["task done"]
+        assert task_instance.data.event_ttl == 0
+        assert task_instance.data.thread is False
 
-    assert await task_instance() == "Bar!"
+    def test_sync(self):
+        def foo():
+            return "Foo!"
 
-    assert await models.Task(bar, "bar", bind=True)() == "Bar!"
+        assert models.Task(foo, "foo").instantiate()() == "Foo!"
+
+    @pytest.mark.asyncio
+    async def test_async(self):
+        async def bar(*args, **kwds):
+            return "Bar!"
+
+        assert await models.Task(bar, "bar").instantiate()() == "Bar!"
+        assert await models.Task(bar, "bar", bind=True)() == "Bar!"
 
 
 @pytest.mark.asyncio

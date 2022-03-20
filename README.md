@@ -36,10 +36,10 @@ async def main():
     async with app:
         await app.consume_tasks()
 
-        ar = await app.run_task("sync hello_world")
+        ar = await app.send_task("sync hello_world")
         print(await ar.get())
 
-        ar = await app.run_task("async hello_world")
+        ar = await app.send_task("async hello_world")
         print(await ar.get())
 
 
@@ -72,7 +72,7 @@ async def main():
     async with app:
         await app.consume_tasks()
 
-        ars = await app.run_graph(graph, args=(0,))
+        ars = await app.send_graph(graph, args=(0,))
         print(await ars["C"].get())
 
 
@@ -104,7 +104,7 @@ async def main():
     async with app:
         await app.consume_tasks()
 
-        ars = await app.run_graph(
+        ars = await app.send_graph(
             graph,
             args=('echo "Number of words in this sentence:"',)
         )

@@ -204,17 +204,13 @@ class Backend(base.Backend):
         self._message_consumers = {}
 
     @base.Backend.task
-    async def push_event(self, task_instance: core.TaskInstance, event: Event):
-        if not task_instance.data.events:
-            return
-
+    async def push_event(self, event: Event):
         queue_key = "arrlio.events"
         data = self.serializer.dumps_event(event)
-
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():
                 await redis.multi()
-                await redis.setex(f"{event.event_id}", task_instance.data.event_ttl, data)
+                await redis.setex(f"{event.event_id}", event.ttl, data)
                 await redis.rpush(queue_key, f"{event.event_id}")
                 await redis.execute()
                 await redis.pipeline_execute()

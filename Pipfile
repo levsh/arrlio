@@ -5,15 +5,14 @@ name = "pypi"
 
 [packages]
 aiormq = ">=6.2.3"
-cryptography = "*"
 pydantic = ">=1.9.0"
 yarl = "*"
 hiredis = "*"
 roview = "*"
 siderpy = "*"
-arrlio = {editable = true, path = "."}
 
 [dev-packages]
+arrlio = {editable = true, path = "."}
 build = "*"
 coverage = "*"
 docker = "*"
