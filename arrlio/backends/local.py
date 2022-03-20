@@ -115,10 +115,11 @@ class Backend(base.Backend):
         for queue in queues:
             self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
-    async def stop_consume_tasks(self):
-        for queue in self._task_consumers.keys():
-            self._task_consumers[queue].cancel()
-        self._task_consumers = {}
+    async def stop_consume_tasks(self, queues: List[str] = None):
+        for queue in list(self._task_consumers.keys()):
+            if queues is None or queue in queues:
+                self._task_consumers[queue].cancel()
+                del self._task_consumers[queue]
 
     @base.Backend.task
     async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
@@ -201,6 +202,9 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def consume_events(self, on_event: AsyncCallableT):
+        if self._events_consumer:
+            raise Exception("Already consuming")
+
         async def consume():
             logger.info("%s: consuming events", self)
             while True:

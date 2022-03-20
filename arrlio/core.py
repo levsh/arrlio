@@ -146,6 +146,8 @@ class App:
         self._running_tasks: Dict[UUID, asyncio.Task] = {}
         self._running_messages: Dict[UUID, asyncio.Task] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
+        self._executor = Executor()
+        self._thread_executor = ThreadExecutor()
 
     def __str__(self):
         return f"[{self.__class__.__name__}{self._backend}]"
@@ -381,9 +383,9 @@ class App:
             task_data: TaskData = task_instance.data
 
             if task_data.thread is True:
-                executor = ThreadExecutor()
+                executor = self._thread_executor
             else:
-                executor = Executor()
+                executor = self._executor
 
             task_result: TaskResult = await executor(task_instance)
 
@@ -399,12 +401,6 @@ class App:
                     for node_id, node_id_routes in graph.edges[root]:
                         if not ((routes is None and node_id_routes is None) or set(routes) & set(node_id_routes)):
                             continue
-                        # graph: Graph = Graph(
-                        #     id=graph.id,
-                        #     nodes=graph.nodes,
-                        #     edges=graph.edges,
-                        #     roots={node_id},
-                        # )
                         await self.send_graph(
                             Graph(
                                 id=graph.id,
@@ -417,10 +413,7 @@ class App:
                         )
 
             if task_instance.data.result_return:
-                try:
-                    await self._backend.push_task_result(task_instance, task_result)
-                except Exception as e:
-                    logger.exception(e)
+                await self._backend.push_task_result(task_instance, task_result)
 
             await self.on_task_done(task_instance, task_result)
 

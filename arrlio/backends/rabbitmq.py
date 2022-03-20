@@ -382,8 +382,8 @@ class Backend(base.Backend):
                     await asyncio.shield(on_task(task_instance))
                     if ack_late:
                         await channel.basic_ack(msg.delivery.delivery_tag)
-                except Exception:
-                    logger.exception("Internal error")
+                except Exception as e:
+                    logger.exception(e)
 
             for queue in queues:
                 if queue in self._task_consumers and not self._task_consumers[queue][0].is_closed:
@@ -402,16 +402,22 @@ class Backend(base.Backend):
 
             self._conn.add_callback("on_lost", "consume_tasks", _consume_tasks)
 
-    async def stop_consume_tasks(self):
-        self.__conn.remove_callback("on_lost", "consume_tasks")
-        self.__conn.remove_callback("on_close", "consume_tasks")
+    async def stop_consume_tasks(self, queues: List[str] = None):
         async with self._consume_lock:
-            for queue, (channel, consume_ok) in self._task_consumers.items():
-                if not self.__conn.is_closed and not channel.is_closed:
-                    logger.debug("%s: stop consuming queue '%s'", self, queue)
-                    await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-                    await channel.close()
-            self._task_consumers = {}
+            try:
+                for queue in list(self._task_consumers.keys()):
+                    if queues is None or queue in queues:
+                        channel, consume_ok = self._task_consumers[queue]
+                        if not self.__conn.is_closed and not channel.is_closed:
+                            logger.debug("%s: stop consuming queue '%s'", self, queue)
+                            await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                            await channel.close()
+                        del self._task_consumers[queue]
+            finally:
+                if queues is None:
+                    self.__conn.remove_callback("on_lost", "consume_tasks")
+                    self.__conn.remove_callback("on_close", "consume_tasks")
+                    self._task_consumers.clear()
 
     @base.Backend.task
     async def declare_result_queue(self, task_instance: TaskInstance):
@@ -546,8 +552,8 @@ class Backend(base.Backend):
                     await asyncio.shield(on_message(message))
                     if ack_late:
                         await channel.basic_ack(msg.delivery.delivery_tag)
-                except Exception:
-                    logger.exception("Internal error")
+                except Exception as e:
+                    logger.exception(e)
 
             for queue in queues:
                 if queue in self._message_consumers and not self._message_consumers[queue][0].is_closed:
@@ -607,8 +613,8 @@ class Backend(base.Backend):
                     await asyncio.shield(on_event(event))
                     if ack_late:
                         await channel.basic_ack(msg.delivery.delivery_tag)
-                except Exception:
-                    logger.exception("Internal error")
+                except Exception as e:
+                    logger.exception(e)
 
                 if self._events_consumer and not self._events_consumer[0].is_closed:
                     return
