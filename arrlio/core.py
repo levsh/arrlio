@@ -1,23 +1,21 @@
 import asyncio
 import copy
 import datetime
-import inspect
 import logging
-import sys
-import threading
-import time
 from types import FunctionType, MethodType, ModuleType
 from typing import Any, Dict, Type, Union
 from uuid import UUID
 
 from arrlio import __tasks__
-from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError
+from arrlio.exc import TaskError, TaskNoResultError
+from arrlio.executor import Executor
 from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
 
 
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.core")
 
 
 def task(func: FunctionType = None, name: str = None, base: Type[Task] = None, **kwds):
@@ -50,86 +48,6 @@ def task(func: FunctionType = None, name: str = None, base: Type[Task] = None, *
         return wrapper
 
 
-class Executor:
-    def __str__(self):
-        return f"[{self.__class__.__name__}]"
-
-    def __repr__(self):
-        return self.__str__()
-
-    async def __call__(self, task_instance: TaskInstance) -> TaskResult:
-        task: Task = task_instance.task
-        task_data: TaskData = task_instance.data
-
-        res, exc, trb = None, None, None
-        t0 = time.monotonic()
-
-        logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
-
-        try:
-
-            if task.func is None:
-                raise NotFoundError(f"Task '{task.name}' not found")
-
-            kwdefaults = task.func.__kwdefaults__
-            meta: bool = kwdefaults is not None and "meta" in kwdefaults
-
-            try:
-                if inspect.iscoroutinefunction(task.func):
-                    res = await asyncio.wait_for(task_instance(meta=meta), task_data.timeout)
-                else:
-                    res = task_instance(meta=meta)
-            except asyncio.TimeoutError:
-                raise TaskTimeoutError(task_data.timeout)
-
-        except Exception as e:
-            exc_info = sys.exc_info()
-            exc, trb = exc_info[1], exc_info[2]
-            if isinstance(e, TaskTimeoutError):
-                logger.error("Task timeout for %s", task_instance)
-            else:
-                logger.exception("%s: %s", self, task_instance)
-
-        logger.info(
-            "%s: task %s(%s) done in %.2f second(s)",
-            self,
-            task.name,
-            task_data.task_id,
-            time.monotonic() - t0,
-        )
-
-        if isinstance(res, TaskResult):
-            return res
-
-        return TaskResult(res=res, exc=exc, trb=trb)
-
-
-class ThreadExecutor(Executor):
-    async def __call__(self, task_instance: TaskInstance) -> TaskResult:
-        root_loop = asyncio.get_running_loop()
-        done_ev: asyncio.Event = asyncio.Event()
-        task_result: TaskResult = None
-
-        def thread():
-            nonlocal done_ev
-            nonlocal task_result
-            loop = asyncio.new_event_loop()
-            try:
-                asyncio.set_event_loop(loop)
-                task_result = loop.run_until_complete(super(ThreadExecutor, self).__call__(task_instance))
-            finally:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.close()
-                root_loop.call_soon_threadsafe(lambda: done_ev.set())
-
-        th = threading.Thread(target=thread)
-        th.start()
-
-        await done_ev.wait()
-
-        return task_result
-
-
 class App:
     """
     Args:
@@ -147,7 +65,19 @@ class App:
         self._running_messages: Dict[UUID, asyncio.Task] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
         self._executor = Executor()
-        self._thread_executor = ThreadExecutor()
+
+        self._hooks = {
+            "on_task_send": [],
+            "on_task_received": [],
+            "on_task_done": [],
+        }
+        self._plugins = []
+        for plugin_cls in config.plugins:
+            plugin = plugin_cls(self)
+            self._plugins.append(plugin)
+            for k in self._hooks:
+                if getattr(plugin, k).__func__ != getattr(Plugin, k):
+                    self._hooks[k].append(getattr(plugin, k))
 
     def __str__(self):
         return f"[{self.__class__.__name__}{self._backend}]"
@@ -170,11 +100,27 @@ class App:
         return self._closed.done()
 
     async def close(self):
-        await self.stop_consume_tasks()
-        await self.stop_consume_messages()
-        await self.stop_consume_events()
-        await self._backend.close()
-        self._closed.set_result(None)
+        try:
+            for plugin in self._plugins:
+                try:
+                    await plugin.close()
+                except Exception as e:
+                    logger.error(f"Error while closing plugin {plugin}: {e}")
+            for k in ["on_task_send", "on_task_received", "on_task_done"]:
+                self._hooks[k].clear()
+            await self.stop_consume_tasks()
+            await self.stop_consume_messages()
+            await self.stop_consume_events()
+            await self._backend.close()
+        finally:
+            self._closed.set_result(None)
+
+    async def _execute_hooks(self, hook: str, *args, **kwds):
+        for hook in self._hooks[hook]:
+            try:
+                await hook(*args, **kwds)
+            except Exception as e:
+                logger.error(f"Plugin {hook} error: {e}")
 
     async def send_task(
         self,
@@ -219,6 +165,8 @@ class App:
             )
 
         logger.info("%s: send %s", self, task_instance)
+
+        await self._execute_hooks("on_task_send", task_instance)
 
         await self._backend.send_task(task_instance)
 
@@ -290,6 +238,10 @@ class App:
 
         await self._backend.send_message(message, routing_key=routing_key)
 
+    async def send_event(self, event: Event):
+        logger.info("%s: send %s", self, event)
+        await self._backend.push_event(event)
+
     async def pop_result(self, task_instance: TaskInstance):
         task_result: TaskResult = await self._backend.pop_task_result(task_instance)
         if task_result.exc:
@@ -313,44 +265,9 @@ class App:
             self._running_tasks = {}
             logger.info("%s: stop consuming task queues %s", self, self.config.task_queues)
 
-    def make_event(self, event_type: str, event_data: dict = None) -> Event:
-        return Event(
-            type=event_type,
-            dt=datetime.datetime.now(tz=datetime.timezone.utc),
-            data=event_data or {},
-        )
-
-    async def on_task_received(self, task_instance: TaskInstance):
-        task_type = "task received"
-        task_data = task_instance.data
-        if (
-            task_data.events is True
-            or isinstance(task_data.events, (list, set, tuple))
-            and task_type in task_data.events
-        ):
-            event: Event = self.make_event(
-                task_type,
-                event_data={"task_id": task_instance.data.task_id},
-            )
-            await self._backend.push_event(event)
-
-    async def on_task_done(self, task_instance: TaskInstance, task_result: TaskResult):
-        task_type = "task done"
-        task_data = task_instance.data
-        if (
-            task_data.events is True
-            or isinstance(task_data.events, (list, set, tuple))
-            and task_type in task_data.events
-        ):
-            event: Event = self.make_event(
-                task_type,
-                event_data={"task_id": task_instance.data.task_id, "status": task_result.exc is None},
-            )
-            await self._backend.push_event(event)
-
     async def _on_task(self, task_instance: TaskInstance):
         try:
-            await self.on_task_received(task_instance)
+            await self._execute_hooks("on_task_received", task_instance)
 
             task_id: UUID = task_instance.data.task_id
 
@@ -382,12 +299,7 @@ class App:
         try:
             task_data: TaskData = task_instance.data
 
-            if task_data.thread is True:
-                executor = self._thread_executor
-            else:
-                executor = self._executor
-
-            task_result: TaskResult = await executor(task_instance)
+            task_result: TaskResult = await self._executor(task_instance)
 
             graph: Graph = task_data.graph
             if graph is not None and task_result.exc is None:
@@ -415,7 +327,7 @@ class App:
             if task_instance.data.result_return:
                 await self._backend.push_task_result(task_instance, task_result)
 
-            await self.on_task_done(task_instance, task_result)
+            await self._execute_hooks("on_task_done", task_instance, task_result)
 
         except asyncio.CancelledError:
             pass

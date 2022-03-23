@@ -98,10 +98,26 @@ class SerializerT:
     def validate(cls, v):
         if isinstance(v, str):
             v = importlib.import_module(v)
-            if not isinstance(v, ModuleType):
-                raise ValueError
-            if not hasattr(v, "Serializer"):
-                raise TypeError("Module doesn't provide Serializer class")
-        if not isinstance(v, (FunctionType, ModuleType)):
-            raise ValueError("Expect Function or Module")
+        if isinstance(v, ModuleType):
+            v = v.Serializer
+        if not callable(v):
+            raise ValueError("Expect module path, module or callable object")
+        return v
+
+
+class PluginT:
+    validate_always = True
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v):
+        if isinstance(v, str):
+            v = importlib.import_module(v)
+        if isinstance(v, ModuleType):
+            v = v.Plugin
+        if not callable(v):
+            raise ValueError("Expect module path, module or callable object")
         return v

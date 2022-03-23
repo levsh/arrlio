@@ -3,7 +3,7 @@ from typing import List, Optional, Set, Union
 
 from pydantic import BaseSettings, Field
 
-from arrlio.tp import BackendT, PositiveIntT, PriorityT, TimeoutT
+from arrlio.tp import BackendT, PluginT, PositiveIntT, PriorityT, TimeoutT
 
 
 ENV_PREFIX = os.environ.get("ARRLIO_ENV_PREFIX", "ARRLIO_")
@@ -31,6 +31,8 @@ EVENT_TTL = 300
 TASK_QUEUES = [TASK_QUEUE]
 MESSAGE_QUEUES = [MESSAGE_EXCHANGE]
 POOL_SIZE = 100
+
+PLUGINS = ["arrlio.plugins.events"]
 
 
 class TaskConfig(BaseSettings):
@@ -73,6 +75,7 @@ class Config(BaseSettings):
     task_queues: List[str] = Field(default_factory=lambda: TASK_QUEUES)
     message_queues: List[str] = Field(default_factory=lambda: MESSAGE_QUEUES)
     pool_size: PositiveIntT = Field(default_factory=lambda: POOL_SIZE)
+    plugins: List[PluginT] = Field(default_factory=lambda: PLUGINS)
 
     class Config:
         validate_assignment = True

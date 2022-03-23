@@ -13,7 +13,7 @@ from arrlio.models import Task
 from arrlio.tp import ExceptionFilterT
 
 
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.utils")
 
 
 class ExtendedJSONEncoder(json.JSONEncoder):

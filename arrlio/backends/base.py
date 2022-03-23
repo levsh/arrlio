@@ -1,7 +1,7 @@
 import abc
 import asyncio
 import logging
-from types import MethodType, ModuleType
+from types import MethodType
 from typing import List, Optional
 
 from pydantic import BaseSettings
@@ -22,10 +22,7 @@ class BackendConfig(BaseSettings):
 class Backend(abc.ABC):
     def __init__(self, config: BackendConfig):
         self.config: BackendConfig = config
-        if isinstance(config.serializer, ModuleType):
-            self.serializer: Serializer = config.serializer.Serializer()
-        else:
-            self.serializer: Serializer = config.serializer()
+        self.serializer: Serializer = config.serializer()
         self._closed: asyncio.Future = asyncio.Future()
         self._tasks: set = set()
 
