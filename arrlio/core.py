@@ -1,19 +1,20 @@
 import asyncio
 import copy
-import datetime
 import logging
+from contextlib import AsyncExitStack
+from contextvars import ContextVar
 from types import FunctionType, MethodType, ModuleType
-from typing import Any, Dict, Type, Union
+from typing import Any, Dict, List, Type, Union
 from uuid import UUID
+
+from roview import rodict, rolist
 
 from arrlio import __tasks__
 from arrlio.exc import TaskError, TaskNoResultError
-from arrlio.executor import Executor
 from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
-
 
 logger = logging.getLogger("arrlio.core")
 
@@ -64,23 +65,33 @@ class App:
         self._running_tasks: Dict[UUID, asyncio.Task] = {}
         self._running_messages: Dict[UUID, asyncio.Task] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
-        self._executor = Executor()
+        self._executor = config.executor()
+        self._context = ContextVar("context", default={})
 
         self._hooks = {
+            "on_init": [],
+            "on_close": [],
             "on_task_send": [],
             "on_task_received": [],
             "on_task_done": [],
+            "task_context": [],
         }
-        self._plugins = []
+        self._plugins = {}
         for plugin_cls in config.plugins:
             plugin = plugin_cls(self)
-            self._plugins.append(plugin)
+            self._plugins[plugin.name] = plugin
             for k in self._hooks:
                 if getattr(plugin, k).__func__ != getattr(Plugin, k):
                     self._hooks[k].append(getattr(plugin, k))
 
+        self._plugins_tasks = []
+        for hook in self._hooks["on_init"]:
+            task = asyncio.create_task(hook())
+            self._plugins_tasks.append(task)
+            task.add_done_callback(lambda fut: self._plugins_tasks.remove(task))
+
     def __str__(self):
-        return f"[{self.__class__.__name__}{self._backend}]"
+        return f"{self.__class__.__name__}[{self._backend}]"
 
     def __repr__(self):
         return self.__str__()
@@ -92,42 +103,73 @@ class App:
         await self.close()
 
     @property
+    def hooks(self):
+        return rolist(list(self._hooks.keys()))
+
+    @property
+    def plugins(self):
+        return rodict(self._plugins)
+
+    @property
     def backend(self):
         return self._backend
+
+    @property
+    def executor(self):
+        return self._executor
+
+    @property
+    def context(self):
+        return self._context
 
     @property
     def is_closed(self) -> bool:
         return self._closed.done()
 
+    async def wait_init(self):
+        for task in self._plugins_tasks:
+            await task
+
     async def close(self):
         try:
-            for plugin in self._plugins:
-                try:
-                    await plugin.close()
-                except Exception as e:
-                    logger.error(f"Error while closing plugin {plugin}: {e}")
-            for k in ["on_task_send", "on_task_received", "on_task_done"]:
+            for task in self._plugins_tasks:
+                task.cancel()
+                logger.warning("Cancel %s", task)
+
+            await self._execute_hooks("on_close")
+            for k in self._hooks:
                 self._hooks[k].clear()
+
             await self.stop_consume_tasks()
             await self.stop_consume_messages()
             await self.stop_consume_events()
+
+            for task_id, aio_task in self._running_tasks.items():
+                logger.debug("%s: cancel processing task '%s'", str(self), task_id)
+                aio_task.cancel()
+            self._running_tasks = {}
+
+            for message_id, aio_task in self._running_messages.items():
+                logger.debug("%s: cancel processing message '%s'", str(self), message_id)
+                aio_task.cancel()
+
             await self._backend.close()
         finally:
             self._closed.set_result(None)
 
     async def _execute_hooks(self, hook: str, *args, **kwds):
-        for hook in self._hooks[hook]:
+        for hook_fn in self._hooks[hook]:
             try:
-                await hook(*args, **kwds)
+                await hook_fn(*args, **kwds)
             except Exception as e:
-                logger.error(f"Plugin {hook} error: {e}")
+                logger.error("%s: plugin %s error: %s", str(self), hook_fn, e)
 
     async def send_task(
         self,
         task: Union[Task, str],
         args: tuple = None,
         kwds: dict = None,
-        backend_extra: dict = None,
+        extra: dict = None,
         **kwargs,
     ) -> "AsyncResult":
         """
@@ -135,7 +177,7 @@ class App:
             task (Union[~arrlio.models.Task, str]): ~arrlio.models.Task of task name.
             args (tuple, optional): Task args.
             kwds (dict, optional): Task kwds.
-            backend_extra (dict, optional): ~arrlio.models.TaskData backend_extra.
+            extra (dict, optional): ~arrlio.models.TaskData extra.
             kwargs (dict, optional): Other ~arrlio.models.TaskData arguments.
 
         Returns:
@@ -150,21 +192,21 @@ class App:
             args = ()
         if kwds is None:
             kwds = {}
-        if backend_extra is None:
-            backend_extra = {}
+        if extra is None:
+            extra = {}
 
         task_settings = self.config.task.dict(exclude_unset=True)
 
         if name in __tasks__:
             task_instance = __tasks__[name].instantiate(
-                args=args, kwds=kwds, backend_extra=backend_extra, **{**task_settings, **kwargs}
+                args=args, kwds=kwds, extra=extra, **{**task_settings, **kwargs}
             )
         else:
             task_instance = Task(None, name).instantiate(
-                args=args, kwds=kwds, backend_extra=backend_extra, **{**task_settings, **kwargs}
+                args=args, kwds=kwds, extra=extra, **{**task_settings, **kwargs}
             )
 
-        logger.info("%s: send %s", self, task_instance)
+        logger.info("%s: send %s", str(self), task_instance)
 
         await self._execute_hooks("on_task_send", task_instance)
 
@@ -197,7 +239,7 @@ class App:
         if not nodes or not roots:
             raise ValueError("Empty graph or missing roots")
 
-        logger.info("%s: send %s with args: %s and kwds: %s", self, graph, args, kwds)
+        logger.info("%s: send %s with args: %s and kwds: %s", str(self), graph, args, kwds)
 
         task_instances = {}
         for node_name, (task, node_kwds) in nodes.items():
@@ -217,7 +259,7 @@ class App:
             data.meta.update(meta or {})
             data.graph = Graph(graph.id, nodes=nodes, edges=edges, roots={root})
 
-            logger.info("%s: send %s", self, task_instances[root])
+            logger.info("%s: send %s", str(self), task_instances[root])
 
             await self._backend.send_task(task_instances[root])
 
@@ -234,12 +276,12 @@ class App:
         message_settings = self.config.message.dict(exclude_unset=True)
         message = Message(data=data, **{**message_settings, **kwds})
 
-        logger.info("%s: send %s", self, message)
+        logger.info("%s: send %s", str(self), message)
 
         await self._backend.send_message(message, routing_key=routing_key)
 
     async def send_event(self, event: Event):
-        logger.info("%s: send %s", self, event)
+        logger.info("%s: send %s", str(self), event)
         await self._backend.push_event(event)
 
     async def pop_result(self, task_instance: TaskInstance):
@@ -251,19 +293,20 @@ class App:
                 raise TaskError(task_result.exc, task_result.trb)
         return task_result.res
 
-    async def consume_tasks(self):
-        if self.config.task_queues:
-            await self._backend.consume_tasks(self.config.task_queues, self._on_task)
-            logger.info("%s: consuming task queues %s", self, self.config.task_queues)
+    async def consume_tasks(self, queues: List[str] = None):
+        queues = queues or self.config.task_queues
+        if queues:
+            await self._backend.consume_tasks(queues, self._on_task)
+            logger.info("%s: consuming task queues %s", str(self), queues)
 
-    async def stop_consume_tasks(self):
+    async def stop_consume_tasks(self, queues: List[str] = None):
         async with self._lock:
-            await self._backend.stop_consume_tasks()
-            for task_id, aio_task in self._running_tasks.items():
-                logger.debug("Cancel processing task '%s'", task_id)
-                aio_task.cancel()
-            self._running_tasks = {}
-            logger.info("%s: stop consuming task queues %s", self, self.config.task_queues)
+            await self._backend.stop_consume_tasks(queues=queues)
+            # for task_id, aio_task in self._running_tasks.items():
+            #     logger.debug("%s: cancel processing task '%s'", str(self), task_id)
+            #     aio_task.cancel()
+            # self._running_tasks = {}
+            logger.info("%s: stop consuming task queues %s", str(self), self.config.task_queues)
 
     async def _on_task(self, task_instance: TaskInstance):
         try:
@@ -296,43 +339,47 @@ class App:
             logger.exception(e)
 
     async def execute_task(self, task_instance: TaskInstance):
-        try:
-            task_data: TaskData = task_instance.data
+        async with AsyncExitStack() as stack:
+            for context in self._hooks["task_context"]:
+                await stack.enter_async_context(context(task_instance))
 
-            task_result: TaskResult = await self._executor(task_instance)
+            try:
+                task_data: TaskData = task_instance.data
 
-            graph: Graph = task_data.graph
-            if graph is not None and task_result.exc is None:
-                routes = task_result.routes
-                args = (task_result.res,) or ()
-                if isinstance(routes, str):
-                    routes = [routes]
+                task_result: TaskResult = await self._executor(task_instance)
 
-                root: str = next(iter(graph.roots))
-                if root in graph.edges:
-                    for node_id, node_id_routes in graph.edges[root]:
-                        if not ((routes is None and node_id_routes is None) or set(routes) & set(node_id_routes)):
-                            continue
-                        await self.send_graph(
-                            Graph(
-                                id=graph.id,
-                                nodes=graph.nodes,
-                                edges=graph.edges,
-                                roots={node_id},
-                            ),
-                            args=args,
-                            meta={"source_node": root},
-                        )
+                graph: Graph = task_data.graph
+                if graph is not None and task_result.exc is None:
+                    routes = task_result.routes
+                    args = (task_result.res,) or ()
+                    if isinstance(routes, str):
+                        routes = [routes]
 
-            if task_instance.data.result_return:
-                await self._backend.push_task_result(task_instance, task_result)
+                    root: str = next(iter(graph.roots))
+                    if root in graph.edges:
+                        for node_id, node_id_routes in graph.edges[root]:
+                            if not ((routes is None and node_id_routes is None) or set(routes) & set(node_id_routes)):
+                                continue
+                            await self.send_graph(
+                                Graph(
+                                    id=graph.id,
+                                    nodes=graph.nodes,
+                                    edges=graph.edges,
+                                    roots={node_id},
+                                ),
+                                args=args,
+                                meta={"source_node": root},
+                            )
 
-            await self._execute_hooks("on_task_done", task_instance, task_result)
+                if task_instance.data.result_return:
+                    await self._backend.push_task_result(task_instance, task_result)
 
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.exception(e)
+                await self._execute_hooks("on_task_done", task_instance, task_result)
+
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.exception(e)
 
     async def consume_messages(self, on_message: AsyncCallableT):
         if self.config.message_queues:
@@ -347,7 +394,7 @@ class App:
                             try:
                                 aio_task = asyncio.create_task(on_message(message.data))
                                 aio_task.add_done_callback(lambda *args: self._running_messages.pop(message_id, None))
-                                self._running_tasks[message_id] = aio_task
+                                self._running_messages[message_id] = aio_task
                                 await aio_task
                             finally:
                                 if not self.is_closed:
@@ -361,19 +408,19 @@ class App:
                 except Exception as e:
                     logger.exception(e)
 
-            logger.info("%s: consuming message queues %s", self, self.config.message_queues)
+            logger.info("%s: consuming message queues %s", str(self), self.config.message_queues)
             await self._backend.consume_messages(self.config.message_queues, handle)
 
     async def stop_consume_messages(self):
         async with self._lock:
             await self._backend.stop_consume_messages()
-            for message_id, aio_task in self._running_messages.items():
-                logger.debug("Cancel processing message '%s'", message_id)
-                aio_task.cancel()
+            # for message_id, aio_task in self._running_messages.items():
+            #     logger.debug("%s: cancel processing message '%s'", str(self), message_id)
+            #     aio_task.cancel()
             self._running_messages = {}
 
     async def consume_events(self, on_event: AsyncCallableT):
-        logger.info("%s: consuming events", self)
+        logger.info("%s: consuming events", str(self))
         await self._backend.consume_events(on_event)
 
     async def stop_consume_events(self):

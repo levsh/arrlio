@@ -1,3 +1,4 @@
+import importlib
 import json
 import logging
 import traceback
@@ -9,13 +10,15 @@ from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.utils import ExtendedJSONEncoder
 
-
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.serializers.json")
 
 
 class Serializer(Serializer):
     def __init__(self, encoder=None):
         self.encoder = encoder or ExtendedJSONEncoder
+
+    def __str__(self):
+        return "json.Serializer"
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
         dct = asdict(task_instance)
@@ -41,7 +44,7 @@ class Serializer(Serializer):
             task_instance = Task(None, name).instantiate(**data)
         return task_instance
 
-    def dumps_task_result(self, task_result: TaskResult, **kwds) -> bytes:
+    def dumps_task_result(self, task_instance: TaskInstance, task_result: TaskResult, **kwds) -> bytes:
         if task_result.exc:
             data = (
                 None,
@@ -57,7 +60,14 @@ class Serializer(Serializer):
         return json.dumps(data, cls=self.encoder).encode()
 
     def loads_task_result(self, data: bytes) -> TaskResult:
-        return TaskResult(*json.loads(data))
+        result_data = json.loads(data)
+        if exc := result_data[1]:
+            try:
+                m = importlib.import_module(exc[0])
+                result_data[1] = getattr(m, exc[1])(exc[2])
+            except Exception:
+                pass
+        return TaskResult(*result_data)
 
     def dumps_event(self, event: Event, **kwds) -> bytes:
         data = asdict(event)

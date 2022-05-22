@@ -14,8 +14,7 @@ from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
 
-
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.backends.local")
 
 
 BACKEND_NAME: str = "arrlio"
@@ -65,7 +64,7 @@ class Backend(base.Backend):
                 del self.__shared[self.config.name]
 
     def __str__(self):
-        return f"[LocalBackend({self.config.name})]"
+        return f"LocalBackend[{self.config.name}]"
 
     @property
     def _shared(self) -> dict:
@@ -126,10 +125,7 @@ class Backend(base.Backend):
         if not task_instance.data.result_return:
             return
         task_id: UUID = task_instance.data.task_id
-        self._results[task_id][1] = self.serializer.dumps_task_result(
-            task_result,
-            encrypt=task_instance.data.result_encrypt,
-        )
+        self._results[task_id][1] = self.serializer.dumps_task_result(task_instance, task_result)
         self._results[task_id][0].set()
         if task_instance.data.result_ttl is not None:
             loop = asyncio.get_event_loop()
@@ -153,7 +149,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def send_message(self, message: Message, **kwds):
         data = dataclasses.asdict(message)
-        data["data"] = self.serializer.dumps(message.data, encrypt=message.encrypt)
+        data["data"] = self.serializer.dumps(message.data)
         logger.debug("%s: put %s", self, message)
         await self._message_queues[message.exchange].put(
             (

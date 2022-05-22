@@ -5,7 +5,6 @@ from typing import Any, Callable, Coroutine, Dict, Optional, no_type_check
 
 from pydantic import AnyUrl, conint
 
-
 AsyncCallableT = Callable[..., Coroutine]
 ExceptionFilterT = Callable[[Exception], bool]
 PositiveIntT = conint(ge=1)
@@ -22,8 +21,8 @@ class SecretAnyUrl(AnyUrl):
             _url = cls.build(**kwds)
         else:
             _url = url
-            if re.match(r".*://(.*):?(.*)@.*", url):
-                url = re.sub(r"://(.*):?(.*)@", "://***:***@", url)
+            if re.match(r".*://([^:.]*):?([^:.]*)@.*", url):
+                url = re.sub(r"://([^:.]*):?([^.]*)@", "://***:***@", url)
         if kwds.get("user") is not None:
             kwds["user"] = "***"
         if kwds.get("password") is not None:
@@ -118,6 +117,24 @@ class PluginT:
             v = importlib.import_module(v)
         if isinstance(v, ModuleType):
             v = v.Plugin
+        if not callable(v):
+            raise ValueError("Expect module path, module or callable object")
+        return v
+
+
+class ExecutorT:
+    validate_always = True
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v):
+        if isinstance(v, str):
+            v = importlib.import_module(v)
+        if isinstance(v, ModuleType):
+            v = v.Executor
         if not callable(v):
             raise ValueError("Expect module path, module or callable object")
         return v

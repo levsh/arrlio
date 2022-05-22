@@ -31,21 +31,20 @@ class TaskData:
     args: tuple = field(default_factory=tuple)
     kwds: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
-    backend_extra: dict = field(default_factory=dict)
     graph: "Graph" = None
 
     queue: str = TASK_QUEUE
     priority: int = TASK_PRIORITY
     timeout: int = TASK_TIMEOUT
     ttl: int = TASK_TTL
-    encrypt: bool = None
     ack_late: bool = TASK_ACK_LATE
     result_ttl: int = TASK_RESULT_TTL
     result_return: bool = TASK_RESULT_RETURN
-    result_encrypt: bool = None
     thread: bool = None
     events: Union[bool, Set[str]] = TASK_EVENTS
     event_ttl: int = EVENT_TTL
+
+    extra: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if isinstance(self.task_id, str):
@@ -64,16 +63,16 @@ class Task:
     priority: int = TASK_PRIORITY
     timeout: int = TASK_TIMEOUT
     ttl: int = TASK_TTL
-    encrypt: bool = None
     ack_late: bool = TASK_ACK_LATE
     result_ttl: int = TASK_RESULT_TTL
     result_return: bool = TASK_RESULT_RETURN
-    result_encrypt: bool = None
     thread: bool = None
     events: Union[bool, Set[str]] = TASK_EVENTS
     event_ttl: int = TASK_EVENT_TTL
 
-    def instantiate(self, **kwds) -> "TaskInstance":
+    extra: dict = field(default_factory=dict)
+
+    def instantiate(self, extra: dict = None, **kwds) -> "TaskInstance":
         data: TaskData = TaskData(
             **{
                 **{
@@ -81,14 +80,13 @@ class Task:
                     "priority": self.priority,
                     "timeout": self.timeout,
                     "ttl": self.ttl,
-                    "encrypt": self.encrypt,
                     "ack_late": self.ack_late,
                     "result_ttl": self.result_ttl,
                     "result_return": self.result_return,
-                    "result_encrypt": self.result_encrypt,
                     "thread": self.thread,
                     "events": self.events,
                     "event_ttl": self.event_ttl,
+                    "extra": {**self.extra, **(extra or {})},
                 },
                 **kwds,
             }
@@ -130,7 +128,7 @@ class Message:
     priority: int = MESSAGE_PRIORITY
     ttl: int = MESSAGE_TTL
     ack_late: bool = MESSAGE_ACK_LATE
-    encrypt: bool = None
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

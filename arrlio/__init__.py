@@ -1,17 +1,16 @@
 import logging
 import sys
 
-
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
-log_frmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+log_frmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s -- %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)
 
 
-__version__ = "0.13.a"
+__version__ = "0.13.0"
 
 __tasks__ = {}
 

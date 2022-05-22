@@ -8,13 +8,12 @@ import time
 from arrlio.exc import NotFoundError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 
-
 logger = logging.getLogger("arrlio.executor")
 
 
 class Executor:
     def __str__(self):
-        return f"[{self.__class__.__name__}]"
+        return self.__class__.__name__
 
     def __repr__(self):
         return self.__str__()
@@ -48,9 +47,9 @@ class Executor:
             exc_info = sys.exc_info()
             exc, trb = exc_info[1], exc_info[2]
             if isinstance(e, TaskTimeoutError):
-                logger.error("Task timeout for %s", task_instance)
+                logger.error("%s: task timeout for %s", self, task_instance)
             else:
-                logger.exception("%s: %s", self, task_instance)
+                logger.exception(task_instance)
 
         logger.info(
             "%s: task %s(%s) done in %.2f second(s)",

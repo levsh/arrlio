@@ -13,6 +13,7 @@ siderpy = "*"
 
 [dev-packages]
 arrlio = {editable = true, path = "."}
+black = "*"
 build = "*"
 coverage = "*"
 docker = "*"

@@ -19,7 +19,6 @@ class Test_TaskData:
         assert task_data.ack_late == settings.TASK_ACK_LATE
         assert task_data.result_ttl == settings.TASK_RESULT_TTL
         assert task_data.result_return == settings.TASK_RESULT_RETURN
-        assert task_data.result_encrypt is None
         assert task_data.events == settings.TASK_EVENTS
         assert task_data.event_ttl == settings.TASK_EVENT_TTL
         assert task_data.thread is None
@@ -36,7 +35,6 @@ class Test_TaskData:
             ack_late=False,
             result_ttl=111,
             result_return=False,
-            result_encrypt=True,
             events=["task done"],
             event_ttl=None,
             thread=True,
@@ -52,7 +50,6 @@ class Test_TaskData:
         assert task_data.ack_late is False
         assert task_data.result_ttl == 111
         assert task_data.result_return is False
-        assert task_data.result_encrypt is True
         assert task_data.events == ["task done"]
         assert task_data.event_ttl is None
         assert task_data.thread is True
@@ -74,7 +71,6 @@ class Test_Task:
         assert task.ack_late == settings.TASK_ACK_LATE
         assert task.result_ttl == settings.TASK_RESULT_TTL
         assert task.result_return == settings.TASK_RESULT_RETURN
-        assert task.result_encrypt is None
         assert task.events == settings.TASK_EVENTS
         assert task.event_ttl == settings.TASK_EVENT_TTL
         assert task.thread is None
@@ -91,7 +87,6 @@ class Test_Task:
         assert task_instance.data.ack_late == task.ack_late
         assert task_instance.data.result_ttl == task.result_ttl
         assert task_instance.data.result_return == task.result_return
-        assert task_instance.data.result_encrypt == task.result_encrypt
         assert task_instance.data.events == task.events
         assert task_instance.data.event_ttl == task.event_ttl
         assert task_instance.data.thread is None
@@ -111,7 +106,6 @@ class Test_Task:
             ack_late=False,
             result_ttl=111,
             result_return=False,
-            result_encrypt=True,
             events=True,
             event_ttl=None,
             thread=True,
@@ -126,7 +120,6 @@ class Test_Task:
         assert task.ack_late is False
         assert task.result_ttl == 111
         assert task.result_return is False
-        assert task.result_encrypt is True
         assert task.events is True
         assert task.event_ttl is None
         assert task.thread is True
@@ -142,7 +135,6 @@ class Test_Task:
             ack_late=True,
             result_ttl=1,
             result_return=True,
-            result_encrypt=False,
             events=["task done"],
             event_ttl=0,
             thread=False,
@@ -158,7 +150,6 @@ class Test_Task:
         assert task_instance.data.ack_late is True
         assert task_instance.data.result_ttl == 1
         assert task_instance.data.result_return is True
-        assert task_instance.data.result_encrypt is False
         assert task_instance.data.events == ["task done"]
         assert task_instance.data.event_ttl == 0
         assert task_instance.data.thread is False

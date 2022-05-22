@@ -1,13 +1,12 @@
 import collections
+import gc
 import logging
 
 import pytest
 import pytest_asyncio
 
 from arrlio import App, Config, backends
-
 from tests import utils
-
 
 logger = logging.getLogger("arrlio")
 
@@ -54,6 +53,12 @@ def backend(request, container_executor):
     yield BackendTuple(container, request.param, config_kwds)
 
 
+@pytest.fixture(scope="function")
+def setup():
+    yield
+    gc.collect()
+
+
 @pytest_asyncio.fixture(scope="function")
 async def app(backend):
     config = Config(backend=lambda: backend.module.Backend(backend.module.BackendConfig(**backend.config_kwds)))
@@ -62,4 +67,5 @@ async def app(backend):
         yield app
     finally:
         await app.close()
-        backends.local.Backend._Backend__shared.clear()
+        gc.collect()
+        # backends.local.Backend._Backend__shared.clear()

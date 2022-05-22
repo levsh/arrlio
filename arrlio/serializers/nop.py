@@ -5,13 +5,16 @@ from arrlio.serializers.base import Serializer
 
 
 class Serializer(Serializer):
+    def __str__(self):
+        return "nop.Serializer"
+
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 
     def loads_task_instance(self, data: TaskInstance) -> TaskInstance:
         return data
 
-    def dumps_task_result(self, result: TaskResult, **kwds) -> TaskResult:
+    def dumps_task_result(self, task_instance: TaskInstance, result: TaskResult, **kwds) -> TaskResult:
         return result
 
     def loads_task_result(self, data: TaskResult) -> TaskResult:

@@ -13,7 +13,7 @@ from arrlio.serializers import nop
 class TestBackendConfig:
     def test_init(self):
         config = local.BackendConfig()
-        assert config.serializer == nop
+        assert config.serializer == nop.Serializer
         assert config.name == local.BACKEND_NAME
 
     def test_init_custom(self):
@@ -44,6 +44,7 @@ class TestBackend:
 
     @pytest.mark.asyncio
     async def test_shared(self):
+        assert local.Backend._Backend__shared == {}
         backend1 = local.Backend(local.BackendConfig())
 
         assert backend1._refs == 1

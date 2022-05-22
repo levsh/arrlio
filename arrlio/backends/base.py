@@ -10,8 +10,7 @@ from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.tp import AsyncCallableT, SerializerT
 
-
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.backends.base")
 
 
 class BackendConfig(BaseSettings):
@@ -21,17 +20,17 @@ class BackendConfig(BaseSettings):
 
 class Backend(abc.ABC):
     def __init__(self, config: BackendConfig):
-        self.config: BackendConfig = config
-        self.serializer: Serializer = config.serializer()
         self._closed: asyncio.Future = asyncio.Future()
         self._tasks: set = set()
+        self.config: BackendConfig = config
+        self.serializer: Serializer = config.serializer()
 
     def __repr__(self):
         return self.__str__()
 
     def _cancel_tasks(self):
         for task in self._tasks:
-            logger.debug("Cancel task %s", task)
+            logger.debug("%s: cancel task %s", self, task)
             task.cancel()
 
     def task(method: MethodType):
@@ -70,7 +69,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def stop_consume_tasks(self):
+    async def stop_consume_tasks(self, queues: List[str] = None):
         pass
 
     @abc.abstractmethod

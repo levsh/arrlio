@@ -4,11 +4,14 @@ from datetime import datetime, timezone
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 
-
 logger = logging.getLogger("arrlio.plugins.events")
 
 
 class Plugin(Plugin):
+    @property
+    def name(self) -> str:
+        return "events"
+
     async def on_task_received(self, task_instance: TaskInstance) -> None:
         task_type = "task received"
         task_data = task_instance.data

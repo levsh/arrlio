@@ -14,8 +14,7 @@ from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
 
-
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.backends.redis")
 
 
 BACKEND_NAME: str = "arrlio"
@@ -57,7 +56,7 @@ class Backend(base.Backend):
         self._events_consumer: asyncio.Task = None
 
     def __str__(self):
-        return f"[RedisBackend[{self.redis_pool}]]"
+        return f"RedisBackend[{self.redis_pool}]"
 
     async def close(self):
         await super().close()
@@ -114,8 +113,8 @@ class Backend(base.Backend):
                     if seconds is None:
                         raise e
                     await asyncio.sleep(seconds)
-                except Exception:
-                    logger.exception("Internal error")
+                except Exception as e:
+                    logger.exception(e)
 
         for queue in queues:
             self._task_consumers[queue] = asyncio.create_task(consume_queue(queue))
@@ -137,7 +136,7 @@ class Backend(base.Backend):
                 await redis.multi()
                 await redis.rpush(
                     result_key,
-                    self.serializer.dumps_task_result(task_result, encrypt=task_instance.data.result_encrypt),
+                    self.serializer.dumps_task_result(task_instance, task_result),
                 )
                 await redis.expire(result_key, task_instance.data.result_ttl)
                 await redis.execute()
@@ -153,7 +152,7 @@ class Backend(base.Backend):
     async def send_message(self, message: Message, **kwds):
         queue = message.exchange
         queue_key = self._make_message_queue_key(queue)
-        data = self.serializer.dumps(dataclasses.asdict(message), encrypt=message.encrypt)
+        data = self.serializer.dumps(dataclasses.asdict(message))
 
         async with self.redis_pool.get_redis() as redis:
             with redis.pipeline():
@@ -193,8 +192,8 @@ class Backend(base.Backend):
                     if seconds is None:
                         raise e
                     await asyncio.sleep(seconds)
-                except Exception:
-                    logger.exception("Internal error")
+                except Exception as e:
+                    logger.exception(e)
 
         for queue in queues:
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
@@ -243,8 +242,8 @@ class Backend(base.Backend):
                     if seconds is None:
                         raise e
                     await asyncio.sleep(seconds)
-                except Exception:
-                    logger.exception("Internal error")
+                except Exception as e:
+                    logger.exception(e)
 
         self._events_consumer = asyncio.create_task(consume_queue())
 

@@ -19,8 +19,7 @@ from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
 from arrlio.utils import retry
 
-
-logger = logging.getLogger("arrlio")
+logger = logging.getLogger("arrlio.backends.rabbitmq")
 
 
 BACKEND_NAME: str = "arrlio"
@@ -173,7 +172,7 @@ class RMQConnection:
                 else:
                     callback()
             except Exception as e:
-                logger.error("Callback '%s' %s error: %s %s", tp, callback, e.__class__, e)
+                logger.error("%s: callback '%s' %s error: %s %s", self, tp, callback, e.__class__, e)
 
     async def _supervisor(self):
         try:
@@ -183,6 +182,7 @@ class RMQConnection:
         if not self._closed.done():
             logger.warning("%s: connection lost", self)
             self._refs -= 1
+            self._supervisor_task = None
             await self._execute_callbacks("on_lost")
 
     async def open(self):
@@ -275,7 +275,7 @@ class Backend(base.Backend):
             logger.warning("Unclosed %s", self)
 
     def __str__(self):
-        return f"[RMQBackend[{self.__conn}]]"
+        return f"RMQBackend[{self.__conn}]"
 
     @property
     def _conn(self):
@@ -349,7 +349,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, result_queue_durable: bool = False, **kwds):
         task_data = task_instance.data
-        task_data.backend_extra["result_queue_durable"] = result_queue_durable
+        task_data.extra["result_queue_durable"] = result_queue_durable
         await self.declare_task_queue(task_data.queue)
         logger.debug("%s: put %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
@@ -424,7 +424,7 @@ class Backend(base.Backend):
         task_id = task_instance.data.task_id
         result_ttl = task_instance.data.result_ttl
         queue = routing_key = f"result.{task_id}"
-        durable = task_instance.data.backend_extra.get("result_queue_durable")
+        durable = task_instance.data.extra.get("result_queue_durable")
         async with self._conn.channel_ctx() as channel:
             await channel.queue_declare(
                 queue,
@@ -449,7 +449,7 @@ class Backend(base.Backend):
         logger.debug("%s: push result for %s", self, task_instance)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps_task_result(task_result, encrypt=task_instance.data.result_encrypt),
+                self.serializer.dumps_task_result(task_instance, task_result),
                 exchange=self.config.tasks_exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(
@@ -515,7 +515,7 @@ class Backend(base.Backend):
         logger.debug("%s: put %s", self, message)
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
-                self.serializer.dumps(message.data, encrypt=message.encrypt),
+                self.serializer.dumps(message.data),
                 exchange=message.exchange,
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(

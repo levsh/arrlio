@@ -1,10 +1,9 @@
 import os
-from typing import List, Optional, Set, Union
+from typing import Optional, Set, Union
 
 from pydantic import BaseSettings, Field
 
-from arrlio.tp import BackendT, PluginT, PositiveIntT, PriorityT, TimeoutT
-
+from arrlio.tp import BackendT, ExecutorT, PluginT, PositiveIntT, PriorityT, TimeoutT
 
 ENV_PREFIX = os.environ.get("ARRLIO_ENV_PREFIX", "ARRLIO_")
 
@@ -33,6 +32,7 @@ MESSAGE_QUEUES = [MESSAGE_EXCHANGE]
 POOL_SIZE = 100
 
 PLUGINS = ["arrlio.plugins.events"]
+EXECUTOR = "arrlio.executor"
 
 
 class TaskConfig(BaseSettings):
@@ -72,10 +72,11 @@ class Config(BaseSettings):
     task: TaskConfig = Field(default_factory=TaskConfig)
     message: MessageConfig = Field(default_factory=MessageConfig)
     event: EventConfig = Field(default_factory=EventConfig)
-    task_queues: List[str] = Field(default_factory=lambda: TASK_QUEUES)
-    message_queues: List[str] = Field(default_factory=lambda: MESSAGE_QUEUES)
+    task_queues: Set[str] = Field(default_factory=lambda: TASK_QUEUES)
+    message_queues: Set[str] = Field(default_factory=lambda: MESSAGE_QUEUES)
     pool_size: PositiveIntT = Field(default_factory=lambda: POOL_SIZE)
-    plugins: List[PluginT] = Field(default_factory=lambda: PLUGINS)
+    plugins: Set[PluginT] = Field(default_factory=lambda: PLUGINS)
+    executor: ExecutorT = Field(default_factory=lambda: EXECUTOR)
 
     class Config:
         validate_assignment = True
