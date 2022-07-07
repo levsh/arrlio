@@ -1,13 +1,12 @@
 import asyncio
 import copy
 import logging
+
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
 from types import FunctionType, MethodType, ModuleType
 from typing import Any, Dict, List, Type, Union
 from uuid import UUID
-
-from roview import rodict, rolist
 
 from arrlio import __tasks__
 from arrlio.exc import TaskError, TaskNoResultError
@@ -15,6 +14,8 @@ from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, T
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
+from roview import rodict, rolist
+
 
 logger = logging.getLogger("arrlio.core")
 
@@ -302,10 +303,6 @@ class App:
     async def stop_consume_tasks(self, queues: List[str] = None):
         async with self._lock:
             await self._backend.stop_consume_tasks(queues=queues)
-            # for task_id, aio_task in self._running_tasks.items():
-            #     logger.debug("%s: cancel processing task '%s'", str(self), task_id)
-            #     aio_task.cancel()
-            # self._running_tasks = {}
             logger.info("%s: stop consuming task queues %s", str(self), self.config.task_queues)
 
     async def _on_task(self, task_instance: TaskInstance):
@@ -414,9 +411,6 @@ class App:
     async def stop_consume_messages(self):
         async with self._lock:
             await self._backend.stop_consume_messages()
-            # for message_id, aio_task in self._running_messages.items():
-            #     logger.debug("%s: cancel processing message '%s'", str(self), message_id)
-            #     aio_task.cancel()
             self._running_messages = {}
 
     async def consume_events(self, on_event: AsyncCallableT):

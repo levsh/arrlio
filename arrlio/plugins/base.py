@@ -4,6 +4,7 @@ import logging
 
 from arrlio.models import TaskInstance, TaskResult
 
+
 logger = logging.getLogger("arrlio.plugins.base")
 
 
@@ -16,7 +17,7 @@ class Plugin(abc.ABC):
         pass
 
     async def on_init(self):
-        logger.info("Initialization done")
+        logger.info(f"Plugin[{self.name}] initialization done")
 
     async def on_close(self):
         pass

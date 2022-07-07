@@ -2,11 +2,10 @@ import asyncio
 import logging
 import re
 
+import arrlio
 import pytest
 
-import arrlio
 from arrlio import backends
-
 from tests.medium import tasks
 
 
@@ -255,7 +254,7 @@ class TestArrlio:
         ev.clear()
 
         async def on_event(event):
-            if event.type == "task done" and event.data["status"] is True:
+            if event.type == "task:done" and event.data["status"] is True:
                 ev.set()
 
         await app.consume_tasks()
