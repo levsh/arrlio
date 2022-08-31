@@ -20,7 +20,7 @@ from roview import rodict, rolist
 logger = logging.getLogger("arrlio.core")
 
 
-def task(func: FunctionType = None, name: str = None, base: Type[Task] = None, **kwds):
+def task(func: Union[FunctionType, MethodType] = None, name: str = None, base: Type[Task] = None, **kwds):
     """
     Args:
         func (FunctionType, optional): Task function.
@@ -40,7 +40,7 @@ def task(func: FunctionType = None, name: str = None, base: Type[Task] = None, *
             raise ValueError(f"Task '{name}' already registered")
         t = base(func=func, name=name, **kwds)
         __tasks__[name] = t
-        logger.info("Register %s", t)
+        logger.info("Register task '%s'", t.name)
         return t
     else:
 

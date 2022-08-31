@@ -6,7 +6,7 @@ import arrlio
 import pytest
 
 from arrlio import backends
-from tests.medium import tasks
+from tests import tasks
 
 
 logger = logging.getLogger("arrlio")

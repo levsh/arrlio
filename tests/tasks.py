@@ -48,6 +48,11 @@ def sync_task():
 
 
 @arrlio.task
+def zero_division():
+    return 1 / 0
+
+
+@arrlio.task
 def add_one(x: str):
     return int(x) + 1
 
