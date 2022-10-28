@@ -2,18 +2,14 @@ import asyncio
 import logging
 import re
 
-import arrlio
 import pytest
 
+import arrlio
 from arrlio import backends
 from tests import tasks
 
-
 logger = logging.getLogger("arrlio")
 logger.setLevel(logging.DEBUG)
-
-
-pytestmark = pytest.mark.asyncio
 
 
 class TestArrlio:
@@ -26,6 +22,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_default(self, backend, app):
         await app.consume_tasks()
 
@@ -35,6 +32,7 @@ class TestArrlio:
         ar = await app.send_task("hello_world")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "backend",
         [
@@ -59,6 +57,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_not_found(self, backend, app):
         await app.consume_tasks()
         with pytest.raises(arrlio.exc.TaskError):
@@ -74,6 +73,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_args_kwds(self, backend, app):
         await app.consume_tasks()
         ar = await app.send_task(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4})
@@ -89,6 +89,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_custom_queue(self, backend, app):
         app.config.task_queues = ["queue1", "queue2"]
         await app.consume_tasks()
@@ -105,6 +106,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_priority(self, backend, app):
         app.config.pool_size = 1
         await app.consume_tasks()
@@ -123,6 +125,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_lost_connection(self, backend, app):
         await app.consume_tasks()
         await asyncio.sleep(1)
@@ -142,6 +145,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_timeout(self, backend, app):
         await app.consume_tasks()
         ar = await app.send_task(tasks.sleep, args=(3600,), timeout=1)
@@ -157,6 +161,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_thread(self, backend, app):
         await app.consume_tasks()
 
@@ -175,6 +180,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_no_result(self, backend, app):
         await app.consume_tasks()
 
@@ -195,6 +201,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_task_result_timeout(self, backend, app):
         await app.consume_tasks()
         ar = await app.send_task(tasks.hello_world, result_ttl=1)
@@ -211,6 +218,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_message(self, backend, app):
         if backend.module == backends.rabbitmq:
             async with app._backend.channel_ctx() as channel:
@@ -249,6 +257,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_events(self, backend, app):
         ev = asyncio.Event()
         ev.clear()
@@ -273,6 +282,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_graph(self, backend, app):
         await app.consume_tasks()
 
@@ -297,6 +307,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_graph_complex(self, backend, app):
         await app.consume_tasks()
 

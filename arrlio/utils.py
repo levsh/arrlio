@@ -12,7 +12,6 @@ import pydantic
 from arrlio.models import Task
 from arrlio.tp import ExceptionFilterT
 
-
 logger = logging.getLogger("arrlio.utils")
 
 
@@ -55,3 +54,20 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
         return wrapper
 
     return decorator
+
+
+class InfIterator:
+    def __init__(self, data: list):
+        self._data = data
+        self._iter = iter(data)
+
+    def __next__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            self._iter = iter(self._data)
+            return next(self._iter)
+
+
+def inf_iter(data: list):
+    return InfIterator(data)

@@ -13,7 +13,7 @@ TimeoutT = conint(ge=0)
 
 
 class SecretAnyUrl(AnyUrl):
-    __slots__ = ("_url",)
+    __slots__ = AnyUrl.__slots__ + ("_url",)
 
     @no_type_check
     def __new__(cls, url: Optional[str], **kwds) -> object:
@@ -44,8 +44,8 @@ class SecretAnyUrl(AnyUrl):
         return self._url
 
 
-class RMQDsn(SecretAnyUrl):
-    allowed_schemes = {"amqp"}
+class AmqpDsn(SecretAnyUrl):
+    allowed_schemes = {"amqp", "amqps"}
     user_required = True
 
 

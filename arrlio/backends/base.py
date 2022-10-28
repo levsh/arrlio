@@ -2,7 +2,7 @@ import abc
 import asyncio
 import logging
 from types import MethodType
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from pydantic import BaseSettings
 
@@ -21,7 +21,7 @@ class BackendConfig(BaseSettings):
 class Backend(abc.ABC):
     def __init__(self, config: BackendConfig):
         self._closed: asyncio.Future = asyncio.Future()
-        self._tasks: set = set()
+        self._tasks: Set[asyncio.Task] = set()
         self.config: BackendConfig = config
         self.serializer: Serializer = config.serializer()
 
@@ -37,7 +37,7 @@ class Backend(abc.ABC):
         async def wrap(self, *args, **kwds):
             if self._closed.done():
                 raise Exception(f"Call {method} on closed {self}")
-            task = asyncio.create_task(method(self, *args, **kwds))
+            task: asyncio.Task = asyncio.create_task(method(self, *args, **kwds))
             self._tasks.add(task)
             try:
                 return await task
@@ -48,7 +48,7 @@ class Backend(abc.ABC):
         return wrap
 
     @property
-    def is_closed(self):
+    def is_closed(self) -> bool:
         return self._closed.done()
 
     async def close(self):
@@ -56,9 +56,17 @@ class Backend(abc.ABC):
             return
         self._closed.set_result(None)
         self._cancel_tasks()
-        await self.stop_consume_tasks()
-        await self.stop_consume_messages()
-        await self.stop_consume_events()
+        await asyncio.gather(
+            self.stop_consume_tasks(),
+            self.stop_consume_messages(),
+            self.stop_consume_events(),
+        )
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
 
     @abc.abstractmethod
     async def send_task(self, task_instance: TaskInstance, **kwds):

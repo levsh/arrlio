@@ -4,22 +4,28 @@ import datetime
 import functools
 import inspect
 import logging
-from typing import Dict, Iterable, List, Optional, Tuple
+from enum import Enum
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 from uuid import UUID
 
 import aiormq
 import yarl
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from arrlio import core
 from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.tp import AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, RMQDsn, SerializerT, TimeoutT
-from arrlio.utils import retry
+from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, SerializerT, TimeoutT
+from arrlio.utils import inf_iter, retry
 
 logger = logging.getLogger("arrlio.backends.rabbitmq")
+
+
+class QUEUE_TYPE(str, Enum):
+    classic = "classic"
+    quorum = "quorum"
 
 
 BACKEND_NAME: str = "arrlio"
@@ -29,34 +35,38 @@ TIMEOUT: int = 10
 RETRY_TIMEOUTS: Iterable[int] = None
 VERIFY_SSL: bool = True
 TASKS_EXCHANGE: str = "arrlio"
+TASKS_QUEUE_TYPE: QUEUE_TYPE = QUEUE_TYPE.classic
 TASKS_QUEUE_DURABLE: bool = False
 TASKS_QUEUE_TTL: int = None
 TASKS_PREFETCH_COUNT: int = 1
 EVENTS_EXCHANGE: str = "arrlio"
+EVENTS_QUEUE_TYPE: QUEUE_TYPE = QUEUE_TYPE.classic
 EVENTS_QUEUE_DURABLE: bool = False
 EVENTS_QUEUE: str = "arrlio.events"
 EVENTS_QUEUE_TTL: int = None
 EVENTS_PREFETCH_COUNT: int = 1
-MESSAGE_PREFETCH_COUNT: int = 1
+MESSAGES_PREFETCH_COUNT: int = 1
 
 
 class BackendConfig(base.BackendConfig):
     name: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
-    url: RMQDsn = Field(default_factory=lambda: URL)
+    url: Union[AmqpDsn, List[AmqpDsn]] = Field(default_factory=lambda: URL)
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
     retry_timeouts: Optional[List] = Field(default_factory=lambda: RETRY_TIMEOUTS)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
     tasks_exchange: str = Field(default_factory=lambda: TASKS_EXCHANGE)
+    tasks_queue_type: QUEUE_TYPE = Field(default_factory=lambda: TASKS_QUEUE_TYPE)
     tasks_queue_durable: bool = Field(default_factory=lambda: TASKS_QUEUE_DURABLE)
     tasks_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASKS_QUEUE_TTL)
     tasks_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: TASKS_PREFETCH_COUNT)
     events_exchange: str = Field(default_factory=lambda: EVENTS_EXCHANGE)
+    events_queue_type: QUEUE_TYPE = Field(default_factory=lambda: EVENTS_QUEUE_TYPE)
     events_queue_durable: bool = Field(default_factory=lambda: EVENTS_QUEUE_DURABLE)
     events_queue: str = Field(default_factory=lambda: EVENTS_QUEUE)
     events_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: EVENTS_QUEUE_TTL)
     events_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: EVENTS_PREFETCH_COUNT)
-    message_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGE_PREFETCH_COUNT)
+    messages_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGES_PREFETCH_COUNT)
 
     class Config:
         validate_assignment = True
@@ -70,13 +80,34 @@ class RMQConnection:
     def _shared(self) -> dict:
         return self.__shared[self._key]
 
-    def __init__(self, url, retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
-        self.url = url
+    def __init__(
+        self,
+        url: Union[Union[AmqpDsn, str], List[Union[AmqpDsn, str]]],
+        retry_timeouts: Iterable[int] = None,
+        exc_filter: ExceptionFilterT = None,
+    ):
+        if not isinstance(url, list):
+            url = [url]
+
+        for i, u in enumerate(url):
+            if isinstance(u, str):
+
+                class T(BaseModel):
+                    u: AmqpDsn
+
+                url[i] = T(u=u).u
+
+        self._url_iter = inf_iter(url)
+
+        self.url = next(self._url_iter)
 
         self._retry_timeouts = retry_timeouts
         self._exc_filter = exc_filter
 
-        self._key = (asyncio.get_event_loop(), url)
+        self._key = (
+            asyncio.get_event_loop(),
+            tuple(sorted([u.get_secret_value() for u in url])),
+        )
 
         if self._key not in self.__shared:
             self.__shared[self._key] = {
@@ -88,30 +119,30 @@ class RMQConnection:
                 "on_open_callbacks_lock": asyncio.Lock(),
             }
 
-        self._shared["id"] += 1
-        self._shared["objs"] += 1
-        self._shared[self] = {
+        shared = self._shared
+
+        shared["id"] += 1
+        shared["objs"] += 1
+        shared[self] = {
             "on_open": {},
             "on_lost": {},
             "on_close": {},
         }
 
-        self._id = self._shared["id"]
-
-        self._connect_timeout = yarl.URL(url).query.get("connection_timeout")
-        if self._connect_timeout is not None:
-            self._connect_timeout = int(self._connect_timeout) / 1000
+        self._id = shared["id"]
 
         self._supervisor_task: asyncio.Task = None
-        self._closed: asyncio.Future = asyncio.Future()
+        self._closed: asyncio.Future = None
 
     def __del__(self):
-        if not self.is_closed:
+        if self._closed is not None and not self.is_closed:
             logger.warning("%s: unclosed", self)
-        self._shared["objs"] -= 1
-        if self in self._shared:
-            del self._shared[self]
-        if self._shared["objs"] == 0:
+
+        shared = self._shared
+        shared["objs"] -= 1
+        if self in shared:
+            del shared[self]
+        if shared["objs"] == 0:
             del self.__shared[self._key]
 
     @property
@@ -143,8 +174,9 @@ class RMQConnection:
             self._shared[self][tp][name] = cb
 
     def remove_callback(self, tp, name):
-        if self in self._shared and name in self._shared[self][tp]:
-            del self._shared[self][tp][name]
+        shared = self._shared
+        if self in shared and name in shared[self][tp]:
+            del shared[self][tp][name]
 
     def remove_callbacks(self):
         if self in self._shared:
@@ -162,9 +194,9 @@ class RMQConnection:
 
     @property
     def is_closed(self) -> bool:
-        return self._closed.done()
+        return self._closed is not None and self._closed.done()
 
-    async def _execute_callbacks(self, tp):
+    async def _execute_callbacks(self, tp: str):
         for callback in self._shared[self][tp].values():
             try:
                 if inspect.iscoroutinefunction(callback):
@@ -204,9 +236,22 @@ class RMQConnection:
                 @retry(retry_timeouts=self._retry_timeouts, exc_filter=self._exc_filter)
                 async def connect():
                     logger.info("%s: connecting...", self)
-                    self._conn = await asyncio.wait_for(
-                        aiormq.connect(self.url.get_secret_value()), self._connect_timeout
-                    )
+
+                    connect_timeout = yarl.URL(self.url).query.get("connection_timeout")
+                    if connect_timeout is not None:
+                        connect_timeout = int(connect_timeout) / 1000
+
+                    try:
+                        self._conn = await asyncio.wait_for(
+                            aiormq.connect(self.url.get_secret_value()),
+                            connect_timeout,
+                        )
+                        if self._closed is None:
+                            self._closed = asyncio.Future()
+                    except ConnectionError:
+                        self.url = next(self._url_iter)
+                        raise
+
                     logger.info("%s: connected", self)
 
                 await connect()
@@ -224,7 +269,8 @@ class RMQConnection:
         self._refs = max(0, self._refs - 1)
 
         async with self._conn_lock:
-            self._closed.set_result(None)
+            if self._closed is not None:
+                self._closed.set_result(None)
             if self._refs == 0:
                 await self._execute_callbacks("on_close")
                 if self._conn:
@@ -238,8 +284,7 @@ class RMQConnection:
 
     async def channel(self) -> aiormq.Channel:
         await self.open()
-        channel = await self._conn.channel()
-        return channel
+        return await self._conn.channel()
 
     @contextlib.asynccontextmanager
     async def channel_ctx(self):
@@ -272,7 +317,7 @@ class Backend(base.Backend):
 
     def __del__(self):
         if not self.is_closed:
-            logger.warning("Unclosed %s", self)
+            logger.warning("%s: unclosed", self)
 
     def __str__(self):
         return f"RMQBackend[{self.__conn}]"
@@ -315,6 +360,7 @@ class Backend(base.Backend):
             arguments = {}
             if self.config.events_queue_ttl is not None:
                 arguments["x-message-ttl"] = self.config.events_queue_ttl * 1000
+            arguments["x-queue-type"] = self.config.events_queue_type.value
             await channel.queue_declare(
                 self.config.events_queue,
                 durable=self.config.events_queue_durable,
@@ -334,6 +380,7 @@ class Backend(base.Backend):
         async with self._conn.channel_ctx() as channel:
             arguments = {}
             arguments["x-max-priority"] = PriorityT.le
+            arguments["x-queue-type"] = self.config.tasks_queue_type.value
             if self.config.tasks_queue_ttl is not None:
                 arguments["x-message-ttl"] = self.config.tasks_queue_ttl * 1000
             durable = self.config.tasks_queue_durable
@@ -559,7 +606,7 @@ class Backend(base.Backend):
                 if queue in self._message_consumers and not self._message_consumers[queue][0].is_closed:
                     continue
                 channel = await self._conn.channel()
-                await channel.basic_qos(prefetch_count=self.config.message_prefetch_count, timeout=timeout)
+                await channel.basic_qos(prefetch_count=self.config.messages_prefetch_count, timeout=timeout)
                 self._message_consumers[queue] = [
                     channel,
                     await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),

@@ -1,12 +1,13 @@
 import asyncio
 import copy
 import logging
-
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
 from types import FunctionType, MethodType, ModuleType
 from typing import Any, Dict, List, Type, Union
 from uuid import UUID
+
+from roview import rodict, rolist
 
 from arrlio import __tasks__
 from arrlio.exc import TaskError, TaskNoResultError
@@ -14,8 +15,6 @@ from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, T
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
-from roview import rodict, rolist
-
 
 logger = logging.getLogger("arrlio.core")
 
@@ -87,7 +86,8 @@ class App:
 
         self._plugins_tasks = []
         for hook in self._hooks["on_init"]:
-            task = asyncio.create_task(hook())
+            # task = asyncio.create_task(hook())
+            task = asyncio.create_task(self._execute_hook(hook))
             self._plugins_tasks.append(task)
             task.add_done_callback(lambda fut: self._plugins_tasks.remove(task))
 
@@ -158,12 +158,15 @@ class App:
         finally:
             self._closed.set_result(None)
 
+    async def _execute_hook(self, hook_fn, *args, **kwds):
+        try:
+            await hook_fn(*args, **kwds)
+        except Exception:
+            logger.exception("%s: plugin %s error", str(self), hook_fn)
+
     async def _execute_hooks(self, hook: str, *args, **kwds):
         for hook_fn in self._hooks[hook]:
-            try:
-                await hook_fn(*args, **kwds)
-            except Exception as e:
-                logger.error("%s: plugin %s error: %s", str(self), hook_fn, e)
+            await self._execute_hook(hook_fn, *args, **kwds)
 
     async def send_task(
         self,
@@ -337,10 +340,10 @@ class App:
 
     async def execute_task(self, task_instance: TaskInstance):
         async with AsyncExitStack() as stack:
-            for context in self._hooks["task_context"]:
-                await stack.enter_async_context(context(task_instance))
-
             try:
+                for context in self._hooks["task_context"]:
+                    await stack.enter_async_context(context(task_instance))
+
                 task_data: TaskData = task_instance.data
 
                 task_result: TaskResult = await self._executor(task_instance)

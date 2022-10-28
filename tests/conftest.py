@@ -37,7 +37,10 @@ def backend(request, container_executor):
     if request.param == backends.rabbitmq:
         container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
-        config_kwds["url"] = f"amqp://guest:guest@{address[0]}:{address[1]}"
+        config_kwds["url"] = [
+            f"amqp://guest:guest@invalid:{address[1]}",
+            f"amqp://guest:guest@{address[0]}:{address[1]}",
+        ]
     if request.param == backends.redis:
         container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
         address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
@@ -68,4 +71,3 @@ async def app(backend):
     finally:
         await app.close()
         gc.collect()
-        # backends.local.Backend._Backend__shared.clear()
