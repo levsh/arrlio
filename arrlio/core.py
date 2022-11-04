@@ -7,7 +7,7 @@ from types import FunctionType, MethodType, ModuleType
 from typing import Any, Dict, List, Type, Union
 from uuid import UUID
 
-from roview import rodict, rolist
+from roview import rodict
 
 from arrlio import __tasks__
 from arrlio.exc import TaskError, TaskNoResultError
@@ -41,12 +41,11 @@ def task(func: Union[FunctionType, MethodType] = None, name: str = None, base: T
         __tasks__[name] = t
         logger.info("Register task '%s'", t.name)
         return t
-    else:
 
-        def wrapper(func):
-            return task(base=base, func=func, name=name, **kwds)
+    def wrapper(func):
+        return task(base=base, func=func, name=name, **kwds)
 
-        return wrapper
+    return wrapper
 
 
 class App:
@@ -80,16 +79,9 @@ class App:
         for plugin_cls in config.plugins:
             plugin = plugin_cls(self)
             self._plugins[plugin.name] = plugin
-            for k in self._hooks:
+            for k, hooks in self._hooks.items():
                 if getattr(plugin, k).__func__ != getattr(Plugin, k):
-                    self._hooks[k].append(getattr(plugin, k))
-
-        self._plugins_tasks = []
-        for hook in self._hooks["on_init"]:
-            # task = asyncio.create_task(hook())
-            task = asyncio.create_task(self._execute_hook(hook))
-            self._plugins_tasks.append(task)
-            task.add_done_callback(lambda fut: self._plugins_tasks.remove(task))
+                    hooks.append(getattr(plugin, k))
 
     def __str__(self):
         return f"{self.__class__.__name__}[{self._backend}]"
@@ -105,11 +97,11 @@ class App:
 
     @property
     def hooks(self):
-        return rolist(list(self._hooks.keys()))
+        return rodict(self._hooks, nested=True)
 
     @property
     def plugins(self):
-        return rodict(self._plugins)
+        return rodict(self._plugins, nested=True)
 
     @property
     def backend(self):
@@ -127,23 +119,20 @@ class App:
     def is_closed(self) -> bool:
         return self._closed.done()
 
-    async def wait_init(self):
-        for task in self._plugins_tasks:
-            await task
+    async def init_plugins(self):
+        await asyncio.gather(*[asyncio.create_task(self._execute_hook(hook)) for hook in self._hooks["on_init"]])
 
     async def close(self):
         try:
-            for task in self._plugins_tasks:
-                task.cancel()
-                logger.warning("Cancel %s", task)
-
             await self._execute_hooks("on_close")
-            for k in self._hooks:
-                self._hooks[k].clear()
+            for hooks in self._hooks.values():
+                hooks.clear()
 
-            await self.stop_consume_tasks()
-            await self.stop_consume_messages()
-            await self.stop_consume_events()
+            await asyncio.gather(
+                self.stop_consume_tasks(),
+                self.stop_consume_messages(),
+                self.stop_consume_events(),
+            )
 
             for task_id, aio_task in self._running_tasks.items():
                 logger.debug("%s: cancel processing task '%s'", str(self), task_id)
@@ -162,15 +151,14 @@ class App:
         try:
             await hook_fn(*args, **kwds)
         except Exception:
-            logger.exception("%s: plugin %s error", str(self), hook_fn)
+            logger.exception("%s: hook %s error", str(self), hook_fn)
 
     async def _execute_hooks(self, hook: str, *args, **kwds):
-        for hook_fn in self._hooks[hook]:
-            await self._execute_hook(hook_fn, *args, **kwds)
+        await asyncio.gather(*[self._execute_hook(hook_fn, *args, **kwds) for hook_fn in self._hooks[hook]])
 
     async def send_task(
         self,
-        task: Union[Task, str],
+        task: Union[Task, str],  # pylint: disable=redefined-outer-name
         args: tuple = None,
         kwds: dict = None,
         extra: dict = None,
@@ -246,6 +234,8 @@ class App:
         logger.info("%s: send %s with args: %s and kwds: %s", str(self), graph, args, kwds)
 
         task_instances = {}
+
+        # pylint: disable=redefined-outer-name
         for node_name, (task, node_kwds) in nodes.items():
             if node_name not in roots and node_kwds.get("task_id"):
                 continue
@@ -286,15 +276,14 @@ class App:
 
     async def send_event(self, event: Event):
         logger.info("%s: send %s", str(self), event)
-        await self._backend.push_event(event)
+        await self._backend.send_event(event)
 
     async def pop_result(self, task_instance: TaskInstance):
         task_result: TaskResult = await self._backend.pop_task_result(task_instance)
         if task_result.exc:
             if isinstance(task_result.exc, TaskError):
                 raise task_result.exc
-            else:
-                raise TaskError(task_result.exc, task_result.trb)
+            raise TaskError(task_result.exc, task_result.trb)
         return task_result.res
 
     async def consume_tasks(self, queues: List[str] = None):
@@ -426,8 +415,8 @@ class App:
 
 class AsyncResult:
     def __init__(self, app: App, task_instance: TaskInstance):
-        self._app = app
-        self._task_instance = task_instance
+        self._app: App = app
+        self._task_instance: TaskInstance = task_instance
         self._result = None
         self._exception: Exception = None
         self._ready: bool = False

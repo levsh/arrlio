@@ -1,24 +1,26 @@
 import asyncio
 import contextlib
-import datetime
 import functools
 import inspect
 import logging
+
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 from uuid import UUID
 
 import aiormq
 import yarl
-from pydantic import BaseModel, Field
 
 from arrlio import core
 from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
-from arrlio.models import Event, Message, TaskInstance, TaskResult
+from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, SerializerT, TimeoutT
 from arrlio.utils import inf_iter, retry
+from pydantic import BaseModel, Field
+
 
 logger = logging.getLogger("arrlio.backends.rabbitmq")
 
@@ -69,7 +71,6 @@ class BackendConfig(base.BackendConfig):
     messages_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: MESSAGES_PREFETCH_COUNT)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}RMQ_BACKEND_"
 
 
@@ -217,6 +218,26 @@ class RMQConnection:
             self._supervisor_task = None
             await self._execute_callbacks("on_lost")
 
+    async def _connect(self):
+        logger.info("%s: connecting...", self)
+
+        connect_timeout = yarl.URL(self.url).query.get("connection_timeout")
+        if connect_timeout is not None:
+            connect_timeout = int(connect_timeout) / 1000
+
+        try:
+            self._conn = await asyncio.wait_for(
+                aiormq.connect(self.url.get_secret_value()),
+                connect_timeout,
+            )
+            if self._closed is None:
+                self._closed = asyncio.Future()
+        except ConnectionError:
+            self.url = next(self._url_iter)
+            raise
+
+        logger.info("%s: connected", self)
+
     async def open(self):
         if self.is_open and self._supervisor_task:
             return
@@ -232,29 +253,7 @@ class RMQConnection:
                 raise Exception("Can't reopen closed connection")
 
             if self._conn is None or self._conn.is_closed:
-
-                @retry(retry_timeouts=self._retry_timeouts, exc_filter=self._exc_filter)
-                async def connect():
-                    logger.info("%s: connecting...", self)
-
-                    connect_timeout = yarl.URL(self.url).query.get("connection_timeout")
-                    if connect_timeout is not None:
-                        connect_timeout = int(connect_timeout) / 1000
-
-                    try:
-                        self._conn = await asyncio.wait_for(
-                            aiormq.connect(self.url.get_secret_value()),
-                            connect_timeout,
-                        )
-                        if self._closed is None:
-                            self._closed = asyncio.Future()
-                    except ConnectionError:
-                        self.url = next(self._url_iter)
-                        raise
-
-                    logger.info("%s: connected", self)
-
-                await connect()
+                await retry(retry_timeouts=self._retry_timeouts, exc_filter=self._exc_filter)(self._connect)()
 
             self._refs += 1
             self._supervisor_task = asyncio.create_task(self._supervisor())
@@ -328,7 +327,7 @@ class Backend(base.Backend):
             raise Exception(f"{self} is closed")
         return self.__conn
 
-    async def channel(self):
+    async def channel(self) -> aiormq.Channel:
         return await self._conn.channel()
 
     @contextlib.asynccontextmanager
@@ -342,60 +341,62 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def declare(self):
+        config: BackendConfig = self.config
+        timeout: TimeoutT = config.timeout
         async with self._conn.channel_ctx() as channel:
             await channel.exchange_declare(
-                self.config.tasks_exchange,
+                config.tasks_exchange,
                 exchange_type="direct",
                 durable=False,
                 auto_delete=False,
-                timeout=self.config.timeout,
+                timeout=timeout,
             )
             await channel.exchange_declare(
-                self.config.events_exchange,
+                config.events_exchange,
                 exchange_type="direct",
                 durable=False,
                 auto_delete=False,
-                timeout=self.config.timeout,
+                timeout=timeout,
             )
             arguments = {}
-            if self.config.events_queue_ttl is not None:
-                arguments["x-message-ttl"] = self.config.events_queue_ttl * 1000
-            arguments["x-queue-type"] = self.config.events_queue_type.value
+            if config.events_queue_ttl is not None:
+                arguments["x-message-ttl"] = config.events_queue_ttl * 1000
+            arguments["x-queue-type"] = config.events_queue_type.value
             await channel.queue_declare(
-                self.config.events_queue,
-                durable=self.config.events_queue_durable,
-                auto_delete=not self.config.events_queue_durable,
+                config.events_queue,
+                durable=config.events_queue_durable,
+                auto_delete=not config.events_queue_durable,
                 arguments=arguments,
-                timeout=self.config.timeout,
+                timeout=timeout,
             )
             await channel.queue_bind(
-                self.config.events_queue,
-                self.config.events_exchange,
-                routing_key=self.config.events_queue,
-                timeout=self.config.timeout,
+                config.events_queue,
+                config.events_exchange,
+                routing_key=config.events_queue,
+                timeout=timeout,
             )
 
     @base.Backend.task
     async def declare_task_queue(self, queue: str):
+        config: BackendConfig = self.config
+        timeout: TimeoutT = config.timeout
         async with self._conn.channel_ctx() as channel:
-            arguments = {}
-            arguments["x-max-priority"] = PriorityT.le
-            arguments["x-queue-type"] = self.config.tasks_queue_type.value
-            if self.config.tasks_queue_ttl is not None:
-                arguments["x-message-ttl"] = self.config.tasks_queue_ttl * 1000
-            durable = self.config.tasks_queue_durable
+            arguments = {"x-max-priority": PriorityT.le, "x-queue-type": config.tasks_queue_type.value}
+            if config.tasks_queue_ttl is not None:
+                arguments["x-message-ttl"] = config.tasks_queue_ttl * 1000
+            durable = config.tasks_queue_durable
             await channel.queue_declare(
                 queue,
                 durable=durable,
                 auto_delete=not durable,
                 arguments=arguments,
-                timeout=self.config.timeout,
+                timeout=config.timeout,
             )
-            await channel.queue_bind(queue, self.config.tasks_exchange, routing_key=queue, timeout=self.config.timeout)
+            await channel.queue_bind(queue, config.tasks_exchange, routing_key=queue, timeout=timeout)
 
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, result_queue_durable: bool = False, **kwds):
-        task_data = task_instance.data
+        task_data: TaskData = task_instance.data
         task_data.extra["result_queue_durable"] = result_queue_durable
         await self.declare_task_queue(task_data.queue)
         logger.debug("%s: put %s", self, task_instance)
@@ -407,7 +408,7 @@ class Backend(base.Backend):
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
                     message_id=str(task_data.task_id.hex),
-                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                    timestamp=datetime.now(tz=timezone.utc),
                     expiration=str(int(task_data.ttl * 1000)) if task_data.ttl is not None else None,
                     priority=task_data.priority,
                 ),
@@ -416,8 +417,8 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
+        timeout: TimeoutT = self.config.timeout
         async with self._consume_lock:
-            timeout = self.config.timeout
 
             async def on_msg(channel: aiormq.Channel, msg):
                 try:
@@ -468,7 +469,8 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def declare_result_queue(self, task_instance: TaskInstance):
-        task_id = task_instance.data.task_id
+        config: BackendConfig = self.config
+        task_id: UUID = task_instance.data.task_id
         result_ttl = task_instance.data.result_ttl
         queue = routing_key = f"result.{task_id}"
         durable = task_instance.data.extra.get("result_queue_durable")
@@ -478,13 +480,13 @@ class Backend(base.Backend):
                 durable=durable,
                 auto_delete=not durable,
                 arguments={"x-expires": result_ttl * 1000} if result_ttl is not None else None,
-                timeout=self.config.timeout,
+                timeout=config.timeout,
             )
             await channel.queue_bind(
                 queue,
-                self.config.tasks_exchange,
+                config.tasks_exchange,
                 routing_key=routing_key,
-                timeout=self.config.timeout,
+                timeout=config.timeout,
             )
         return queue
 
@@ -501,14 +503,14 @@ class Backend(base.Backend):
                 routing_key=routing_key,
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
-                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                    timestamp=datetime.now(tz=timezone.utc),
                 ),
                 timeout=self.config.timeout,
             )
 
     @base.Backend.task
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
-        task_id = task_instance.data.task_id
+        task_id: UUID = task_instance.data.task_id
         queue = await self.declare_result_queue(task_instance)
 
         while True:
@@ -568,7 +570,7 @@ class Backend(base.Backend):
                 properties=aiormq.spec.Basic.Properties(
                     message_id=str(message.message_id.hex),
                     delivery_mode=delivery_mode or 2,
-                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                    timestamp=datetime.now(tz=timezone.utc),
                     expiration=str(int(message.ttl * 1000)) if message.ttl is not None else None,
                     priority=message.priority,
                 ),
@@ -577,8 +579,8 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
+        timeout: TimeoutT = self.config.timeout
         async with self._consume_lock:
-            timeout = self.config.timeout
 
             async def on_msg(channel: aiormq.Channel, msg):
                 try:
@@ -630,24 +632,26 @@ class Backend(base.Backend):
             self._message_consumers = {}
 
     @base.Backend.task
-    async def push_event(self, event: Event):
+    async def send_event(self, event: Event):
+        config: BackendConfig = self.config
         async with self._conn.channel_ctx() as channel:
             await channel.basic_publish(
                 self.serializer.dumps_event(event),
-                exchange=self.config.events_exchange,
-                routing_key=self.config.events_queue,
+                exchange=config.events_exchange,
+                routing_key=config.events_queue,
                 properties=aiormq.spec.Basic.Properties(
                     delivery_mode=2,
-                    timestamp=datetime.datetime.now(tz=datetime.timezone.utc),
+                    timestamp=datetime.now(tz=timezone.utc),
                     expiration=str(int(event.ttl * 1000)) if event.ttl is not None else None,
                 ),
-                timeout=self.config.timeout,
+                timeout=config.timeout,
             )
 
     @base.Backend.task
     async def consume_events(self, on_event: AsyncCallableT):
+        config: BackendConfig = self.config
+        timeout: TimeoutT = config.timeout
         async with self._consume_lock:
-            timeout = self.config.timeout
 
             async def on_msg(channel: aiormq.Channel, msg):
                 try:
@@ -667,16 +671,16 @@ class Backend(base.Backend):
                     return
 
             channel = await self._conn.channel()
-            await channel.basic_qos(prefetch_count=self.config.events_prefetch_count, timeout=timeout)
+            await channel.basic_qos(prefetch_count=config.events_prefetch_count, timeout=timeout)
             self._events_consumer = [
                 channel,
                 await channel.basic_consume(
-                    self.config.events_queue,
+                    config.events_queue,
                     functools.partial(on_msg, channel),
                     timeout=timeout,
                 ),
             ]
-            logger.debug("%s: consuming events queue '%s'", self, self.config.events_queue)
+            logger.debug("%s: consuming events queue '%s'", self, config.events_queue)
 
             async def _consume_events():
                 await self.consume_events(on_event)

@@ -4,6 +4,7 @@ import json
 import logging
 from dataclasses import asdict
 from datetime import datetime
+from functools import wraps
 from typing import Iterable
 from uuid import UUID
 
@@ -33,9 +34,12 @@ class ExtendedJSONEncoder(json.JSONEncoder):
 def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
     retry_timeouts = iter(retry_timeouts) if retry_timeouts else itertools.repeat(5)
     if exc_filter is None:
-        exc_filter = lambda e: isinstance(e, (ConnectionError, TimeoutError, asyncio.TimeoutError))  # noqa
+
+        def exc_filter(exc):
+            return isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError))
 
     def decorator(fn):
+        @wraps(fn)
         async def wrapper(*args, **kwds):
             while True:
                 try:
@@ -69,5 +73,5 @@ class InfIterator:
             return next(self._iter)
 
 
-def inf_iter(data: list):
+def inf_iter(data: list) -> InfIterator:
     return InfIterator(data)

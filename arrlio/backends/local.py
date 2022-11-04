@@ -3,16 +3,17 @@ import collections
 import dataclasses
 import logging
 import time
+
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import Field
-
 from arrlio.backends import base
 from arrlio.core import TaskNoResultError
-from arrlio.models import Event, Message, TaskInstance, TaskResult
+from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
+from pydantic import Field
+
 
 logger = logging.getLogger("arrlio.backends.local")
 
@@ -26,7 +27,6 @@ class BackendConfig(base.BackendConfig):
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}LOCAL_BACKEND_"
 
 
@@ -80,15 +80,15 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def send_task(self, task_instance: TaskInstance, **kwds):
-        task_data = task_instance.data
-        if task_instance.data.result_return and task_data.task_id not in self._results:
+        task_data: TaskData = task_instance.data
+        if task_data.result_return and task_data.task_id not in self._results:
             self._results[task_data.task_id] = [asyncio.Event(), None]
         logger.debug("%s: put %s", self, task_instance)
         await self._task_queues[task_data.queue].put(
             (
                 (PriorityT.le - task_data.priority) if task_data.priority else PriorityT.ge,
                 time.monotonic(),
-                task_instance.data.ttl,
+                task_data.ttl,
                 self.serializer.dumps_task_instance(task_instance),
             )
         )
@@ -102,7 +102,7 @@ class Backend(base.Backend):
                     _, ts, ttl, data = await self._task_queues[queue].get()
                     if ttl is not None and time.monotonic() >= ts + ttl:
                         continue
-                    task_instance = self.serializer.loads_task_instance(data)
+                    task_instance: TaskInstance = self.serializer.loads_task_instance(data)
                     logger.debug("%s: got %s", self, task_instance)
                     await asyncio.shield(on_task(task_instance))
                 except asyncio.CancelledError:
@@ -122,14 +122,15 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
-        if not task_instance.data.result_return:
+        task_data: TaskData = task_instance.data
+        if not task_data.result_return:
             return
-        task_id: UUID = task_instance.data.task_id
+        task_id: UUID = task_data.task_id
         self._results[task_id][1] = self.serializer.dumps_task_result(task_instance, task_result)
         self._results[task_id][0].set()
-        if task_instance.data.result_ttl is not None:
+        if task_data.result_ttl is not None:
             loop = asyncio.get_event_loop()
-            loop.call_later(task_instance.data.result_ttl, lambda: self._results.pop(task_id, None))
+            loop.call_later(task_data.result_ttl, lambda: self._results.pop(task_id, None))
 
     @base.Backend.task
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
@@ -148,7 +149,7 @@ class Backend(base.Backend):
 
     @base.Backend.task
     async def send_message(self, message: Message, **kwds):
-        data = dataclasses.asdict(message)
+        data: dict = dataclasses.asdict(message)
         data["data"] = self.serializer.dumps(message.data)
         logger.debug("%s: put %s", self, message)
         await self._message_queues[message.exchange].put(
@@ -188,7 +189,7 @@ class Backend(base.Backend):
         self._message_consumers = {}
 
     @base.Backend.task
-    async def push_event(self, event: Event):
+    async def send_event(self, event: Event):
         self._events[event.event_id] = self.serializer.dumps_event(event)
         async with self._event_cond:
             self._event_cond.notify()
@@ -205,12 +206,13 @@ class Backend(base.Backend):
             logger.info("%s: consuming events", self)
             while True:
                 try:
-                    async with self._event_cond:
-                        await self._event_cond.wait()
+                    if not self._events:
+                        async with self._event_cond:
+                            await self._event_cond.wait()
                     for event_id in self._events:
                         break
                     data = self._events.pop(event_id)
-                    event = self.serializer.loads_event(data)
+                    event: Event = self.serializer.loads_event(data)
                     logger.debug("%s: got %s", self, event)
                     await asyncio.shield(on_event(event))
                 except asyncio.CancelledError:

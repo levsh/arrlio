@@ -1,14 +1,16 @@
 import abc
 import asyncio
 import logging
+
+from functools import wraps
 from types import MethodType
 from typing import List, Optional, Set
-
-from pydantic import BaseSettings
 
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.tp import AsyncCallableT, SerializerT
+from pydantic import BaseSettings
+
 
 logger = logging.getLogger("arrlio.backends.base")
 
@@ -16,6 +18,9 @@ logger = logging.getLogger("arrlio.backends.base")
 class BackendConfig(BaseSettings):
     name: Optional[str]
     serializer: SerializerT
+
+    class Config:
+        validate_assignment = True
 
 
 class Backend(abc.ABC):
@@ -34,6 +39,7 @@ class Backend(abc.ABC):
             task.cancel()
 
     def task(method: MethodType):
+        @wraps(method)
         async def wrap(self, *args, **kwds):
             if self._closed.done():
                 raise Exception(f"Call {method} on closed {self}")
@@ -89,7 +95,7 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def push_event(self, event: Event):
+    async def send_event(self, event: Event):
         pass
 
     @abc.abstractmethod

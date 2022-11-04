@@ -1,12 +1,9 @@
-import asyncio
-import datetime
 from unittest import mock
 
 import pytest
 
-from arrlio import TaskNoResultError
 from arrlio.backends import rabbitmq
-from arrlio.models import Event, Message, Task
+from arrlio.models import Message, Task
 from arrlio.serializers.json import Serializer
 
 

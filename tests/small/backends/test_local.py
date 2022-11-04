@@ -1,5 +1,6 @@
 import asyncio
-import datetime
+
+from datetime import datetime
 from unittest import mock
 
 import pytest
@@ -174,10 +175,10 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_push_event(self):
+    async def test_send_event(self):
         backend = local.Backend(local.BackendConfig())
-        event = Event(type="ev_type", dt=datetime.datetime.now(), data={})
-        await backend.push_event(event)
+        event = Event(type="ev_type", dt=datetime.now(), data={})
+        await backend.send_event(event)
         assert backend._events[event.event_id] == event
 
         await backend.close()
@@ -185,7 +186,7 @@ class TestBackend:
     @pytest.mark.asyncio
     async def test_consume_events(self):
         backend = local.Backend(local.BackendConfig())
-        event = Event(type="ev_type", dt=datetime.datetime.now(), data={})
+        event = Event(type="ev_type", dt=datetime.now(), data={})
         fut = asyncio.Future()
 
         async def on_event(*args):
@@ -193,7 +194,7 @@ class TestBackend:
             fut.set_result(True)
 
         await backend.consume_events(on_event)
-        await backend.push_event(event)
+        await backend.send_event(event)
 
         await asyncio.wait_for(fut, 1)
 

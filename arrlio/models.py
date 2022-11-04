@@ -1,7 +1,7 @@
 import datetime
 from dataclasses import dataclass, field
-from types import FunctionType, TracebackType
-from typing import Any, Dict, List, Set, Tuple, Union
+from types import TracebackType
+from typing import Any, Callable, Dict, List, Set, Tuple, Union
 from uuid import UUID, uuid4
 
 from roview import rodict, roset
@@ -55,7 +55,7 @@ class TaskData:
 
 @dataclass(frozen=True)
 class Task:
-    func: FunctionType
+    func: Callable
     name: str
     bind: bool = TASK_BIND
 
@@ -151,10 +151,10 @@ class Event:
 class Graph:
     def __init__(
         self,
-        id: str,
-        nodes: dict = None,
-        edges: dict = None,
-        roots: set = None,
+        id: str,  # pylint: disable=redefined-builtin
+        nodes: Dict = None,
+        edges: Dict = None,
+        roots: Set = None,
     ):
         self.id = id
         self.nodes: Dict[str, List[str]] = rodict({}, nested=True)

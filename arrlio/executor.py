@@ -79,7 +79,7 @@ class Executor:
             finally:
                 loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
-                root_loop.call_soon_threadsafe(lambda: done_ev.set())
+                root_loop.call_soon_threadsafe(done_ev.set)
 
         th = threading.Thread(target=thread)
         th.start()

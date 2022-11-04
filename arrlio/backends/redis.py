@@ -2,10 +2,10 @@ import asyncio
 import dataclasses
 import itertools
 import logging
+
 from typing import Dict, Iterable, List, Optional
 
 import siderpy
-from pydantic import Field
 
 from arrlio import core
 from arrlio.backends import base
@@ -13,6 +13,8 @@ from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
+from pydantic import Field
+
 
 logger = logging.getLogger("arrlio.backends.redis")
 
@@ -38,7 +40,6 @@ class BackendConfig(base.BackendConfig):
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}REDIS_BACKEND_"
 
 
@@ -204,7 +205,7 @@ class Backend(base.Backend):
         self._message_consumers = {}
 
     @base.Backend.task
-    async def push_event(self, event: Event):
+    async def send_event(self, event: Event):
         queue_key = "arrlio.events"
         data = self.serializer.dumps_event(event)
         async with self.redis_pool.get_redis() as redis:

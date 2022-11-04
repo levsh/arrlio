@@ -3,7 +3,6 @@ import re
 
 from invoke import task
 
-
 CWD = os.path.abspath(os.path.dirname(__file__))
 
 
@@ -28,7 +27,12 @@ def tests_medium(c):
 
 @task
 def run_linter(c):
-    cmd = "pipenv run flake8 --filename=arrlio/*.py --count --show-source --statistics"
+    cmd = (
+        "pipenv run flake8 --filename=arrlio/*.py --count --show-source --statistics "
+        "&& pipenv run pylint --extension-pkg-whitelist='pydantic' "
+        "arrlio/utils.py arrlio/tp.py arrlio/settings.py arrlio/models.py arrlio/executor.py arrlio/exc.py "
+        "arrlio/core.py"
+    )
     c.run(cmd)
 
 
@@ -97,4 +101,4 @@ def build(c):
 
 @task
 def publish(c):
-    c.run("python -m twine upload --repository pypi dist/*")
+    c.run("python -m twine upload --verbose --repository pypi dist/*")
