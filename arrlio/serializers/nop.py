@@ -4,7 +4,7 @@ from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 
 
-class Serializer(Serializer):
+class Serializer(Serializer):  # pylint: disable=function-redefined
     def __str__(self):
         return "nop.Serializer"
 
@@ -14,8 +14,8 @@ class Serializer(Serializer):
     def loads_task_instance(self, data: TaskInstance) -> TaskInstance:
         return data
 
-    def dumps_task_result(self, task_instance: TaskInstance, result: TaskResult, **kwds) -> TaskResult:
-        return result
+    def dumps_task_result(self, task_instance: TaskInstance, task_result: TaskResult, **kwds) -> TaskResult:
+        return task_result
 
     def loads_task_result(self, data: TaskResult) -> TaskResult:
         return data

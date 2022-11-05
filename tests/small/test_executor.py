@@ -8,7 +8,7 @@ from tests import tasks
 
 class TestExecutor:
     @pytest.mark.asyncio
-    async def test_execute(self, setup):
+    async def test_execute(self, cleanup):
         executor = Executor()
 
         result = await executor.execute(tasks.hello_world.instantiate())
@@ -31,7 +31,7 @@ class TestExecutor:
         assert result.routes is None
 
     @pytest.mark.asyncio
-    async def test_execute_in_thread(self, setup):
+    async def test_execute_in_thread(self, cleanup):
         executor = Executor()
 
         result = await executor.execute_in_thread(tasks.hello_world.instantiate())
@@ -54,7 +54,7 @@ class TestExecutor:
         assert result.routes is None
 
     @pytest.mark.asyncio
-    async def test_call(self, setup):
+    async def test_call(self, cleanup):
         executor = Executor()
 
         with mock.patch.object(executor, "execute") as mock_execute:

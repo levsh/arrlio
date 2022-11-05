@@ -1,5 +1,4 @@
 import asyncio
-
 from datetime import datetime
 from unittest import mock
 
@@ -12,12 +11,12 @@ from arrlio.serializers import nop
 
 
 class TestBackendConfig:
-    def test_init(self):
+    def test_init(self, cleanup):
         config = local.BackendConfig()
         assert config.serializer == nop.Serializer
         assert config.name == local.BACKEND_NAME
 
-    def test_init_custom(self):
+    def test_init_custom(self, cleanup):
         def serializer_factory():
             return nop.Serializer()
 
@@ -27,24 +26,24 @@ class TestBackendConfig:
 
 
 class TestBackend:
-    def test_init(self):
+    def test_init(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         assert isinstance(backend.serializer, nop.Serializer)
 
-    def test_init_custom(self):
+    def test_init_custom(self, cleanup):
         backend = local.Backend(local.BackendConfig(serializer=lambda: nop.Serializer()))
         assert isinstance(backend.serializer, nop.Serializer)
 
-    def test_str(self):
+    def test_str(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         assert str(backend)
 
-    def test_repr(self):
+    def test_repr(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         assert repr(backend)
 
     @pytest.mark.asyncio
-    async def test_shared(self):
+    async def test_shared(self, cleanup):
         assert local.Backend._Backend__shared == {}
         backend1 = local.Backend(local.BackendConfig())
 
@@ -86,7 +85,7 @@ class TestBackend:
         assert "custom" not in local.Backend._Backend__shared
 
     @pytest.mark.asyncio
-    async def test_send_task(self):
+    async def test_send_task(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         task_instance = Task(None, "test_send_task").instantiate(queue="queue", result_return=True)
         await backend.send_task(task_instance)
@@ -97,7 +96,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_consume_tasks(self):
+    async def test_consume_tasks(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         task_instance = Task(None, "test_consume_task").instantiate(queue="queue")
         fut = asyncio.Future()
@@ -114,7 +113,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_push_pop_task_result(self):
+    async def test_push_pop_task_result(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         task_instance = Task(None, "test_push_pop_task_result").instantiate(
             queue="queue", result_return=True, result_ttl=1
@@ -137,7 +136,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_pop_task_result(self):
+    async def test_pop_task_result(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         task_instance = Task(None, "test_pop_task_result").instantiate(queue="queue", result_return=True, result_ttl=1)
 
@@ -147,7 +146,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_send_message(self):
+    async def test_send_message(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         message = Message({}, exchange="queue")
         await backend.send_message(message)
@@ -158,7 +157,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_consume_messages(self):
+    async def test_consume_messages(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         message = Message({}, exchange="queue")
         fut = asyncio.Future()
@@ -175,7 +174,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_send_event(self):
+    async def test_send_event(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         event = Event(type="ev_type", dt=datetime.now(), data={})
         await backend.send_event(event)
@@ -184,7 +183,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_consume_events(self):
+    async def test_consume_events(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         event = Event(type="ev_type", dt=datetime.now(), data={})
         fut = asyncio.Future()
@@ -201,7 +200,7 @@ class TestBackend:
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test__cancel_tasks(self):
+    async def test__cancel_tasks(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         task = asyncio.create_task(asyncio.sleep(10))
         backend._tasks.add(task)
@@ -209,7 +208,7 @@ class TestBackend:
         assert task.cancelled
 
     @pytest.mark.asyncio
-    async def test_task_on_closed_backend(self):
+    async def test_task_on_closed_backend(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         await backend.close()
 

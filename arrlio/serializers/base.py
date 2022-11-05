@@ -17,7 +17,12 @@ class Serializer(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def dumps_task_result(self, task_instance: TaskInstance, result: TaskResult, **kwds) -> Union[bytes, TaskResult]:
+    def dumps_task_result(
+        self,
+        task_instance: TaskInstance,
+        task_result: TaskResult,
+        **kwds,
+    ) -> Union[bytes, TaskResult]:
         pass
 
     @abc.abstractmethod

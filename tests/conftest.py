@@ -57,7 +57,7 @@ def backend(request, container_executor):
 
 
 @pytest.fixture(scope="function")
-def setup():
+def cleanup():
     yield
     gc.collect()
 

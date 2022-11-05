@@ -5,7 +5,7 @@ import traceback
 from dataclasses import asdict
 from typing import Any
 
-from arrlio import __tasks__
+from arrlio.core import __tasks__
 from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.utils import ExtendedJSONEncoder
@@ -13,7 +13,7 @@ from arrlio.utils import ExtendedJSONEncoder
 logger = logging.getLogger("arrlio.serializers.json")
 
 
-class Serializer(Serializer):
+class Serializer(Serializer):  # pylint: disable=function-redefined
     def __init__(self, encoder=None):
         self.encoder = encoder or ExtendedJSONEncoder
 
@@ -63,8 +63,8 @@ class Serializer(Serializer):
         result_data = json.loads(data)
         if exc := result_data[1]:
             try:
-                m = importlib.import_module(exc[0])
-                result_data[1] = getattr(m, exc[1])(exc[2])
+                module = importlib.import_module(exc[0])
+                result_data[1] = getattr(module, exc[1])(exc[2])
             except Exception:
                 pass
         return TaskResult(*result_data)

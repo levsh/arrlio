@@ -1,15 +1,13 @@
 import logging
-
 from datetime import datetime, timezone
 
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 
-
 logger = logging.getLogger("arrlio.plugins.events")
 
 
-class Plugin(Plugin):
+class Plugin(Plugin):  # pylint: disable=function-redefined
     @property
     def name(self) -> str:
         return "events"

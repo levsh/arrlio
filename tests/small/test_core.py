@@ -17,7 +17,7 @@ def test_task():
 
 class TestApp:
     @pytest.mark.asyncio
-    async def test_init(self, setup):
+    async def test_init(self, cleanup):
         config = Config()
         app = App(config)
         assert app.config == config
@@ -25,7 +25,7 @@ class TestApp:
         await app.close()
 
     @pytest.mark.asyncio
-    async def test_send_task(self, setup):
+    async def test_send_task(self, cleanup):
         config = Config()
         app = App(config)
 

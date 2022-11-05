@@ -32,9 +32,9 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install pipenv
         pipenv install -d
-    - name: Lint with flake8
+    - name: Linters
       run: |
-        pipenv run inv run-linter
+        pipenv run inv run-linters
     - name: Test
       run: |
         pipenv run inv run-tests

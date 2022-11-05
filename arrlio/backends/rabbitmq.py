@@ -3,7 +3,6 @@ import contextlib
 import functools
 import inspect
 import logging
-
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Iterable, List, Optional, Tuple, Union
@@ -11,6 +10,7 @@ from uuid import UUID
 
 import aiormq
 import yarl
+from pydantic import BaseModel, Field
 
 from arrlio import core
 from arrlio.backends import base
@@ -19,15 +19,13 @@ from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PositiveIntT, PriorityT, SerializerT, TimeoutT
 from arrlio.utils import inf_iter, retry
-from pydantic import BaseModel, Field
-
 
 logger = logging.getLogger("arrlio.backends.rabbitmq")
 
 
-class QUEUE_TYPE(str, Enum):
-    classic = "classic"
-    quorum = "quorum"
+class QueueType(str, Enum):
+    CLASSIC = "classic"
+    QUORUM = "quorum"
 
 
 BACKEND_NAME: str = "arrlio"
@@ -37,12 +35,12 @@ TIMEOUT: int = 10
 RETRY_TIMEOUTS: Iterable[int] = None
 VERIFY_SSL: bool = True
 TASKS_EXCHANGE: str = "arrlio"
-TASKS_QUEUE_TYPE: QUEUE_TYPE = QUEUE_TYPE.classic
+TASKS_QUEUE_TYPE: QueueType = QueueType.CLASSIC
 TASKS_QUEUE_DURABLE: bool = False
 TASKS_QUEUE_TTL: int = None
 TASKS_PREFETCH_COUNT: int = 1
 EVENTS_EXCHANGE: str = "arrlio"
-EVENTS_QUEUE_TYPE: QUEUE_TYPE = QUEUE_TYPE.classic
+EVENTS_QUEUE_TYPE: QueueType = QueueType.CLASSIC
 EVENTS_QUEUE_DURABLE: bool = False
 EVENTS_QUEUE: str = "arrlio.events"
 EVENTS_QUEUE_TTL: int = None
@@ -58,12 +56,12 @@ class BackendConfig(base.BackendConfig):
     retry_timeouts: Optional[List] = Field(default_factory=lambda: RETRY_TIMEOUTS)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
     tasks_exchange: str = Field(default_factory=lambda: TASKS_EXCHANGE)
-    tasks_queue_type: QUEUE_TYPE = Field(default_factory=lambda: TASKS_QUEUE_TYPE)
+    tasks_queue_type: QueueType = Field(default_factory=lambda: TASKS_QUEUE_TYPE)
     tasks_queue_durable: bool = Field(default_factory=lambda: TASKS_QUEUE_DURABLE)
     tasks_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: TASKS_QUEUE_TTL)
     tasks_prefetch_count: Optional[PositiveIntT] = Field(default_factory=lambda: TASKS_PREFETCH_COUNT)
     events_exchange: str = Field(default_factory=lambda: EVENTS_EXCHANGE)
-    events_queue_type: QUEUE_TYPE = Field(default_factory=lambda: EVENTS_QUEUE_TYPE)
+    events_queue_type: QueueType = Field(default_factory=lambda: EVENTS_QUEUE_TYPE)
     events_queue_durable: bool = Field(default_factory=lambda: EVENTS_QUEUE_DURABLE)
     events_queue: str = Field(default_factory=lambda: EVENTS_QUEUE)
     events_queue_ttl: Optional[PositiveIntT] = Field(default_factory=lambda: EVENTS_QUEUE_TTL)
@@ -133,6 +131,7 @@ class RMQConnection:
         self._id = shared["id"]
 
         self._supervisor_task: asyncio.Task = None
+        self._supervisor_task_started: asyncio.Event = asyncio.Event()
         self._closed: asyncio.Future = None
 
     def __del__(self):
@@ -208,15 +207,19 @@ class RMQConnection:
                 logger.error("%s: callback '%s' %s error: %s %s", self, tp, callback, e.__class__, e)
 
     async def _supervisor(self):
+        self._supervisor_task_started.set()
         try:
-            await asyncio.wait([self._conn.closing, self._closed], return_when=asyncio.FIRST_COMPLETED)
-        except Exception as e:
-            logger.warning("%s: %s %s", self, e.__class__, e)
-        if not self._closed.done():
-            logger.warning("%s: connection lost", self)
-            self._refs -= 1
-            self._supervisor_task = None
-            await self._execute_callbacks("on_lost")
+            try:
+                await asyncio.wait([self._conn.closing, self._closed], return_when=asyncio.FIRST_COMPLETED)
+            except Exception as e:
+                logger.warning("%s: %s %s", self, e.__class__, e)
+            if not self._closed.done():
+                logger.warning("%s: connection lost", self)
+                self._refs -= 1
+                self._supervisor_task = None
+                await self._execute_callbacks("on_lost")
+        finally:
+            self._supervisor_task_started.clear()
 
     async def _connect(self):
         logger.info("%s: connecting...", self)
@@ -257,6 +260,7 @@ class RMQConnection:
 
             self._refs += 1
             self._supervisor_task = asyncio.create_task(self._supervisor())
+            await self._supervisor_task_started.wait()
 
             async with self._on_open_callbacks_lock:
                 await self._execute_callbacks("on_open")
@@ -443,7 +447,7 @@ class Backend(base.Backend):
                     channel,
                     await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),
                 ]
-                logger.debug("%s: consuming queue '%s'", self, queue)
+                logger.debug("%s: start consuming queue '%s'", self, queue)
 
             async def _consume_tasks():
                 await self.consume_tasks(list(self._task_consumers.keys()), on_task)
@@ -613,7 +617,7 @@ class Backend(base.Backend):
                     channel,
                     await channel.basic_consume(queue, functools.partial(on_msg, channel), timeout=timeout),
                 ]
-                logger.debug("%s: consuming messages queue '%s'", self, queue)
+                logger.debug("%s: start consuming messages queue '%s'", self, queue)
 
             async def _consume_messages():
                 await self.consume_messages(list(self._message_consumers.keys()), on_message)
@@ -680,7 +684,7 @@ class Backend(base.Backend):
                     timeout=timeout,
                 ),
             ]
-            logger.debug("%s: consuming events queue '%s'", self, config.events_queue)
+            logger.debug("%s: satrt consuming events queue '%s'", self, config.events_queue)
 
             async def _consume_events():
                 await self.consume_events(on_event)

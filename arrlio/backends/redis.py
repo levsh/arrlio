@@ -2,10 +2,10 @@ import asyncio
 import dataclasses
 import itertools
 import logging
-
 from typing import Dict, Iterable, List, Optional
 
 import siderpy
+from pydantic import Field
 
 from arrlio import core
 from arrlio.backends import base
@@ -13,8 +13,6 @@ from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
-from pydantic import Field
-
 
 logger = logging.getLogger("arrlio.backends.redis")
 
@@ -94,16 +92,16 @@ class Backend(base.Backend):
             queue_key = self._make_task_queue_key(queue)
             while True:
                 try:
-                    logger.debug("%s: consuming tasks queue '%s'", self, queue)
+                    logger.debug("%s: start consuming tasks queue '%s'", self, queue)
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
-                    priority, task_id = queue_value.decode().split("|")
+                    _, task_id = queue_value.decode().split("|")
                     serialized_data = await self.redis_pool.get(task_id)
                     if serialized_data is None:
                         continue
                     task_instance = self.serializer.loads_task_instance(serialized_data)
                     await asyncio.shield(on_task(task_instance))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consume tasks queue '%s'", self, queue)
+                    logger.info("%s: stop consuming tasks queue '%s'", self, queue)
                     break
                 except (ConnectionError, TimeoutError) as e:
                     logger.error("%s: %s %s", self, e.__class__, e)
@@ -171,9 +169,9 @@ class Backend(base.Backend):
             queue_key = self._make_message_queue_key(queue)
             while True:
                 try:
-                    logger.debug("%s: consuming messages queue '%s'", self, queue)
+                    logger.debug("%s: start consuming messages queue '%s'", self, queue)
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
-                    priority, message_id = queue_value.decode().split("|")
+                    _, message_id = queue_value.decode().split("|")
                     serialized_data = await self.redis_pool.get(message_id)
                     if serialized_data is None:
                         continue
@@ -182,7 +180,7 @@ class Backend(base.Backend):
                     logger.debug("%s: got %s", self, message)
                     await asyncio.shield(on_message(message))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consume messages queue '%s'", self, queue)
+                    logger.info("%s: stop consuming messages queue '%s'", self, queue)
                     break
                 except (ConnectionError, TimeoutError) as e:
                     logger.error("%s: %s %s", self, e.__class__, e)
@@ -200,8 +198,8 @@ class Backend(base.Backend):
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_messages(self):
-        for queue in self._message_consumers.keys():
-            self._message_consumers[queue].cancel()
+        for consumer in self._message_consumers.values():
+            consumer.cancel()
         self._message_consumers = {}
 
     @base.Backend.task
@@ -222,7 +220,7 @@ class Backend(base.Backend):
             queue_key = "arrlio.events"
             while True:
                 try:
-                    logger.debug("%s: consuming events")
+                    logger.debug("%s: start consuming events")
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
                     event_id = queue_value.decode()
                     serialized_data = await self.redis_pool.get(event_id)
@@ -232,7 +230,7 @@ class Backend(base.Backend):
                     logger.debug("%s: got %s", self, event)
                     await asyncio.shield(on_event(event))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consume events")
+                    logger.info("%s: stop consuming events")
                     break
                 except (ConnectionError, TimeoutError) as e:
                     logger.error("%s: %s %s", self, e.__class__, e)

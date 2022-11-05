@@ -3,17 +3,16 @@ import collections
 import dataclasses
 import logging
 import time
-
 from typing import List, Optional
 from uuid import UUID
+
+from pydantic import Field
 
 from arrlio.backends import base
 from arrlio.core import TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
-from pydantic import Field
-
 
 logger = logging.getLogger("arrlio.backends.local")
 
@@ -36,7 +35,7 @@ class Backend(base.Backend):
     def __init__(self, config: BackendConfig):
         super().__init__(config)
         name: str = self.config.name
-        shared: dict = self.__class__.__shared
+        shared: dict = self.__shared
         if name not in shared:
             shared[name] = {
                 "refs": 0,
@@ -96,7 +95,7 @@ class Backend(base.Backend):
     @base.Backend.task
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         async def consume_queue(queue: str):
-            logger.info("%s: consuming tasks queue '%s'", self, queue)
+            logger.info("%s: start consuming tasks queue '%s'", self, queue)
             while True:
                 try:
                     _, ts, ttl, data = await self._task_queues[queue].get()
@@ -106,7 +105,7 @@ class Backend(base.Backend):
                     logger.debug("%s: got %s", self, task_instance)
                     await asyncio.shield(on_task(task_instance))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consume tasks queue '%s'", self, queue)
+                    logger.info("%s: stop consuming tasks queue '%s'", self, queue)
                     break
                 except Exception as e:
                     logger.exception(e)
@@ -166,7 +165,7 @@ class Backend(base.Backend):
         async def consume_queue(queue: str):
             while True:
                 try:
-                    logger.info("%s: consuming messages queue '%s'", self, queue)
+                    logger.info("%s: start consuming messages queue '%s'", self, queue)
                     _, ts, ttl, data = await self._message_queues[queue].get()
                     if ttl is not None and time.monotonic() >= ts + ttl:
                         continue
@@ -175,7 +174,7 @@ class Backend(base.Backend):
                     logger.debug("%s: got %s", self, message)
                     await asyncio.shield(on_message(message))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consume messages queue '%s'", self, queue)
+                    logger.info("%s: stop consuming messages queue '%s'", self, queue)
                     break
                 except Exception as e:
                     logger.exception(e)
@@ -184,8 +183,8 @@ class Backend(base.Backend):
             self._message_consumers[queue] = asyncio.create_task(consume_queue(queue))
 
     async def stop_consume_messages(self):
-        for queue in self._message_consumers.keys():
-            self._message_consumers[queue].cancel()
+        for consumer in self._message_consumers.values():
+            consumer.cancel()
         self._message_consumers = {}
 
     @base.Backend.task
@@ -203,20 +202,18 @@ class Backend(base.Backend):
             raise Exception("Already consuming")
 
         async def consume():
-            logger.info("%s: consuming events", self)
+            logger.info("%s: start consuming events", self)
             while True:
                 try:
                     if not self._events:
                         async with self._event_cond:
                             await self._event_cond.wait()
-                    for event_id in self._events:
-                        break
-                    data = self._events.pop(event_id)
+                    data = self._events.pop(next(iter(self._events.keys())))
                     event: Event = self.serializer.loads_event(data)
                     logger.debug("%s: got %s", self, event)
                     await asyncio.shield(on_event(event))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consume events", self)
+                    logger.info("%s: stop consuming events", self)
                     break
                 except Exception as e:
                     logger.exception(e)

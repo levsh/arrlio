@@ -1,14 +1,14 @@
+import asyncio
 from unittest import mock
 
 import pytest
 
 from arrlio.backends import rabbitmq
-from arrlio.models import Message, Task
 from arrlio.serializers.json import Serializer
 
 
 class TestBackendConfig:
-    def test_init(self):
+    def test_init(self, cleanup):
         config = rabbitmq.BackendConfig()
         assert config.name == rabbitmq.BACKEND_NAME
         assert config.serializer == Serializer
@@ -29,7 +29,7 @@ class TestBackendConfig:
         assert config.events_prefetch_count == rabbitmq.EVENTS_PREFETCH_COUNT
         assert config.messages_prefetch_count == rabbitmq.MESSAGES_PREFETCH_COUNT
 
-    def test_init_custom(self):
+    def test_init_custom(self, cleanup):
         def serializer_factory():
             return Serializer()
 
@@ -74,7 +74,7 @@ class TestBackendConfig:
 
 
 class TestRMQConnection:
-    def test_init(self):
+    def test_init(self, cleanup):
         conn = rabbitmq.RMQConnection("amqp://admin@example.com")
         assert isinstance(conn.url, rabbitmq.AmqpDsn)
         assert conn.url.get_secret_value() == "amqp://admin@example.com"
@@ -98,12 +98,13 @@ class TestRMQConnection:
         assert repr(conn) == "RMQConnection#1[example.com:None]"
 
     @pytest.mark.asyncio
-    async def test_connect(self):
+    async def test_connect(self, cleanup):
         conn = rabbitmq.RMQConnection("amqp://admin@example.com")
         try:
             with mock.patch("aiormq.connect") as mock_connect:
                 mock_conn = mock.AsyncMock()
                 mock_conn.is_closed = False
+                mock_conn.closing = asyncio.Future()
                 mock_connect.return_value = mock_conn
                 await conn.open()
                 mock_connect.assert_awaited_once_with("amqp://admin@example.com")
@@ -115,10 +116,14 @@ class TestRMQConnection:
             await conn.close()
 
     @pytest.mark.asyncio
-    async def test_channel(self):
+    async def test_channel(self, cleanup):
         conn = rabbitmq.RMQConnection("amqp://admin@example.com")
         try:
-            with mock.patch("aiormq.connect"):
+            with mock.patch("aiormq.connect") as mock_connect:
+                mock_conn = mock.AsyncMock()
+                mock_conn.is_closed = False
+                mock_conn.closing = asyncio.Future()
+                mock_connect.return_value = mock_conn
                 await conn.open()
                 async with conn.channel_ctx():
                     pass
@@ -128,7 +133,7 @@ class TestRMQConnection:
 
 class TestBackend:
     @pytest.mark.asyncio
-    async def test_init(self):
+    async def test_init(self, cleanup):
         backend = rabbitmq.Backend(rabbitmq.BackendConfig())
         try:
             assert isinstance(backend.serializer, Serializer)
@@ -144,7 +149,7 @@ class TestBackend:
     #     assert isinstance(backend.serializer, nop.Serializer)
 
     @pytest.mark.asyncio
-    async def test_str(self):
+    async def test_str(self, cleanup):
         backend = rabbitmq.Backend(rabbitmq.BackendConfig())
         try:
             assert str(backend) == "RMQBackend[RMQConnection#1[localhost:None]]"
@@ -152,7 +157,7 @@ class TestBackend:
             await backend.close()
 
     @pytest.mark.asyncio
-    async def test_repr(self):
+    async def test_repr(self, cleanup):
         backend = rabbitmq.Backend(rabbitmq.BackendConfig())
         try:
             assert repr(backend) == "RMQBackend[RMQConnection#1[localhost:None]]"

@@ -7,6 +7,15 @@ CWD = os.path.abspath(os.path.dirname(__file__))
 
 
 @task
+def run_linters(c):
+    cmd = (
+        "pipenv run flake8 --filename=arrlio/*.py --count --show-source --statistics "
+        "&& pipenv run pylint --extension-pkg-whitelist='pydantic' arrlio"
+    )
+    c.run(cmd)
+
+
+@task
 def tests_small(c):
     """Run small tests"""
 
@@ -26,18 +35,14 @@ def tests_medium(c):
 
 
 @task
-def run_linter(c):
-    cmd = (
-        "pipenv run flake8 --filename=arrlio/*.py --count --show-source --statistics "
-        "&& pipenv run pylint --extension-pkg-whitelist='pydantic' "
-        "arrlio/utils.py arrlio/tp.py arrlio/settings.py arrlio/models.py arrlio/executor.py arrlio/exc.py "
-        "arrlio/core.py"
-    )
-    c.run(cmd)
+def run_tests(c):
+    tests_small(c)
+    tests_medium(c)
 
 
 @task
-def run_tests(c):
+def run_checks(c):
+    run_linters(c)
     tests_small(c)
     tests_medium(c)
 

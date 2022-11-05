@@ -9,7 +9,6 @@ from uuid import UUID
 
 from roview import rodict
 
-from arrlio import __tasks__
 from arrlio.exc import TaskError, TaskNoResultError
 from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
@@ -17,6 +16,9 @@ from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
 
 logger = logging.getLogger("arrlio.core")
+
+
+__tasks__ = {}
 
 
 def task(func: Union[FunctionType, MethodType] = None, name: str = None, base: Type[Task] = None, **kwds):
@@ -90,6 +92,7 @@ class App:
         return self.__str__()
 
     async def __aenter__(self):
+        await self.init()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -119,8 +122,8 @@ class App:
     def is_closed(self) -> bool:
         return self._closed.done()
 
-    async def init_plugins(self):
-        await asyncio.gather(*[asyncio.create_task(self._execute_hook(hook)) for hook in self._hooks["on_init"]])
+    async def init(self):
+        await self._execute_hooks("on_init")
 
     async def close(self):
         try:

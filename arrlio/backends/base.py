@@ -1,16 +1,14 @@
 import abc
 import asyncio
 import logging
-
 from functools import wraps
-from types import MethodType
-from typing import List, Optional, Set
+from typing import Callable, List, Optional, Set
+
+from pydantic import BaseSettings
 
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.tp import AsyncCallableT, SerializerT
-from pydantic import BaseSettings
-
 
 logger = logging.getLogger("arrlio.backends.base")
 
@@ -38,8 +36,10 @@ class Backend(abc.ABC):
             logger.debug("%s: cancel task %s", self, task)
             task.cancel()
 
-    def task(method: MethodType):
+    @staticmethod
+    def task(method: Callable):
         @wraps(method)
+        # pylint: disable=protected-access
         async def wrap(self, *args, **kwds):
             if self._closed.done():
                 raise Exception(f"Call {method} on closed {self}")
