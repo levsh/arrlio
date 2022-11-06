@@ -50,7 +50,7 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
                         raise e
                     try:
                         t = next(retry_timeouts)
-                        logger.error("%s %s - retry in %s second(s)", e.__class__, e, t)
+                        logger.error("%s %s %s - retry in %s second(s)", fn, e.__class__, e, t)
                         await asyncio.sleep(t)
                     except StopIteration:
                         raise e

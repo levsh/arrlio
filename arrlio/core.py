@@ -21,6 +21,9 @@ logger = logging.getLogger("arrlio.core")
 __tasks__ = {}
 
 
+registered_tasks = rodict(__tasks__, nested=True)
+
+
 def task(func: Union[FunctionType, MethodType] = None, name: str = None, base: Type[Task] = None, **kwds):
     """
     Args:
@@ -152,6 +155,7 @@ class App:
 
     async def _execute_hook(self, hook_fn, *args, **kwds):
         try:
+            logger.info("%s: execute hook %s", str(self), hook_fn)
             await hook_fn(*args, **kwds)
         except Exception:
             logger.exception("%s: hook %s error", str(self), hook_fn)
@@ -298,7 +302,10 @@ class App:
     async def stop_consume_tasks(self, queues: List[str] = None):
         async with self._lock:
             await self._backend.stop_consume_tasks(queues=queues)
-            logger.info("%s: stop consuming task queues %s", str(self), self.config.task_queues)
+            if queues is not None:
+                logger.info("%s: stop consuming task queues %s", str(self), queues)
+            else:
+                logger.info("%s: stop consuming task queues", str(self))
 
     async def _on_task(self, task_instance: TaskInstance):
         try:
@@ -307,7 +314,7 @@ class App:
             task_id: UUID = task_instance.data.task_id
 
             def fn():
-                aio_task = asyncio.create_task(self.execute_task(task_instance))
+                aio_task = asyncio.create_task(self._execute_task(task_instance))
                 aio_task.add_done_callback(lambda *args: self._running_tasks.pop(task_id, None))
                 self._running_tasks[task_id] = aio_task
                 return aio_task
@@ -330,7 +337,7 @@ class App:
         except Exception as e:
             logger.exception(e)
 
-    async def execute_task(self, task_instance: TaskInstance):
+    async def _execute_task(self, task_instance: TaskInstance):
         async with AsyncExitStack() as stack:
             try:
                 for context in self._hooks["task_context"]:
@@ -406,6 +413,7 @@ class App:
     async def stop_consume_messages(self):
         async with self._lock:
             await self._backend.stop_consume_messages()
+            logger.info("%s: stop consuming messages", str(self))
             self._running_messages = {}
 
     async def consume_events(self, on_event: AsyncCallableT):
@@ -414,6 +422,7 @@ class App:
 
     async def stop_consume_events(self):
         await self._backend.stop_consume_events()
+        logger.info("%s: stop consuming events", str(self))
 
 
 class AsyncResult:

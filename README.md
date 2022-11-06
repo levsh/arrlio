@@ -5,6 +5,7 @@
 Simplest asyncio distributed task/workflow system
 
 ![tests](https://github.com/levsh/arrlio/workflows/tests/badge.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ```bash
 pip install arrlio
