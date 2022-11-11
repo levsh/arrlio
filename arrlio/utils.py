@@ -60,18 +60,20 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
     return decorator
 
 
-class InfIterator:
+class InfIter:
     def __init__(self, data: list):
         self._data = data
+        self._i = -1
+        self._j = 0
         self._iter = iter(data)
 
     def __next__(self):
-        try:
-            return next(self._iter)
-        except StopIteration:
-            self._iter = iter(self._data)
-            return next(self._iter)
+        if self._j == len(self._data):
+            self._j = 0
+            raise StopIteration
+        self._i = (self._i + 1) % len(self._data)
+        self._j += 1
+        return self._data[self._i]
 
-
-def inf_iter(data: list) -> InfIterator:
-    return InfIterator(data)
+    def reset(self):
+        self._j = 1

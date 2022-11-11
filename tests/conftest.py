@@ -53,6 +53,7 @@ def backend(request, container_executor):
             raise
 
     BackendTuple = collections.namedtuple("BackendTuple", ["container", "module", "config_kwds"])
+
     yield BackendTuple(container, request.param, config_kwds)
 
 
@@ -63,11 +64,10 @@ def cleanup():
 
 
 @pytest_asyncio.fixture(scope="function")
-async def app(backend):
+async def app(backend, cleanup):
     config = Config(backend=lambda: backend.module.Backend(backend.module.BackendConfig(**backend.config_kwds)))
     app = App(config)
     try:
         yield app
     finally:
         await app.close()
-        gc.collect()

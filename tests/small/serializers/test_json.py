@@ -15,7 +15,7 @@ class TestSerializer:
         task_instance = Task(None, "test").instantiate(task_id="2d29459b-3245-492e-977b-09043c0f1f27", queue="queue")
         assert serializer.dumps_task_instance(task_instance) == (
             b'{"name": "test", "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, '
-            b'"meta": {}, "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, "ack_late": false, '
+            b'"meta": {}, "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, "ack_late": true, '
             b'"result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, "extra": {}}'
         )
 
@@ -25,7 +25,7 @@ class TestSerializer:
             (
                 b'{"name": "test", "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, '
                 b'"meta": {}, "extra": {}, "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
-                b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300}'
+                b'"ack_late": true, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300}'
             )
         ) == Task(None, "test").instantiate(task_id="2d29459b-3245-492e-977b-09043c0f1f27", queue="queue")
 

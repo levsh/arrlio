@@ -32,7 +32,6 @@ class TestArrlio:
         ar = await app.send_task("hello_world")
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "backend",
         [
@@ -42,6 +41,7 @@ class TestArrlio:
         ],
         indirect=True,
     )
+    @pytest.mark.asyncio
     async def test_sync_task_(self, backend, app):
         await app.consume_tasks()
 
@@ -221,7 +221,7 @@ class TestArrlio:
     @pytest.mark.asyncio
     async def test_message(self, backend, app):
         if backend.module == backends.rabbitmq:
-            async with app._backend.channel_ctx() as channel:
+            async with app._backend._conn.channel_ctx() as channel:
                 exchange = arrlio.settings.MESSAGE_EXCHANGE
                 await channel.exchange_declare(
                     exchange,

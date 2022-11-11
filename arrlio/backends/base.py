@@ -1,8 +1,8 @@
 import abc
 import asyncio
 import logging
-from functools import wraps
-from typing import Callable, List, Optional, Set
+from collections import defaultdict
+from typing import Callable, Dict, List, Optional, Set
 
 from pydantic import BaseSettings
 
@@ -23,35 +23,32 @@ class BackendConfig(BaseSettings):
 
 class Backend(abc.ABC):
     def __init__(self, config: BackendConfig):
-        self._closed: asyncio.Future = asyncio.Future()
-        self._tasks: Set[asyncio.Task] = set()
         self.config: BackendConfig = config
         self.serializer: Serializer = config.serializer()
+        self._closed: asyncio.Future = asyncio.Future()
+        self._tasks: Dict[str, Set[asyncio.Task]] = defaultdict(set)
 
     def __repr__(self):
         return self.__str__()
 
-    def _cancel_tasks(self):
-        for task in self._tasks:
-            logger.debug("%s: cancel task %s", self, task)
+    def _cancel_all_tasks(self):
+        for tasks in self._tasks.values():
+            for task in tasks:
+                task.cancel()
+
+    def _cancel_tasks(self, key: str):
+        for task in self._tasks[key]:
             task.cancel()
 
-    @staticmethod
-    def task(method: Callable):
-        @wraps(method)
-        # pylint: disable=protected-access
-        async def wrap(self, *args, **kwds):
-            if self._closed.done():
-                raise Exception(f"Call {method} on closed {self}")
-            task: asyncio.Task = asyncio.create_task(method(self, *args, **kwds))
-            self._tasks.add(task)
-            try:
-                return await task
-            finally:
-                self._tasks.discard(task)
-                del task
+    def _run_task(self, key: str, coro_factory: Callable):
+        if self._closed.done():
+            raise Exception(f"Closed {self}")
 
-        return wrap
+        task: asyncio.Task = asyncio.create_task(coro_factory())
+        self._tasks[key].add(task)
+        task.add_done_callback(lambda *args: self._tasks[key].discard(task))
+
+        return task
 
     @property
     def is_closed(self) -> bool:
@@ -60,13 +57,15 @@ class Backend(abc.ABC):
     async def close(self):
         if self.is_closed:
             return
-        self._closed.set_result(None)
-        self._cancel_tasks()
-        await asyncio.gather(
-            self.stop_consume_tasks(),
-            self.stop_consume_messages(),
-            self.stop_consume_events(),
-        )
+        self._cancel_all_tasks()
+        try:
+            await asyncio.gather(
+                self.stop_consume_tasks(),
+                self.stop_consume_messages(),
+                self.stop_consume_events(),
+            )
+        finally:
+            self._closed.set_result(None)
 
     async def __aenter__(self):
         return self
@@ -95,6 +94,18 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def send_message(self, message: Message, **kwds):
+        pass
+
+    @abc.abstractmethod
+    async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
+        pass
+
+    @abc.abstractmethod
+    async def stop_consume_messages(self, queues: List[str] = None):
+        pass
+
+    @abc.abstractmethod
     async def send_event(self, event: Event):
         pass
 
@@ -104,16 +115,4 @@ class Backend(abc.ABC):
 
     @abc.abstractmethod
     async def stop_consume_events(self):
-        pass
-
-    @abc.abstractmethod
-    async def send_message(self, message: Message, **kwds):
-        pass
-
-    @abc.abstractmethod
-    async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        pass
-
-    @abc.abstractmethod
-    async def stop_consume_messages(self):
         pass

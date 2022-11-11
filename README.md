@@ -5,6 +5,7 @@
 Simplest asyncio distributed task/workflow system
 
 ![tests](https://github.com/levsh/arrlio/workflows/tests/badge.svg)
+![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/levsh/727ed723ccaee0d5825513af6472e3a5/raw/coverage.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ```bash

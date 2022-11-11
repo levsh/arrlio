@@ -126,9 +126,15 @@ class App:
         return self._closed.done()
 
     async def init(self):
+        if self.is_closed:
+            return
+
         await self._execute_hooks("on_init")
 
     async def close(self):
+        if self.is_closed:
+            return
+
         try:
             await self._execute_hooks("on_close")
             for hooks in self._hooks.values():
@@ -282,7 +288,7 @@ class App:
         await self._backend.send_message(message, routing_key=routing_key)
 
     async def send_event(self, event: Event):
-        logger.info("%s: send %s", str(self), event)
+        logger.info("%s: send %s", self, event)
         await self._backend.send_event(event)
 
     async def pop_result(self, task_instance: TaskInstance):
@@ -297,7 +303,7 @@ class App:
         queues = queues or self.config.task_queues
         if queues:
             await self._backend.consume_tasks(queues, self._on_task)
-            logger.info("%s: consuming task queues %s", str(self), queues)
+            logger.info("%s: consuming task queues %s", self, queues)
 
     async def stop_consume_tasks(self, queues: List[str] = None):
         async with self._lock:
@@ -313,12 +319,6 @@ class App:
 
             task_id: UUID = task_instance.data.task_id
 
-            def fn():
-                aio_task = asyncio.create_task(self._execute_task(task_instance))
-                aio_task.add_done_callback(lambda *args: self._running_tasks.pop(task_id, None))
-                self._running_tasks[task_id] = aio_task
-                return aio_task
-
             async with self._lock:
                 if self.is_closed:
                     return
@@ -326,13 +326,19 @@ class App:
                 if len(self._running_tasks) + len(self._running_messages) + 1 >= self.config.pool_size:
                     await self._backend.stop_consume_tasks()
                     try:
-                        await fn()
+                        self._running_tasks[task_id] = asyncio.create_task(self._execute_task(task_instance))
+                        await self._running_tasks[task_id]
                     finally:
+                        self._running_tasks.pop(task_id, None)
                         if not self.is_closed:
                             await self._backend.consume_tasks(self.config.task_queues, self._on_task)
                     return
 
-            fn()
+            try:
+                self._running_tasks[task_id] = asyncio.create_task(self._execute_task(task_instance))
+                await self._running_tasks[task_id]
+            finally:
+                self._running_tasks.pop(task_id, None)
 
         except Exception as e:
             logger.exception(e)

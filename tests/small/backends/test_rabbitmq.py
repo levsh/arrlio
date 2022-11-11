@@ -14,7 +14,9 @@ class TestBackendConfig:
         assert config.serializer == Serializer
         assert config.url.get_secret_value() == rabbitmq.URL
         assert config.timeout == rabbitmq.TIMEOUT
-        assert config.retry_timeouts == rabbitmq.RETRY_TIMEOUTS
+        assert config.conn_retry_timeouts
+        assert config.push_retry_timeouts
+        assert config.pull_retry_timeouts
         assert config.verify_ssl is True
         assert config.tasks_exchange == rabbitmq.TASKS_EXCHANGE
         assert config.tasks_queue_type == rabbitmq.TASKS_QUEUE_TYPE
@@ -38,7 +40,9 @@ class TestBackendConfig:
             name="Custom Name",
             url="amqps://admin@example.com",
             timeout=123,
-            retry_timeouts=[1, 2, 3],
+            conn_retry_timeouts=[1],
+            push_retry_timeouts=[2],
+            pull_retry_timeouts=[3],
             verify_ssl=False,
             tasks_exchange="Tasks custom Exchange",
             tasks_queue_type="quorum",
@@ -57,7 +61,9 @@ class TestBackendConfig:
         assert config.name == "Custom Name"
         assert config.url.get_secret_value() == "amqps://admin@example.com"
         assert config.timeout == 123
-        assert config.retry_timeouts == [1, 2, 3]
+        assert next(config.conn_retry_timeouts) == 1
+        assert next(config.push_retry_timeouts) == 2
+        assert next(config.pull_retry_timeouts) == 3
         assert config.verify_ssl is False
         assert config.tasks_exchange == "Tasks custom Exchange"
         assert config.tasks_queue_type == "quorum"
@@ -74,14 +80,15 @@ class TestBackendConfig:
 
 
 class TestRMQConnection:
-    def test_init(self, cleanup):
+    @pytest.mark.asyncio
+    async def test_init(self, cleanup):
         conn = rabbitmq.RMQConnection("amqp://admin@example.com")
         assert isinstance(conn.url, rabbitmq.AmqpDsn)
         assert conn.url.get_secret_value() == "amqp://admin@example.com"
         assert conn._retry_timeouts is None
         assert conn._exc_filter is None
-        assert conn._key is not None
-        assert conn._key in conn._RMQConnection__shared
+        assert conn._RMQConnection__key is not None
+        assert conn._RMQConnection__key in conn._RMQConnection__shared
         assert conn._shared["id"] == 1
         assert conn._shared["objs"] == 1
         assert conn in conn._shared
@@ -89,10 +96,9 @@ class TestRMQConnection:
             "on_open": {},
             "on_lost": {},
             "on_close": {},
+            "tasks": set(),
         }
         assert conn._id == 1
-        assert conn._supervisor_task is None
-        assert conn._closed is None
         assert conn._conn is None
         assert str(conn) == "RMQConnection#1[example.com:None]"
         assert repr(conn) == "RMQConnection#1[example.com:None]"
@@ -108,7 +114,6 @@ class TestRMQConnection:
                 mock_connect.return_value = mock_conn
                 await conn.open()
                 mock_connect.assert_awaited_once_with("amqp://admin@example.com")
-                assert conn._supervisor_task is not None
                 assert conn.is_open is True
                 assert conn.is_closed is False
                 assert conn._conn is not None

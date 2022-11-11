@@ -24,7 +24,7 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Docker images
+    - name: Pull Docker images
       run: |
         docker pull rabbitmq:3-management
     - name: Install dependencies
@@ -32,9 +32,20 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install pipenv
         pipenv install -d
-    - name: Linters
+    - name: Run linters
       run: |
         pipenv run inv run-linters
-    - name: Test
+    - name: Run test
       run: |
         pipenv run inv run-tests
+    - name: Generate shields.io coverage
+      run: |
+        pipenv run inv generate-coverage-gist
+    - name: Update coverage badge Gist
+      run: |
+        curl \
+          -X PATCH \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GIST_PAT }}" \
+          https://api.github.com/gists/727ed723ccaee0d5825513af6472e3a5 \
+          -d @artifacts/shields_io_coverage_gist_data.json
