@@ -1,9 +1,11 @@
 import asyncio
-import inspect
 import logging
 import sys
-import threading
-import time
+from asyncio import wait_for
+from inspect import iscoroutinefunction
+from threading import Thread
+from time import monotonic
+from typing import Callable
 
 from arrlio.exc import NotFoundError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
@@ -21,23 +23,24 @@ class Executor:
     async def execute(self, task_instance: TaskInstance) -> TaskResult:
         task: Task = task_instance.task
         task_data: TaskData = task_instance.data
+        func: Callable = task.func
 
         res, exc, trb = None, None, None
-        t0 = time.monotonic()
-
-        logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
+        t0 = monotonic()
 
         try:
 
-            if task.func is None:
+            if func is None:
                 raise NotFoundError(f"Task '{task.name}' not found")
 
-            kwdefaults = task.func.__kwdefaults__
+            kwdefaults = func.__kwdefaults__
             meta: bool = kwdefaults is not None and "meta" in kwdefaults
 
+            logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
+
             try:
-                if inspect.iscoroutinefunction(task.func):
-                    res = await asyncio.wait_for(task_instance(meta=meta), task_data.timeout)
+                if iscoroutinefunction(func):
+                    res = await wait_for(task_instance(meta=meta), task_data.timeout)
                 else:
                     res = task_instance(meta=meta)
             except asyncio.TimeoutError:
@@ -56,7 +59,7 @@ class Executor:
             self,
             task.name,
             task_data.task_id,
-            time.monotonic() - t0,
+            monotonic() - t0,
         )
 
         if isinstance(res, TaskResult):
@@ -69,8 +72,7 @@ class Executor:
         done_ev: asyncio.Event = asyncio.Event()
         task_result: TaskResult = None
 
-        def thread():
-            nonlocal done_ev
+        def thread(done_ev):
             nonlocal task_result
             loop = asyncio.new_event_loop()
             try:
@@ -81,8 +83,7 @@ class Executor:
                 loop.close()
                 root_loop.call_soon_threadsafe(done_ev.set)
 
-        th = threading.Thread(target=thread)
-        th.start()
+        Thread(target=thread, args=(done_ev,)).start()
 
         await done_ev.wait()
 

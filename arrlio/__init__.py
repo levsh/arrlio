@@ -4,7 +4,7 @@ import sys
 logger = logging.getLogger("arrlio")
 logger.setLevel("WARNING")
 
-log_frmt = logging.Formatter("%(asctime)s %(levelname)8s %(name)32s -- %(message)s")
+log_frmt = logging.Formatter("%(asctime)s %(levelname)8s %(name)30s -- %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)

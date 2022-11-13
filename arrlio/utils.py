@@ -2,6 +2,7 @@ import asyncio
 import itertools
 import json
 import logging
+from asyncio import create_task, wait
 from dataclasses import asdict
 from datetime import datetime
 from functools import wraps
@@ -14,6 +15,15 @@ from arrlio.models import Task
 from arrlio.tp import ExceptionFilterT
 
 logger = logging.getLogger("arrlio.utils")
+
+
+async def wait_for(coro, timeout):
+    done, pending = await wait([create_task(coro)], timeout=timeout)
+    if pending:
+        for pending_coro in pending:
+            pending_coro.cancel()
+        raise asyncio.TimeoutError
+    return list(done)[0].result()
 
 
 class ExtendedJSONEncoder(json.JSONEncoder):

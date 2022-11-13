@@ -101,14 +101,13 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "backend",
         [
-            backends.local,
-            backends.rabbitmq,
+            [backends.local, {"pool_size": 1}],
+            [backends.rabbitmq, {"pool_size": 1}],
         ],
         indirect=True,
     )
     @pytest.mark.asyncio
     async def test_task_priority(self, backend, app):
-        app.config.pool_size = 1
         await app.consume_tasks()
         await app.send_task(tasks.sleep, args=(0.5,), priority=10)
         aw1 = (await app.send_task(tasks.sleep, args=(1,), priority=1)).get()

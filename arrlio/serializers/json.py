@@ -12,6 +12,9 @@ from arrlio.utils import ExtendedJSONEncoder
 
 logger = logging.getLogger("arrlio.serializers.json")
 
+json_dumps = json.dumps
+json_loads = json.loads
+
 
 class Serializer(Serializer):  # pylint: disable=function-redefined
     def __init__(self, encoder=None):
@@ -25,7 +28,7 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
         data = dct["data"]
         if graph := data["graph"]:
             data["graph"] = graph.dict()
-        return json.dumps(
+        return json_dumps(
             {
                 "name": dct["task"]["name"],
                 **{k: v for k, v in data.items() if v is not None},
@@ -34,7 +37,7 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
         ).encode()
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
-        data = json.loads(data)
+        data = json_loads(data)
         if data.get("graph"):
             data["graph"] = Graph.from_dict(data["graph"])
         name = data.pop("name")

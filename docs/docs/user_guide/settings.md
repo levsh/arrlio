@@ -8,7 +8,6 @@ Default value for `ENV_PREFIX` is `ARRLIO_`.
 - `BACKEND` (Config.backend), default: "arrlio.backends.local". Backend module with `Backend` and `BackendConfig` classes or callable(Backend factory).
 - `TASK_QUEUES` (Config.task_queues), default: ["arrlio.tasks"]. Task queues to listen.
 - `MESSAGE_QUEUES` (Config.message_queues), defaut: ["arrlio.messages"]. Message queues to listen.
-- `POOL_SIZE` (Config.pool_size), default: 100. Worker pool size.
 
 
 ## Task

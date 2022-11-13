@@ -13,6 +13,7 @@ All environment varialbles should starts with `{ENV_PREFIX}LOCAL_BACKEND_`.
 
 - `NAME` (BackendConfig.name), default: "arrlio". Backend name.
 - `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.nop". Serializer module with `Serializer` class or callable(Serializer factory).
+- `POOL_SIZE` (BackendConfig.pool_size), default: 100. Consuming pool size.
 
 
 ## RabbitMQ
@@ -37,6 +38,7 @@ All environment varialbles should starts with `{ENV_PREFIX}RMQ_BACKEND_`.
 - `EVENTS_QUEUE_TTL` (BackendConfig.events_queue_ttl), default: None. `x-message-ttl` RabbitMQ option, seconds.
 - `EVENTS_PREFETCH_COUNT` (BackendConfig.events_prefetch_count), default: 1. RabbitMQ prefetch count options.
 - `MESSAGES_PREFETCH_COUNT` (BackendConfig.messages_prefetch_count), default: 1. RabbitMQ prefetch count options.
+- `POOL_SIZE` (BackendConfig.pool_size), default: 100. Consuming pool size.
 
 
 ## Redis
@@ -51,3 +53,4 @@ All environment varialbles should starts with `{ENV_PREFIX}RMQ_BACKEND_`.
 - `RETRY_TIMEOUTS` (BackendConfig.retry_timeouts), default: None. Retry timeouts as sequence: [1, 2, 5].
 - `POOL_SIZE` (BackendConfig.pool_size), default: 10. Redis connection pool size.
 - `VERIFY_SSL` (BackendConfig.verify_ssl), default: True.
+- `POOL_SIZE` (BackendConfig.pool_size), default: 100. Consuming pool size.

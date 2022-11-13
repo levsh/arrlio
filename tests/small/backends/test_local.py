@@ -203,8 +203,8 @@ class TestBackend:
     async def test__cancel_all_tasks(self, cleanup):
         backend = local.Backend(local.BackendConfig())
         task = asyncio.create_task(asyncio.sleep(10))
-        backend._tasks["test"].add(task)
-        backend._cancel_all_tasks()
+        backend._backend_tasks["test"].add(task)
+        backend._cancel_all_backend_tasks()
         assert task.cancelled
 
     @pytest.mark.asyncio

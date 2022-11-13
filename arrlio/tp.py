@@ -7,7 +7,6 @@ from pydantic import AnyUrl, conint
 
 AsyncCallableT = Callable[..., Coroutine]
 ExceptionFilterT = Callable[[Exception], bool]
-PositiveIntT = conint(ge=1)
 PriorityT = conint(ge=1, le=10)
 TimeoutT = conint(ge=0)
 

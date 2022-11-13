@@ -2,31 +2,32 @@ import asyncio
 import dataclasses
 import itertools
 import logging
+from asyncio import Semaphore, create_task
 from functools import partial
 from typing import Iterable, List, Optional
 
-import siderpy
-from pydantic import Field
+import siderpy  # pylint: disable=import-error
+from pydantic import Field, PositiveInt
 
 from arrlio import core
 from arrlio.backends import base
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.tp import AsyncCallableT, PositiveIntT, RedisDsn, SerializerT, TimeoutT
+from arrlio.tp import AsyncCallableT, RedisDsn, SerializerT, TimeoutT
 from arrlio.utils import retry
 
 logger = logging.getLogger("arrlio.backends.redis")
-
 
 BACKEND_NAME: str = "arrlio"
 SERIALIZER: str = "arrlio.serializers.json"
 URL: str = "redis://localhost?db=0"
 TIMEOUT: int = 60
 CONNECT_TIMEOUT: int = 30
-POOL_SIZE: int = 10
+CONN_POOL_SIZE: int = 10
 VERIFY_SSL: bool = True
 PUSH_RETRY_TIMEOUTS: Iterable[int] = [5, 5, 5, 5]
 PULL_RETRY_TIMEOUTS: Iterable[int] = itertools.repeat(5)
+POOL_SIZE: int = 100
 
 
 class BackendConfig(base.BackendConfig):
@@ -35,10 +36,11 @@ class BackendConfig(base.BackendConfig):
     url: RedisDsn = Field(default_factory=lambda: URL)
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
     connect_timeout: Optional[TimeoutT] = Field(default_factory=lambda: CONNECT_TIMEOUT)
+    conn_pool_size: Optional[PositiveInt] = Field(default_factory=lambda: CONN_POOL_SIZE)
     push_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
     pull_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
-    pool_size: Optional[PositiveIntT] = Field(default_factory=lambda: POOL_SIZE)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
+    pool_size: Optional[PositiveInt] = Field(default_factory=lambda: POOL_SIZE)
 
     class Config:
         env_prefix = f"{ENV_PREFIX}REDIS_BACKEND_"
@@ -51,10 +53,11 @@ class Backend(base.Backend):
             config.url.get_secret_value(),
             connect_timeout=config.connect_timeout,
             timeout=config.timeout,
-            size=config.pool_size,
+            size=config.conn_pool_size,
         )
         self._consumed_task_queues = set()
         self._consumed_message_queues = set()
+        self._semaphore = Semaphore(value=config.pool_size)
 
     def __del__(self):
         if not self.is_closed:
@@ -97,27 +100,38 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        await self._run_task("send_task", fn)
+        await self._create_backend_task("send_task", fn)
 
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         @retry()
         async def fn(queue: str):
             logger.info("%s: start consuming tasks queue '%s'", self, queue)
             queue_key = self._make_task_queue_key(queue)
-            self._consumed_task_queues.add(queue)
+
+            semaphore = self._semaphore
+            redis_pool = self.redis_pool
+            loads_task_instance = self.serializer.loads_task_instance
+
             try:
                 while True:
                     try:
-                        _, queue_value = await self.redis_pool.blpop(queue_key, 0)
-                        _, task_id = queue_value.decode().split("|")
-                        serialized_data = await self.redis_pool.get(task_id)
-                        if serialized_data is None:
-                            continue
-                        task_instance: TaskInstance = self.serializer.loads_task_instance(serialized_data)
-                        await asyncio.shield(on_task(task_instance))
+                        await semaphore.acquire()
+                        try:
+                            _, queue_value = await redis_pool.blpop(queue_key, 0)
+                            _, task_id = queue_value.decode().split("|")
+                            serialized_data = await redis_pool.get(task_id)
+                            if serialized_data is None:
+                                continue
+                            task_instance: TaskInstance = loads_task_instance(serialized_data)
+                            logger.debug("%s: got %s", self, task_instance)
+                            tsk: asyncio.Task = create_task(on_task(task_instance))
+                            tsk.add_done_callback(lambda *args: semaphore.release())
+                        except (BaseException, Exception) as e:
+                            semaphore.release()
+                            raise e
                     except asyncio.CancelledError:
                         logger.info("%s: stop consuming tasks queue '%s'", self, queue)
-                        return
+                        raise
                     except (ConnectionError, TimeoutError, asyncio.TimeoutError) as e:
                         raise e
                     except Exception as e:
@@ -127,12 +141,13 @@ class Backend(base.Backend):
 
         for queue in queues:
             if queue not in self._consumed_task_queues:
-                self._run_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
+                self._create_backend_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
+                self._consumed_task_queues.add(queue)
 
     async def stop_consume_tasks(self, queues: List[str] = None):
         for queue in list(self._consumed_task_queues):
             if queues is None or queue in queues:
-                self._cancel_tasks(f"consume_tasks_queue_{queue}")
+                self._cancel_backend_tasks(f"consume_tasks_queue_{queue}")
 
     async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult):
         task_data: TaskData = task_instance.data
@@ -155,7 +170,7 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        await self._run_task("push_task_result", fn)
+        await self._create_backend_task("push_task_result", fn)
 
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
         result_key = self._make_result_key(task_instance.data.task_id)
@@ -165,7 +180,7 @@ class Backend(base.Backend):
             raw_data = await self.redis_pool.blpop(result_key, 0)
             return self.serializer.loads_task_result(raw_data[1])
 
-        return await self._run_task("pop_task_result", fn)
+        return await self._create_backend_task("pop_task_result", fn)
 
     async def send_message(self, message: Message, **kwds):
         queue = message.exchange
@@ -185,7 +200,7 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        await self._run_task("send_message", fn)
+        await self._create_backend_task("send_message", fn)
 
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
         @retry()
@@ -193,18 +208,27 @@ class Backend(base.Backend):
             logger.info("%s: start consuming messages queue '%s'", self, queue)
             queue_key = self._make_message_queue_key(queue)
             self._consumed_message_queues.add(queue)
+
+            semaphore = self._semaphore
+            loads = self.serializer.loads
             try:
                 while True:
                     try:
-                        _, queue_value = await self.redis_pool.blpop(queue_key, 0)
-                        _, message_id = queue_value.decode().split("|")
-                        serialized_data = await self.redis_pool.get(message_id)
-                        if serialized_data is None:
-                            continue
-                        data = self.serializer.loads(serialized_data)
-                        message = Message(**data)
-                        logger.debug("%s: got %s", self, message)
-                        await asyncio.shield(on_message(message))
+                        await semaphore.acquire()
+                        try:
+                            _, queue_value = await self.redis_pool.blpop(queue_key, 0)
+                            _, message_id = queue_value.decode().split("|")
+                            serialized_data = await self.redis_pool.get(message_id)
+                            if serialized_data is None:
+                                continue
+                            data = loads(serialized_data)
+                            message = Message(**data)
+                            logger.debug("%s: got %s", self, message)
+                            tsk: asyncio.Task = create_task(on_message(message))
+                        except (BaseException, Exception) as e:
+                            semaphore.release()
+                            raise e
+                        tsk.add_done_callback(lambda *args: semaphore.release())
                     except asyncio.CancelledError:
                         logger.info("%s: stop consuming messages queue '%s'", self, queue)
                         break
@@ -217,12 +241,12 @@ class Backend(base.Backend):
 
         for queue in queues:
             if queue not in self._consumed_message_queues:
-                self._run_task(f"consume_messages_queue_{queue}", partial(fn, queue))
+                self._create_backend_task(f"consume_messages_queue_{queue}", partial(fn, queue))
 
     async def stop_consume_messages(self, queues: List[str] = None):
         for queue in list(self._consumed_message_queues):
             if queues is None or queue in queues:
-                self._cancel_tasks(f"consume_messages_queue_{queue}")
+                self._cancel_backend_tasks(f"consume_messages_queue_{queue}")
 
     async def send_event(self, event: Event):
         queue_key = "arrlio.events"
@@ -238,16 +262,18 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        await self._run_task("push_event", fn)
+        await self._create_backend_task("push_event", fn)
 
     async def consume_events(self, on_event: AsyncCallableT):
-        if "consume_events" in self._tasks:
+        if "consume_events" in self._backend_tasks:
             raise Exception("Already consuming")
 
         @retry(retry_timeouts=self.config.pull_retry_timeouts)
         async def fn():
             logger.info("%s: start consuming events", self)
             queue_key = "arrlio.events"
+
+            loads_event = self.serializer.loads_event
             while True:
                 try:
                     _, queue_value = await self.redis_pool.blpop(queue_key, 0)
@@ -255,9 +281,9 @@ class Backend(base.Backend):
                     serialized_data = await self.redis_pool.get(event_id)
                     if serialized_data is None:
                         continue
-                    event = self.serializer.loads_event(serialized_data)
+                    event = loads_event(serialized_data)
                     logger.debug("%s: got %s", self, event)
-                    await asyncio.shield(on_event(event))
+                    create_task(on_event(event))
                 except asyncio.CancelledError:
                     logger.info("%s: stop consuming events")
                     break
@@ -266,7 +292,7 @@ class Backend(base.Backend):
                 except Exception as e:
                     logger.exception(e)
 
-        self._run_task("consume_events", fn)
+        self._create_backend_task("consume_events", fn)
 
     async def stop_consume_events(self):
-        self._cancel_tasks("consume_events")
+        self._cancel_backend_tasks("consume_events")

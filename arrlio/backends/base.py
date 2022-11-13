@@ -1,6 +1,7 @@
 import abc
 import asyncio
 import logging
+from asyncio import create_task
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Set
 
@@ -22,31 +23,33 @@ class BackendConfig(BaseSettings):
 
 
 class Backend(abc.ABC):
+    __slots__ = ("config", "serializer", "_closed", "_backend_tasks")
+
     def __init__(self, config: BackendConfig):
         self.config: BackendConfig = config
         self.serializer: Serializer = config.serializer()
         self._closed: asyncio.Future = asyncio.Future()
-        self._tasks: Dict[str, Set[asyncio.Task]] = defaultdict(set)
+        self._backend_tasks: Dict[str, Set[asyncio.Task]] = defaultdict(set)
 
     def __repr__(self):
         return self.__str__()
 
-    def _cancel_all_tasks(self):
-        for tasks in self._tasks.values():
+    def _cancel_all_backend_tasks(self):
+        for tasks in self._backend_tasks.values():
             for task in tasks:
                 task.cancel()
 
-    def _cancel_tasks(self, key: str):
-        for task in self._tasks[key]:
+    def _cancel_backend_tasks(self, key: str):
+        for task in self._backend_tasks[key]:
             task.cancel()
 
-    def _run_task(self, key: str, coro_factory: Callable):
+    def _create_backend_task(self, key: str, coro_factory: Callable):
         if self._closed.done():
             raise Exception(f"Closed {self}")
 
-        task: asyncio.Task = asyncio.create_task(coro_factory())
-        self._tasks[key].add(task)
-        task.add_done_callback(lambda *args: self._tasks[key].discard(task))
+        task: asyncio.Task = create_task(coro_factory())
+        self._backend_tasks[key].add(task)
+        task.add_done_callback(lambda *args: self._backend_tasks[key].discard(task))
 
         return task
 
@@ -57,7 +60,7 @@ class Backend(abc.ABC):
     async def close(self):
         if self.is_closed:
             return
-        self._cancel_all_tasks()
+        self._cancel_all_backend_tasks()
         try:
             await asyncio.gather(
                 self.stop_consume_tasks(),

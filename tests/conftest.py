@@ -1,6 +1,7 @@
 import collections
 import gc
 import logging
+import time
 
 import pytest
 import pytest_asyncio
@@ -24,27 +25,39 @@ def container_executor():
 
 @pytest.fixture(scope="function")
 def backend(request, container_executor):
-    if request.param not in [
+    if isinstance(request.param, list):
+        backend_module, config_kwds = request.param
+    else:
+        backend_module, config_kwds = request.param, {}
+
+    if backend_module not in [
         backends.local,
         backends.rabbitmq,
         backends.redis,
     ]:
-        raise Exception("Unsupported backend %s" % request.param)
+        raise Exception("Unsupported backend %s" % backend_module)
 
     address = None
     container = None
-    config_kwds = {}
-    if request.param == backends.rabbitmq:
+
+    if backend_module == backends.rabbitmq:
         container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
-        config_kwds["url"] = [
-            f"amqp://guest:guest@invalid:{address[1]}",
-            f"amqp://guest:guest@{address[0]}:{address[1]}",
-        ]
-    if request.param == backends.redis:
+        config_kwds.update(
+            {
+                "url": [
+                    f"amqp://guest:guest@invalid:{address[1]}",
+                    f"amqp://guest:guest@{address[0]}:{address[1]}",
+                ]
+            }
+        )
+        time.sleep(0.1)
+    elif backend_module == backends.redis:
         container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
         address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
-        config_kwds["url"] = f"redis://{address[0]}:{address[1]}"
+        config_kwds.update({"url": f"redis://{address[0]}:{address[1]}"})
+        time.sleep(0.1)
+
     if address:
         try:
             utils.wait_socket_available(address, 20)
@@ -54,7 +67,11 @@ def backend(request, container_executor):
 
     BackendTuple = collections.namedtuple("BackendTuple", ["container", "module", "config_kwds"])
 
-    yield BackendTuple(container, request.param, config_kwds)
+    try:
+        yield BackendTuple(container, backend_module, config_kwds)
+    finally:
+        if backend_module == backends.local:
+            backends.local.Backend._Backend__shared.clear()
 
 
 @pytest.fixture(scope="function")
