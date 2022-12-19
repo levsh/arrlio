@@ -11,7 +11,7 @@ from uuid import UUID
 from roview import rodict
 
 from arrlio.exc import TaskError, TaskNoResultError
-from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Message, Task, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
@@ -329,8 +329,6 @@ class App:
                     task_result: TaskResult = await self._execute_task(task_instance)
 
                     if task_instance.data.result_return:
-                        if task_instance.task.dumps:
-                            task_result.res = task_instance.task.dumps(task_result.res)
                         await self._backend.push_task_result(task_instance, task_result)
 
                     await self._execute_hooks("on_task_done", task_instance, task_result)
@@ -351,14 +349,6 @@ class App:
             logger.info("%s: stop consuming task queues", self)
 
     async def _execute_task(self, task_instance: TaskInstance) -> TaskResult:
-        task: Task = task_instance.task  # pylint: disable=redefined-outer-name
-        task_data: TaskData = task_instance.data
-
-        if task.loads:
-            args, kwds = task.loads(task_data.args, task_data.kwds)
-            task_data.args = args
-            task_data.kwds = kwds
-
         task_result: TaskResult = await self._executor(task_instance)
 
         graph: Graph = task_instance.data.graph

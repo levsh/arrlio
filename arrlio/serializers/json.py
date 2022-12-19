@@ -5,7 +5,7 @@ import traceback
 from typing import Any
 
 from arrlio.core import __tasks__
-from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
 from arrlio.utils import ExtendedJSONEncoder
 
@@ -44,6 +44,19 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
             task_instance = __tasks__[name].instantiate(**data)
         else:
             task_instance = Task(None, name).instantiate(**data)
+
+        task: Task = task_instance.task
+        task_data: TaskData = task_instance.data
+
+        if task.loads:
+            args, kwds = task.loads(*task_data.args, **task_data.kwds)
+            if not isinstance(args, tuple):
+                raise TypeError("Task loads function should return [tuple, dict]")
+            if not isinstance(kwds, dict):
+                raise TypeError("Task loads function should return [tuple, dict]")
+            task_data.args = args
+            task_data.kwds = kwds
+
         return task_instance
 
     def dumps_task_result(self, task_instance: TaskInstance, task_result: TaskResult, **kwds) -> bytes:
@@ -58,7 +71,10 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
                 "".join(traceback.format_tb(task_result.trb, 3)) if task_result.trb else None,
             )
         else:
-            data = (task_result.res, None, None)
+            if task_instance.task.dumps:
+                data = (task_instance.task.dumps(task_result.res), None, None)
+            else:
+                data = (task_result.res, None, None)
         return json.dumps(data, cls=self.encoder).encode()
 
     def loads_task_result(self, data: bytes) -> TaskResult:

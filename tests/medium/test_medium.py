@@ -315,3 +315,22 @@ class TestArrlio:
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(ars["B"].get(), 1)
         assert await asyncio.wait_for(ars["A"].get(), 1) is False
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            backends.local,
+            backends.rabbitmq,
+            backends.redis,
+        ],
+        indirect=True,
+    )
+    @pytest.mark.asyncio
+    async def test_dumps_loads(self, backend, app):
+        await app.consume_tasks()
+
+        ar = await app.send_task(tasks.loads_dumps, args=[tasks.LoadsDumps(x=1)])
+        if backend.module == backends.local:
+            assert await asyncio.wait_for(ar.get(), 1) == tasks.LoadsDumps(x=1)
+        else:
+            assert await asyncio.wait_for(ar.get(), 1) == {"x": 1}

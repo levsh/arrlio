@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+from dataclasses import asdict, dataclass
 
 import arrlio
 
@@ -66,3 +67,14 @@ def logger_info(data, *, meta: dict = None):
 def compare(a, b) -> bool:
     res = a == b
     return arrlio.TaskResult(res=res, routes={True: "true", False: "false"}[res])
+
+
+@dataclass
+class LoadsDumps:
+    x: int = None
+
+
+@arrlio.task(loads=lambda x: ((LoadsDumps(**x),), {}), dumps=lambda x: asdict(x))
+def loads_dumps(x: LoadsDumps):
+    assert isinstance(x, LoadsDumps)
+    return x
