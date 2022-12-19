@@ -2,7 +2,6 @@ import importlib
 import json
 import logging
 import traceback
-from dataclasses import asdict
 from typing import Any
 
 from arrlio.core import __tasks__
@@ -24,7 +23,7 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
         return "json.Serializer"
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
-        dct = asdict(task_instance)
+        dct = task_instance.dict()
         data = dct["data"]
         if graph := data["graph"]:
             data["graph"] = graph.dict()
@@ -73,7 +72,7 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
         return TaskResult(*result_data)
 
     def dumps_event(self, event: Event, **kwds) -> bytes:
-        data = asdict(event)
+        data = event.dict()
         return json.dumps(data, cls=self.encoder).encode()
 
     def loads_event(self, data: bytes) -> Event:

@@ -10,7 +10,7 @@ from arrlio.serializers.json import Serializer
 class TestBackendConfig:
     def test_init(self, cleanup):
         config = rabbitmq.BackendConfig()
-        assert config.name == rabbitmq.BACKEND_NAME
+        assert config.id
         assert config.serializer == Serializer
         assert config.url.get_secret_value() == rabbitmq.URL
         assert config.timeout == rabbitmq.TIMEOUT
@@ -37,7 +37,7 @@ class TestBackendConfig:
 
         config = rabbitmq.BackendConfig(
             serializer=serializer_factory,
-            name="Custom Name",
+            id="Custom Name",
             url="amqps://admin@example.com",
             timeout=123,
             conn_retry_timeouts=[1],
@@ -58,7 +58,7 @@ class TestBackendConfig:
             messages_prefetch_count=30,
         )
         assert config.serializer == serializer_factory
-        assert config.name == "Custom Name"
+        assert config.id == "Custom Name"
         assert config.url.get_secret_value() == "amqps://admin@example.com"
         assert config.timeout == 123
         assert next(config.conn_retry_timeouts) == 1

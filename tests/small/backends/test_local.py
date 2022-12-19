@@ -14,7 +14,7 @@ class TestBackendConfig:
     def test_init(self, cleanup):
         config = local.BackendConfig()
         assert config.serializer == nop.Serializer
-        assert config.name == local.BACKEND_NAME
+        assert config.id == local.BACKEND_ID
 
     def test_init_custom(self, cleanup):
         def serializer_factory():
@@ -22,7 +22,7 @@ class TestBackendConfig:
 
         config = local.BackendConfig(serializer=serializer_factory)
         assert config.serializer == serializer_factory
-        assert config.name == local.BACKEND_NAME
+        assert config.id == local.BACKEND_ID
 
 
 class TestBackend:
@@ -56,7 +56,7 @@ class TestBackend:
         assert id(backend1._message_queues) == id(backend1._message_queues)
         assert id(backend1._results) == id(backend1._results)
 
-        backend3 = local.Backend(local.BackendConfig(name="custom"))
+        backend3 = local.Backend(local.BackendConfig(id="custom"))
         assert backend1._refs == 2
         assert backend2._refs == 2
         assert backend3._refs == 1

@@ -1,7 +1,8 @@
 import os
 from typing import Optional, Set, Union
+from uuid import uuid4
 
-from pydantic import BaseSettings, Field, PositiveInt
+from pydantic import BaseSettings, Field, PositiveInt, constr
 
 from arrlio.tp import BackendT, ExecutorT, PluginT, PriorityT, TimeoutT
 
@@ -67,6 +68,7 @@ class EventConfig(BaseSettings):
 
 
 class Config(BaseSettings):
+    app_id: constr(min_length=1) = Field(default_factory=lambda: f"{uuid4()}")
     backend: BackendT = Field(default_factory=lambda: BACKEND, env=f"{ENV_PREFIX}BACKEND")
     task: TaskConfig = Field(default_factory=TaskConfig)
     message: MessageConfig = Field(default_factory=MessageConfig)

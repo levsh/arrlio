@@ -1,5 +1,5 @@
 import datetime
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Set, Tuple, Union
 from uuid import UUID, uuid4
@@ -27,6 +27,11 @@ from arrlio.settings import (
 
 @dataclass
 class TaskData:
+    """
+    Args:
+        meta (dict, optional): additional task functionc keyworad argument.
+    """
+
     task_id: UUID = field(default_factory=uuid4)
     args: tuple = field(default_factory=tuple)
     kwds: dict = field(default_factory=dict)
@@ -52,6 +57,9 @@ class TaskData:
         if isinstance(self.args, list):
             object.__setattr__(self, "args", tuple(self.args))
 
+    def dict(self):
+        return asdict(self)
+
 
 @dataclass(frozen=True)
 class Task:
@@ -71,6 +79,12 @@ class Task:
     event_ttl: int = TASK_EVENT_TTL
 
     extra: dict = field(default_factory=dict)
+
+    loads: Callable = None
+    dumps: Callable = None
+
+    def dict(self):
+        return {k: v for k, v in asdict(self).items() if k not in {"loads", "dumps"}}
 
     def instantiate(self, extra: dict = None, **kwds) -> "TaskInstance":
         data: TaskData = TaskData(
@@ -111,6 +125,9 @@ class TaskInstance:
             args = (self,) + args
         return self.task.func(*args, **kwds)
 
+    def dict(self):
+        return {"task": self.task.dict(), "data": self.data.dict()}
+
 
 @dataclass(frozen=True)
 class TaskResult:
@@ -118,6 +135,9 @@ class TaskResult:
     exc: Union[Exception, Tuple[str, str, str]] = None
     trb: Union[TracebackType, str] = None
     routes: Union[str, List[str]] = None
+
+    def dict(self):
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -129,6 +149,9 @@ class Message:
     ttl: int = MESSAGE_TTL
     ack_late: bool = MESSAGE_ACK_LATE
     extra: dict = field(default_factory=dict)
+
+    def dict(self):
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -146,6 +169,9 @@ class Event:
             object.__setattr__(self, "dt", datetime.datetime.now(tz=datetime.timezone.utc))
         elif isinstance(self.dt, str):
             object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
+
+    def dict(self):
+        return asdict(self)
 
 
 class Graph:

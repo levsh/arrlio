@@ -5,7 +5,6 @@ from asyncio import wait_for
 from inspect import iscoroutinefunction
 from threading import Thread
 from time import monotonic
-from typing import Callable
 
 from arrlio.exc import NotFoundError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
@@ -23,14 +22,13 @@ class Executor:
     async def execute(self, task_instance: TaskInstance) -> TaskResult:
         task: Task = task_instance.task
         task_data: TaskData = task_instance.data
-        func: Callable = task.func
 
         res, exc, trb = None, None, None
         t0 = monotonic()
 
         try:
 
-            if func is None:
+            if (func := task.func) is None:
                 raise NotFoundError(f"Task '{task.name}' not found")
 
             kwdefaults = func.__kwdefaults__

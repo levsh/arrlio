@@ -11,6 +11,7 @@ from pydantic import Field, PositiveInt
 
 from arrlio import core
 from arrlio.backends import base
+from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, RedisDsn, SerializerT, TimeoutT
@@ -108,14 +109,15 @@ class Backend(base.Backend):
             logger.info("%s: start consuming tasks queue '%s'", self, queue)
             queue_key = self._make_task_queue_key(queue)
 
-            semaphore = self._semaphore
+            semaphore_acquire = self._semaphore.acquire
+            semaphore_release = self._semaphore.release
             redis_pool = self.redis_pool
             loads_task_instance = self.serializer.loads_task_instance
 
             try:
                 while True:
                     try:
-                        await semaphore.acquire()
+                        await semaphore_acquire()
                         try:
                             _, queue_value = await redis_pool.blpop(queue_key, 0)
                             _, task_id = queue_value.decode().split("|")
@@ -125,9 +127,9 @@ class Backend(base.Backend):
                             task_instance: TaskInstance = loads_task_instance(serialized_data)
                             logger.debug("%s: got %s", self, task_instance)
                             tsk: asyncio.Task = create_task(on_task(task_instance))
-                            tsk.add_done_callback(lambda *args: semaphore.release())
+                            tsk.add_done_callback(lambda *args: semaphore_release())
                         except (BaseException, Exception) as e:
-                            semaphore.release()
+                            semaphore_release()
                             raise e
                     except asyncio.CancelledError:
                         logger.info("%s: stop consuming tasks queue '%s'", self, queue)
@@ -145,7 +147,7 @@ class Backend(base.Backend):
                 self._consumed_task_queues.add(queue)
 
     async def stop_consume_tasks(self, queues: List[str] = None):
-        for queue in list(self._consumed_task_queues):
+        for queue in self._consumed_task_queues:
             if queues is None or queue in queues:
                 self._cancel_backend_tasks(f"consume_tasks_queue_{queue}")
 
@@ -173,7 +175,12 @@ class Backend(base.Backend):
         await self._create_backend_task("push_task_result", fn)
 
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
-        result_key = self._make_result_key(task_instance.data.task_id)
+        task_data: TaskData = task_instance.data
+
+        if not task_data.result_return:
+            raise TaskNoResultError(f"{task_data.task_id}")
+
+        result_key = self._make_result_key(task_data.task_id)
 
         @retry(retry_timeouts=self.config.pull_retry_timeouts)
         async def fn():
@@ -209,12 +216,13 @@ class Backend(base.Backend):
             queue_key = self._make_message_queue_key(queue)
             self._consumed_message_queues.add(queue)
 
-            semaphore = self._semaphore
+            semaphore_acquire = self._semaphore.acquire
+            semaphore_release = self._semaphore.release
             loads = self.serializer.loads
             try:
                 while True:
                     try:
-                        await semaphore.acquire()
+                        await semaphore_acquire()
                         try:
                             _, queue_value = await self.redis_pool.blpop(queue_key, 0)
                             _, message_id = queue_value.decode().split("|")
@@ -226,9 +234,9 @@ class Backend(base.Backend):
                             logger.debug("%s: got %s", self, message)
                             tsk: asyncio.Task = create_task(on_message(message))
                         except (BaseException, Exception) as e:
-                            semaphore.release()
+                            semaphore_release()
                             raise e
-                        tsk.add_done_callback(lambda *args: semaphore.release())
+                        tsk.add_done_callback(lambda *args: semaphore_release())
                     except asyncio.CancelledError:
                         logger.info("%s: stop consuming messages queue '%s'", self, queue)
                         break

@@ -11,7 +11,7 @@ from uuid import UUID
 from roview import rodict
 
 from arrlio.exc import TaskError, TaskNoResultError
-from arrlio.models import Event, Graph, Message, Task, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
@@ -202,6 +202,8 @@ class App:
         if extra is None:
             extra = {}
 
+        extra["app_id"] = self.config.app_id
+
         if name in __tasks__:
             task_instance = __tasks__[name].instantiate(
                 args=args,
@@ -298,6 +300,8 @@ class App:
         await self._backend.send_event(event)
 
     async def pop_result(self, task_instance: TaskInstance):
+        if not task_instance.data.result_return:
+            raise TaskNoResultError(task_instance.data.task_id)
         task_result: TaskResult = await self._backend.pop_task_result(task_instance)
         if task_result.exc:
             if isinstance(task_result.exc, TaskError):
@@ -325,6 +329,8 @@ class App:
                     task_result: TaskResult = await self._execute_task(task_instance)
 
                     if task_instance.data.result_return:
+                        if task_instance.task.dumps:
+                            task_result.res = task_instance.task.dumps(task_result.res)
                         await self._backend.push_task_result(task_instance, task_result)
 
                     await self._execute_hooks("on_task_done", task_instance, task_result)
@@ -345,6 +351,14 @@ class App:
             logger.info("%s: stop consuming task queues", self)
 
     async def _execute_task(self, task_instance: TaskInstance) -> TaskResult:
+        task: Task = task_instance.task  # pylint: disable=redefined-outer-name
+        task_data: TaskData = task_instance.data
+
+        if task.loads:
+            args, kwds = task.loads(task_data.args, task_data.kwds)
+            task_data.args = args
+            task_data.kwds = kwds
+
         task_result: TaskResult = await self._executor(task_instance)
 
         graph: Graph = task_instance.data.graph
@@ -432,8 +446,6 @@ class AsyncResult:
         return self._ready
 
     async def get(self):
-        if not self._task_instance.data.result_return:
-            raise TaskNoResultError(self._task_instance.data.task_id)
         if not self._ready:
             try:
                 self._result = await self._app.pop_result(self._task_instance)

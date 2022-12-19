@@ -5,26 +5,26 @@ from asyncio import Semaphore, create_task, get_event_loop
 from collections import defaultdict
 from functools import partial
 from time import monotonic
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 
 from pydantic import Field, PositiveInt
 
 from arrlio.backends import base
-from arrlio.core import TaskNoResultError
+from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
 
 logger = logging.getLogger("arrlio.backends.local")
 
-BACKEND_NAME: str = "arrlio"
+BACKEND_ID: str = "arrlio"
 SERIALIZER: str = "arrlio.serializers.nop"
 POOL_SIZE: int = 100
 
 
 class BackendConfig(base.BackendConfig):
-    name: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
+    id: str = Field(default_factory=lambda: BACKEND_ID)
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     pool_size: PositiveInt = Field(default_factory=lambda: POOL_SIZE)
 
@@ -37,10 +37,9 @@ class Backend(base.Backend):
 
     def __init__(self, config: BackendConfig):
         super().__init__(config)
-        name: str = self.config.name
         shared: dict = self.__shared
-        if name not in shared:
-            shared[name] = {
+        if config.id not in shared:
+            shared[config.id] = {
                 "refs": 0,
                 "task_queues": defaultdict(asyncio.PriorityQueue),
                 "message_queues": defaultdict(asyncio.Queue),
@@ -48,29 +47,33 @@ class Backend(base.Backend):
                 "events": {},
                 "event_cond": asyncio.Condition(),
             }
-        shared = shared[name]
+        shared = shared[config.id]
         shared["refs"] += 1
         self._task_queues = shared["task_queues"]
-        self._message_queues = shared["message_queues"]
         self._results = shared["results"]
+        self._message_queues = shared["message_queues"]
         self._events = shared["events"]
         self._event_cond = shared["event_cond"]
         self._consumed_task_queues = set()
         self._consumed_message_queues = set()
         self._semaphore = Semaphore(value=config.pool_size)
 
+        self._serializer_dumps_task_instance = self.serializer.dumps_task_instance
+        self._serializer_dumps_task_result = self.serializer.dumps_task_result
+        self._serializer_loads_task_result = self.serializer.loads_task_result
+
     def __del__(self):
-        if self.config.name in self.__shared:
+        if self.config.id in self.__shared:
             self._refs = max(0, self._refs - 1)
             if self._refs == 0:
-                del self.__shared[self.config.name]
+                del self.__shared[self.config.id]
 
     def __str__(self):
-        return f"LocalBackend[{self.config.name}]"
+        return f"LocalBackend[{self.config.id}]"
 
     @property
     def _shared(self) -> dict:
-        return self.__shared[self.config.name]
+        return self.__shared[self.config.id]
 
     @property
     def _refs(self) -> int:
@@ -94,7 +97,7 @@ class Backend(base.Backend):
                     (PriorityT.le - task_data.priority) if task_data.priority else PriorityT.ge,
                     monotonic(),
                     task_data.ttl,
-                    self.serializer.dumps_task_instance(task_instance),
+                    self._serializer_dumps_task_instance(task_instance),
                 )
             )
 
@@ -149,19 +152,19 @@ class Backend(base.Backend):
             return
 
         task_id: UUID = task_data.task_id
-        results = self._results
+        result = self._results[task_id]
 
-        results[task_id][1] = self.serializer.dumps_task_result(task_instance, task_result)
-        results[task_id][0].set()
+        result[1] = self._serializer_dumps_task_result(task_instance, task_result)
+        result[0].set()
 
         if task_data.result_ttl is not None:
-            loop = get_event_loop()
-            loop.call_later(task_data.result_ttl, lambda: results.pop(task_id, None))
+            get_event_loop().call_later(task_data.result_ttl, lambda: self._results.pop(task_id, None))
 
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
-        task_id: UUID = task_instance.data.task_id
+        task_data: TaskData = task_instance.data
+        task_id: UUID = task_data.task_id
 
-        if not task_instance.data.result_return:
+        if not task_data.result_return:
             raise TaskNoResultError(f"{task_id}")
 
         results = self._results
@@ -169,10 +172,12 @@ class Backend(base.Backend):
         if task_id not in results:
             results[task_id] = [asyncio.Event(), None]
 
+        result = results[task_id]
+
         async def fn():
-            await results[task_id][0].wait()
+            await result[0].wait()
             try:
-                return self.serializer.loads_task_result(results[task_id][1])
+                return self._serializer_loads_task_result(result[1])
             finally:
                 del results[task_id]
 

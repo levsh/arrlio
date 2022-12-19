@@ -3,9 +3,10 @@ import asyncio
 import logging
 from asyncio import create_task
 from collections import defaultdict
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Set
+from uuid import uuid4
 
-from pydantic import BaseSettings
+from pydantic import BaseSettings, Field
 
 from arrlio.models import Event, Message, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
@@ -15,7 +16,7 @@ logger = logging.getLogger("arrlio.backends.base")
 
 
 class BackendConfig(BaseSettings):
-    name: Optional[str]
+    id: str = Field(default_factory=lambda: f"{uuid4()}")
     serializer: SerializerT
 
     class Config:
@@ -60,7 +61,6 @@ class Backend(abc.ABC):
     async def close(self):
         if self.is_closed:
             return
-        self._cancel_all_backend_tasks()
         try:
             await asyncio.gather(
                 self.stop_consume_tasks(),
@@ -68,6 +68,7 @@ class Backend(abc.ABC):
                 self.stop_consume_events(),
             )
         finally:
+            self._cancel_all_backend_tasks()
             self._closed.set_result(None)
 
     async def __aenter__(self):
