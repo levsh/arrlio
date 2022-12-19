@@ -10,7 +10,7 @@ log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)
 
 
-__version__ = "0.15.1"
+__version__ = "0.15.2"
 
 # pylint: disable=wrong-import-position
 from arrlio.core import App, AsyncResult, registered_tasks, task  # noqa
