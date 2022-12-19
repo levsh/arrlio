@@ -30,6 +30,10 @@ class TestBackendConfig:
         assert config.events_queue_ttl == rabbitmq.EVENTS_QUEUE_TTL
         assert config.events_prefetch_count == rabbitmq.EVENTS_PREFETCH_COUNT
         assert config.messages_prefetch_count == rabbitmq.MESSAGES_PREFETCH_COUNT
+        assert config.results_queue_mode == rabbitmq.RESULTS_QUEUE_MODE
+        assert config.results_queue_prefix == rabbitmq.RESULTS_QUEUE_PREFIX
+        assert config.results_shared_queue_durable == rabbitmq.RESULTS_SHARED_QUEUE_DURABLE
+        assert config.results_shared_queue_ttl == rabbitmq.RESULTS_SHARED_QUEUE_TTL
 
     def test_init_custom(self, cleanup):
         def serializer_factory():

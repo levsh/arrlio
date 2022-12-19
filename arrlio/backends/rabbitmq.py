@@ -60,7 +60,7 @@ EVENTS_PREFETCH_COUNT: int = 1
 MESSAGES_PREFETCH_COUNT: int = 1
 RESULTS_QUEUE_PREFIX: str = "arrlio."
 RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.INDIVIDUAL
-RESULTS_SHARED_QUEUE_DURABLE: bool = True
+RESULTS_SHARED_QUEUE_DURABLE: bool = False
 RESULTS_SHARED_QUEUE_TTL: int = 600
 POOL_SIZE: int = 100
 
@@ -88,7 +88,7 @@ class BackendConfig(base.BackendConfig):
     pool_size: PositiveInt = Field(default_factory=lambda: POOL_SIZE)
     results_queue_prefix: str = Field(default_factory=lambda: RESULTS_QUEUE_PREFIX)
     results_queue_mode: ResultQueueMode = Field(default_factory=lambda: RESULTS_QUEUE_MODE)
-    results_shared_queue_durable: str = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_DURABLE)
+    results_shared_queue_durable: bool = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_DURABLE)
     results_shared_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_TTL)
 
     class Config:
