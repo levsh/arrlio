@@ -35,7 +35,7 @@ class QueueType(str, Enum):
 
 
 class ResultQueueMode(str, Enum):
-    INDIVIDUAL = "individual"
+    SINGLE = "single"
     SHARED = "shared"
 
 
@@ -59,7 +59,7 @@ EVENTS_QUEUE_TTL: int = 600
 EVENTS_PREFETCH_COUNT: int = 1
 MESSAGES_PREFETCH_COUNT: int = 1
 RESULTS_QUEUE_PREFIX: str = "arrlio."
-RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.INDIVIDUAL
+RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.SINGLE
 RESULTS_SHARED_QUEUE_DURABLE: bool = False
 RESULTS_SHARED_QUEUE_TTL: int = 600
 POOL_SIZE: int = 100
@@ -385,9 +385,9 @@ class Backend(base.Backend):
 
     def _result_routing_key(self, task_instance: TaskInstance):
         result_queue_mode = task_instance.data.extra.get("result_queue_mode") or self.config.results_queue_mode
-        if result_queue_mode == ResultQueueMode.INDIVIDUAL:
+        if result_queue_mode == ResultQueueMode.SINGLE:
             return f"{self.config.results_queue_prefix}result.{task_instance.data.task_id}"
-        return f"{self.config.results_queue_prefix}results.{task_instance.data.extra['backend_id']}"
+        return f"{self.config.results_queue_prefix}{self.config.id}.results"
 
     async def _declare(self):
         config: BackendConfig = self.config
@@ -419,7 +419,7 @@ class Backend(base.Backend):
                 await channel.queue_bind(
                     queue,
                     config.tasks_exchange,
-                    routing_key=f"{self.config.results_queue_prefix}results.{config.id}",
+                    routing_key=f"{self.config.results_queue_prefix}{config.id}.results",
                     timeout=config.timeout,
                 )
 
@@ -560,9 +560,12 @@ class Backend(base.Backend):
         config = self.config
         task_data: TaskData = task_instance.data
 
-        task_data.extra["backend_id"] = config.id
-        if "result_queue_mode" not in task_data.extra:
-            task_data.extra["result_queue_mode"] = config.results_queue_mode
+        task_data.extra.update(
+            {
+                "backend_id": config.id,
+                "reply_to": self._result_routing_key(task_instance),
+            }
+        )
 
         @retry(retry_timeouts=config.push_retry_timeouts)
         async def fn():
@@ -664,7 +667,7 @@ class Backend(base.Backend):
                 await channel.basic_publish(
                     self.serializer.dumps_task_result(task_instance, task_result),
                     exchange=self.config.tasks_exchange,
-                    routing_key=self._result_routing_key(task_instance),
+                    routing_key=task_instance.data.extra["reply_to"],
                     properties=BasicProperties(
                         delivery_mode=2,
                         message_id=f"{task_data.task_id}",
@@ -688,7 +691,7 @@ class Backend(base.Backend):
         if result_queue_mode == ResultQueueMode.SHARED:
             return await self._pop_task_result_from_shared_queue(task_instance)
 
-        return await self._pop_task_result_from_individual_queue(task_instance)
+        return await self._pop_task_result_from_single_queue(task_instance)
 
     async def _pop_task_result_from_shared_queue(self, task_instance: TaskInstance):
         task_id: UUID = task_instance.data.task_id
@@ -701,7 +704,7 @@ class Backend(base.Backend):
 
         return await self._create_backend_task("pop_task_result", fn)
 
-    async def _pop_task_result_from_individual_queue(self, task_instance: TaskInstance) -> TaskResult:
+    async def _pop_task_result_from_single_queue(self, task_instance: TaskInstance) -> TaskResult:
         task_id: UUID = task_instance.data.task_id
         queue = await self._declare_result_queue(task_instance)
 
