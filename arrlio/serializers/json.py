@@ -19,9 +19,6 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
     def __init__(self, encoder=None):
         self.encoder = encoder or ExtendedJSONEncoder
 
-    def __str__(self):
-        return "json.Serializer"
-
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
         dct = task_instance.dict()
         data = dct["data"]
@@ -51,9 +48,9 @@ class Serializer(Serializer):  # pylint: disable=function-redefined
         if task.loads:
             args, kwds = task.loads(*task_data.args, **task_data.kwds)
             if not isinstance(args, tuple):
-                raise TypeError("Task loads function should return [tuple, dict]")
+                raise TypeError(f"Task '{task.name}' loads function should return Tuple[Tuple, Dict]")
             if not isinstance(kwds, dict):
-                raise TypeError("Task loads function should return [tuple, dict]")
+                raise TypeError(f"Task '{task.name}' loads function should return Tuple[Tuple, Dict]")
             task_data.args = args
             task_data.kwds = kwds
 

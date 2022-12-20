@@ -198,9 +198,6 @@ class Graph:
     def __str__(self):
         return f"{self.__class__.__name__}(id={self.id} nodes={self.nodes} edges={self.edges} roots={self.roots}"
 
-    def __repr__(self):
-        return self.__str__()
-
     def add_node(self, node_id: str, task: Union[Task, str], root: bool = None, **kwds):
         if node_id in self.nodes:
             raise Exception(f"Node '{node_id}' already in graph")

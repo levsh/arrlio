@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import re
 
 import pytest
@@ -7,9 +6,6 @@ import pytest
 import arrlio
 from arrlio import backends
 from tests import tasks
-
-logger = logging.getLogger("arrlio")
-logger.setLevel(logging.DEBUG)
 
 
 class TestArrlio:

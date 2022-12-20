@@ -293,7 +293,7 @@ class Backend(base.Backend):
                     logger.debug("%s: got %s", self, event)
                     create_task(on_event(event))
                 except asyncio.CancelledError:
-                    logger.info("%s: stop consuming events")
+                    logger.info("%s: stop consuming events", self)
                     break
                 except (ConnectionError, asyncio.TimeoutError, TimeoutError) as e:
                     raise e

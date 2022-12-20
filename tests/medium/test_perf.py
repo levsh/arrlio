@@ -9,9 +9,6 @@ import pytest
 from arrlio import backends
 from tests import tasks
 
-logger = logging.getLogger("arrlio")
-logger.setLevel(logging.ERROR)
-
 
 @pytest.mark.skip
 class TestPerf:
@@ -28,6 +25,9 @@ class TestPerf:
     )
     @pytest.mark.asyncio
     async def test_perf_arrlio(self, backend, app):
+        logger = logging.getLogger("arrlio")
+        logger.setLevel(logging.ERROR)
+
         app.backend.config.results_queue_mode = "shared"
         url = app.backend.config.url[-1].get_secret_value()
         cmd = subprocess.run(["which", "python"], capture_output=True).stdout.decode().strip()
@@ -63,6 +63,9 @@ class TestPerf:
     )
     @pytest.mark.asyncio
     async def test_perf_celery(self, backend, app):
+        logger = logging.getLogger("arrlio")
+        logger.setLevel(logging.ERROR)
+
         host = app.backend.config.url[-1].host
         cmd = subprocess.run(["which", "celery"], capture_output=True).stdout.decode().strip()
         ps = subprocess.Popen(

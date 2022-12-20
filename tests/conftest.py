@@ -1,6 +1,5 @@
 import collections
 import gc
-import logging
 import time
 
 import pytest
@@ -8,8 +7,6 @@ import pytest_asyncio
 
 from arrlio import App, Config, backends
 from tests import utils
-
-logger = logging.getLogger("arrlio")
 
 
 @pytest.fixture(scope="function")

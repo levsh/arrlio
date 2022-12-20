@@ -257,7 +257,7 @@ class RMQConnection:
 
         while True:
             try:
-                logger.info("%s: connecting...", str(self))
+                logger.info("%s: connecting...", self)
 
                 self._conn = await wait_for(
                     aiormq.connect(self.url.get_secret_value()),
@@ -283,22 +283,22 @@ class RMQConnection:
         if self.is_closed:
             raise Exception("Can't reopen closed connection")
 
-        if not self._open_task.done():
-            await self._open_task
-
         async with self._shared["connect_lock"]:
 
-            if self._conn is None or self._conn.is_closed:
-                self._open_task = asyncio.create_task(
-                    retry(
-                        retry_timeouts=self._retry_timeouts,
-                        exc_filter=self._exc_filter,
-                    )(self._connect)()
-                )
-                await self._open_task
+            if self.is_open:
+                return
 
-        self._supervisor_task = asyncio.create_task(self._supervisor())
-        await self._execute_callbacks("on_open")
+            self._open_task = asyncio.create_task(
+                retry(
+                    retry_timeouts=self._retry_timeouts,
+                    exc_filter=self._exc_filter,
+                )(self._connect)()
+            )
+            await self._open_task
+
+            self._supervisor_task = asyncio.create_task(self._supervisor())
+
+            await self._execute_callbacks("on_open")
 
     async def close(self):
         if self.is_closed:
@@ -347,7 +347,6 @@ class Backend(base.Backend):
         self._semaphore = Semaphore(value=config.pool_size)
 
         self._declared = set()
-        self._dumps_task_instance = self.serializer.dumps_task_instance
 
         self.__conn: RMQConnection = RMQConnection(config.url, retry_timeouts=config.conn_retry_timeouts)
 
@@ -424,33 +423,37 @@ class Backend(base.Backend):
                     timeout=config.timeout,
                 )
 
-                # events
-                await channel.exchange_declare(
-                    config.events_exchange,
-                    exchange_type="topic",
-                    durable=False,
-                    auto_delete=False,
-                    timeout=timeout,
-                )
-                arguments = {}
-                if config.events_queue_ttl is not None:
-                    arguments["x-message-ttl"] = config.events_queue_ttl * 1000
-                arguments["x-queue-type"] = config.events_queue_type.value
-                await channel.queue_declare(
-                    config.events_queue,
-                    durable=config.events_queue_durable,
-                    auto_delete=not config.events_queue_durable,
-                    arguments=arguments,
-                    timeout=timeout,
-                )
-                await channel.queue_bind(
-                    config.events_queue,
-                    config.events_exchange,
-                    routing_key=config.events_queue,
-                    timeout=timeout,
-                )
-
         await self._create_backend_task("declare", fn)
+
+    async def _declare_events(self):
+        config: BackendConfig = self.config
+        timeout: TimeoutT = config.timeout
+
+        async with self._conn.channel_ctx() as channel:
+            await channel.exchange_declare(
+                config.events_exchange,
+                exchange_type="topic",
+                durable=False,
+                auto_delete=False,
+                timeout=timeout,
+            )
+            arguments = {}
+            if config.events_queue_ttl is not None:
+                arguments["x-message-ttl"] = config.events_queue_ttl * 1000
+            arguments["x-queue-type"] = config.events_queue_type.value
+            await channel.queue_declare(
+                config.events_queue,
+                durable=config.events_queue_durable,
+                auto_delete=not config.events_queue_durable,
+                arguments=arguments,
+                timeout=timeout,
+            )
+            await channel.queue_bind(
+                config.events_queue,
+                config.events_exchange,
+                routing_key=config.events_queue,
+                timeout=timeout,
+            )
 
     async def _declare_tasks_queue(self, queue: str):
         if queue in self._declared:
@@ -570,7 +573,7 @@ class Backend(base.Backend):
 
             async with self._conn.channel_ctx() as channel:
                 await channel.basic_publish(
-                    self._dumps_task_instance(task_instance),
+                    self.serializer.dumps_task_instance(task_instance),
                     exchange=config.tasks_exchange,
                     routing_key=task_data.queue,
                     properties=BasicProperties(
@@ -615,13 +618,13 @@ class Backend(base.Backend):
             ]
             logger.debug("%s: start consuming tasks queue '%s'", self, queue)
 
-        await wait(
-            [
-                self._create_backend_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
-                for queue in queues
-                if queue not in self._task_consumers or self._task_consumers[queue][0].is_closed
-            ]
-        )
+        coros = [
+            self._create_backend_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
+            for queue in queues
+            if queue not in self._task_consumers or self._task_consumers[queue][0].is_closed
+        ]
+        if coros:
+            await wait(coros)
 
         async def reconsume():
             await self.consume_tasks(list(self._task_consumers.keys()), on_task)
@@ -656,7 +659,7 @@ class Backend(base.Backend):
 
         @retry(retry_timeouts=self.config.push_retry_timeouts)
         async def fn():
-            logger.debug("%s: push result for %s", self, task_instance)
+            logger.debug("%s: push result for %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
             async with self._conn.channel_ctx() as channel:
                 await channel.basic_publish(
                     self.serializer.dumps_task_result(task_instance, task_result),
@@ -714,7 +717,9 @@ class Backend(base.Backend):
 
                 def on_result(msg):
                     try:
-                        logger.debug("%s: pop result for %s", self, task_instance)
+                        logger.debug(
+                            "%s: pop result for %s(%s)", self, task_instance.data.task_id, task_instance.task.name
+                        )
                         task_result = self.serializer.loads_task_result(msg.body)
                         if not fut.done():
                             fut.set_result(task_result)
@@ -805,13 +810,13 @@ class Backend(base.Backend):
             ]
             logger.debug("%s: start consuming messages queue '%s'", self, queue)
 
-        await wait(
-            [
-                self._create_backend_task(f"consume_messages_queue_{queue}", partial(fn, queue))
-                for queue in queues
-                if queue not in self._message_consumers or self._message_consumers[queue][0].is_closed
-            ]
-        )
+        coros = [
+            self._create_backend_task(f"consume_messages_queue_{queue}", partial(fn, queue))
+            for queue in queues
+            if queue not in self._message_consumers or self._message_consumers[queue][0].is_closed
+        ]
+        if coros:
+            await wait(coros)
 
         async def reconsume_messages():
             await self.consume_messages(list(self._message_consumers.keys()), on_message)
@@ -866,6 +871,8 @@ class Backend(base.Backend):
 
         @retry()
         async def fn():
+            await self._declare_events()
+
             channel = await self._conn.channel()
             await channel.basic_qos(prefetch_count=config.events_prefetch_count, timeout=timeout)
 

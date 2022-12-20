@@ -45,7 +45,7 @@ def task(func: Union[FunctionType, MethodType] = None, name: str = None, base: T
             raise ValueError(f"Task '{name}' already registered")
         t = base(func=func, name=name, **kwds)
         __tasks__[name] = t
-        logger.info("Register task '%s'", t.name)
+        logger.debug("Register task '%s'", t.name)
         return t
 
     def wrapper(func):
@@ -163,7 +163,7 @@ class App:
 
     async def _execute_hook(self, hook_fn, *args, **kwds):
         try:
-            logger.info("%s: execute hook %s", self, hook_fn)
+            logger.debug("%s: execute hook %s", self, hook_fn)
             await hook_fn(*args, **kwds)
         except Exception:
             logger.exception("%s: hook %s error", self, hook_fn)

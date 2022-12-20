@@ -5,9 +5,6 @@ from arrlio.serializers.base import Serializer
 
 
 class Serializer(Serializer):  # pylint: disable=function-redefined
-    def __str__(self):
-        return "nop.Serializer"
-
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 

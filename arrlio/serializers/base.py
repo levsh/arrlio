@@ -5,9 +5,6 @@ from arrlio.models import Event, TaskInstance, TaskResult
 
 
 class Serializer(abc.ABC):
-    def __repr__(self):
-        return self.__str__()
-
     @abc.abstractmethod
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> Union[bytes, TaskInstance]:
         pass

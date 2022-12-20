@@ -2,7 +2,7 @@ import logging
 import sys
 
 logger = logging.getLogger("arrlio")
-logger.setLevel("WARNING")
+logger.setLevel(logging.WARNING)
 
 log_frmt = logging.Formatter("%(asctime)s %(levelname)8s %(name)30s -- %(message)s")
 log_hndl = logging.StreamHandler(stream=sys.stderr)
@@ -11,6 +11,7 @@ logger.addHandler(log_hndl)
 
 
 __version__ = "0.15.2"
+
 
 # pylint: disable=wrong-import-position
 from arrlio.core import App, AsyncResult, registered_tasks, task  # noqa
