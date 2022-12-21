@@ -29,7 +29,7 @@ class BackendConfig(base.BackendConfig):
     pool_size: PositiveInt = Field(default_factory=lambda: POOL_SIZE)
 
     class Config:
-        env_prefix = f"{ENV_PREFIX}LOCAL_BACKEND_"
+        env_prefix = f"{ENV_PREFIX}LOCAL_"
 
 
 class Backend(base.Backend):

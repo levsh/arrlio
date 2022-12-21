@@ -11,7 +11,7 @@ from uuid import UUID
 from roview import rodict
 
 from arrlio.exc import TaskError, TaskNoResultError
-from arrlio.models import Event, Graph, Message, Task, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
@@ -88,7 +88,11 @@ class App:
                 if getattr(plugin, k).__func__ != getattr(Plugin, k):
                     hooks.append(getattr(plugin, k))
 
-        self._task_settings = self.config.task.dict(exclude_unset=True)
+        self._task_settings = {
+            k: v
+            for k, v in self.config.task.dict(exclude_unset=True).items()
+            if k in TaskData.__dataclass_fields__  # pylint: disable=no-member
+        }
 
     def __str__(self):
         return f"{self.__class__.__name__}[{self._backend}]"
@@ -219,7 +223,7 @@ class App:
                 **{**self._task_settings, **kwargs},
             )
 
-        logger.info("%s: send %s", self, task_instance)
+        logger.info("%s: send %s", self, task_instance.dict(exclude=["data.args", "data.kwds"]))
 
         await self._execute_hooks("on_task_send", task_instance)
 
@@ -252,7 +256,7 @@ class App:
         if not nodes or not roots:
             raise ValueError("Empty graph or missing roots")
 
-        logger.info("%s: send %s with args: %s and kwds: %s", str(self), graph, args, kwds)
+        logger.info("%s: send %s", self, graph)
 
         task_instances = {}
 
@@ -274,7 +278,7 @@ class App:
             data.meta.update(meta or {})
             data.graph = Graph(graph.id, nodes=nodes, edges=edges, roots={root})
 
-            logger.info("%s: send %s", str(self), task_instances[root])
+            logger.info("%s: send %s", self, task_instances[root].dict(exclude=["data.args", "data.kwds"]))
 
             await self._backend.send_task(task_instances[root])
 
@@ -291,7 +295,7 @@ class App:
         message_settings = self.config.message.dict(exclude_unset=True)
         message = Message(data=data, **{**message_settings, **kwds})
 
-        logger.info("%s: send %s", str(self), message)
+        logger.info("%s: send %s", self, message)
 
         await self._backend.send_message(message, routing_key=routing_key)
 
@@ -326,7 +330,7 @@ class App:
 
                     await self._execute_hooks("on_task_received", task_instance)
 
-                    task_result: TaskResult = await self._execute_task(task_instance)
+                    task_result: TaskResult = await self.execute_task(task_instance)
 
                     if task_instance.data.result_return:
                         await self._backend.push_task_result(task_instance, task_result)
@@ -348,7 +352,7 @@ class App:
         else:
             logger.info("%s: stop consuming task queues", self)
 
-    async def _execute_task(self, task_instance: TaskInstance) -> TaskResult:
+    async def execute_task(self, task_instance: TaskInstance) -> TaskResult:
         task_result: TaskResult = await self._executor(task_instance)
 
         graph: Graph = task_instance.data.graph

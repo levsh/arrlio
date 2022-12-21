@@ -74,6 +74,9 @@ class TestArrlio:
         res = await asyncio.wait_for(ar.get(), 5)
         assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
 
+        ar = await app.send_task(tasks.bind_true, queue="queue1")
+        res = await asyncio.wait_for(ar.get(), 5)
+
     @pytest.mark.parametrize(
         "backend",
         [

@@ -4,6 +4,7 @@ import threading
 from dataclasses import asdict, dataclass
 
 import arrlio
+from arrlio import TaskInstance
 
 logger = logging.getLogger("arrlio.tests")
 
@@ -11,6 +12,11 @@ logger = logging.getLogger("arrlio.tests")
 @arrlio.task(name="hello_world")
 async def hello_world():
     return "Hello World!"
+
+
+@arrlio.task(name="bind_true", bind=True)
+async def bind_true(task_instance: TaskInstance):
+    assert isinstance(task_instance, TaskInstance)
 
 
 @arrlio.task

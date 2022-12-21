@@ -57,7 +57,9 @@ class TaskData:
         if isinstance(self.args, list):
             object.__setattr__(self, "args", tuple(self.args))
 
-    def dict(self):
+    def dict(self, exclude=None):
+        if exclude:
+            return {k: v for k, v in asdict(self).items() if k not in exclude}
         return asdict(self)
 
 
@@ -83,8 +85,9 @@ class Task:
     loads: Callable = None
     dumps: Callable = None
 
-    def dict(self):
-        return {k: v for k, v in asdict(self).items() if k not in {"loads", "dumps"}}
+    def dict(self, exclude=None):
+        exclude = exclude or []
+        return {k: v for k, v in asdict(self).items() if k not in {"loads", "dumps"} and k not in exclude}
 
     def instantiate(self, extra: dict = None, **kwds) -> "TaskInstance":
         data: TaskData = TaskData(
@@ -125,8 +128,11 @@ class TaskInstance:
             args = (self,) + args
         return self.task.func(*args, **kwds)
 
-    def dict(self):
-        return {"task": self.task.dict(), "data": self.data.dict()}
+    def dict(self, exclude=None):
+        exclude = exclude or []
+        task_exclude = [x for x in exclude if x.startswith("task.")]
+        data_exclude = [x for x in exclude if x.startswith("data.")]
+        return {"task": self.task.dict(exclude=task_exclude), "data": self.data.dict(exclude=data_exclude)}
 
 
 @dataclass(frozen=True)

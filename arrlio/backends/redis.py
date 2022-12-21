@@ -4,7 +4,7 @@ import itertools
 import logging
 from asyncio import Semaphore, create_task
 from functools import partial
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Union
 
 import siderpy  # pylint: disable=import-error
 from pydantic import Field, PositiveInt
@@ -26,8 +26,8 @@ TIMEOUT: int = 60
 CONNECT_TIMEOUT: int = 30
 CONN_POOL_SIZE: int = 10
 VERIFY_SSL: bool = True
-PUSH_RETRY_TIMEOUTS: Iterable[int] = [5, 5, 5, 5]
-PULL_RETRY_TIMEOUTS: Iterable[int] = itertools.repeat(5)
+PUSH_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [5, 5, 5, 5]
+PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)
 POOL_SIZE: int = 100
 
 
@@ -38,13 +38,13 @@ class BackendConfig(base.BackendConfig):
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
     connect_timeout: Optional[TimeoutT] = Field(default_factory=lambda: CONNECT_TIMEOUT)
     conn_pool_size: Optional[PositiveInt] = Field(default_factory=lambda: CONN_POOL_SIZE)
-    push_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
+    push_retry_timeouts: Optional[Union[List[int], Iterable[int]]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
+    pull_retry_timeouts: Optional[Union[List[int], Iterable[int]]] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
     pool_size: Optional[PositiveInt] = Field(default_factory=lambda: POOL_SIZE)
 
     class Config:
-        env_prefix = f"{ENV_PREFIX}REDIS_BACKEND_"
+        env_prefix = f"{ENV_PREFIX}REDIS_"
 
 
 class Backend(base.Backend):

@@ -65,9 +65,9 @@ class TestBackendConfig:
         assert config.id == "Custom Name"
         assert config.url.get_secret_value() == "amqps://admin@example.com"
         assert config.timeout == 123
-        assert next(config.conn_retry_timeouts) == 1
-        assert next(config.push_retry_timeouts) == 2
-        assert next(config.pull_retry_timeouts) == 3
+        assert next(iter(config.conn_retry_timeouts)) == 1
+        assert next(iter(config.push_retry_timeouts)) == 2
+        assert next(iter(config.pull_retry_timeouts)) == 3
         assert config.verify_ssl is False
         assert config.tasks_exchange == "Tasks custom Exchange"
         assert config.tasks_queue_type == "quorum"

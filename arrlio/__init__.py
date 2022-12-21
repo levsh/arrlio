@@ -16,5 +16,5 @@ __version__ = "0.15.2"
 # pylint: disable=wrong-import-position
 from arrlio.core import App, AsyncResult, registered_tasks, task  # noqa
 from arrlio.exc import NotFoundError, TaskError, TaskNoResultError, TaskTimeoutError  # noqa
-from arrlio.models import Graph, TaskResult  # noqa
+from arrlio.models import Graph, Task, TaskData, TaskInstance, TaskResult  # noqa
 from arrlio.settings import Config, MessageConfig, TaskConfig  # noqa

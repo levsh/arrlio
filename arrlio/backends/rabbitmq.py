@@ -42,9 +42,9 @@ class ResultQueueMode(str, Enum):
 SERIALIZER: str = "arrlio.serializers.json"
 URL: str = "amqp://guest:guest@localhost"
 TIMEOUT: int = 10
-CONN_RETRY_TIMEOUTS: Iterable[int] = [0]
-PUSH_RETRY_TIMEOUTS: Iterable[int] = [5, 5, 5, 5]
-PULL_RETRY_TIMEOUTS: Iterable[int] = itertools.repeat(5)
+CONN_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [0]
+PUSH_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [5, 5, 5, 5]
+PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)
 VERIFY_SSL: bool = True
 TASKS_EXCHANGE: str = "arrlio"
 TASKS_QUEUE_TYPE: QueueType = QueueType.CLASSIC
@@ -69,9 +69,9 @@ class BackendConfig(base.BackendConfig):
     serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     url: Union[AmqpDsn, List[AmqpDsn]] = Field(default_factory=lambda: URL)
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
-    conn_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: CONN_RETRY_TIMEOUTS)
-    push_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeouts: Optional[Iterable] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
+    conn_retry_timeouts: Optional[Union[List[int], Iterable[int]]] = Field(default_factory=lambda: CONN_RETRY_TIMEOUTS)
+    push_retry_timeouts: Optional[Union[List[int], Iterable[int]]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
+    pull_retry_timeouts: Optional[Union[List[int], Iterable[int]]] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
     tasks_exchange: str = Field(default_factory=lambda: TASKS_EXCHANGE)
     tasks_queue_type: QueueType = Field(default_factory=lambda: TASKS_QUEUE_TYPE)
@@ -92,7 +92,7 @@ class BackendConfig(base.BackendConfig):
     results_shared_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_TTL)
 
     class Config:
-        env_prefix = f"{ENV_PREFIX}RMQ_BACKEND_"
+        env_prefix = f"{ENV_PREFIX}RABBITMQ_"
 
 
 class RMQConnection:
