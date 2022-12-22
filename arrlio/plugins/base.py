@@ -2,14 +2,22 @@ import abc
 import contextlib
 import logging
 
+from pydantic import BaseSettings
+
 from arrlio.models import TaskInstance, TaskResult
 
 logger = logging.getLogger("arrlio.plugins.base")
 
 
+class Config(BaseSettings):
+    class Config:
+        validate_assignment = True
+
+
 class Plugin(abc.ABC):
-    def __init__(self, app):
+    def __init__(self, app, config: Config):
         self.app = app
+        self.config = config
 
     @property
     @abc.abstractmethod

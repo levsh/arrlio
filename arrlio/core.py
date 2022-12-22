@@ -4,7 +4,7 @@ import logging
 from asyncio import current_task, gather
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
-from types import FunctionType, MethodType, ModuleType
+from types import FunctionType, MethodType
 from typing import Any, Dict, List, Type, Union
 from uuid import UUID
 
@@ -62,14 +62,11 @@ class App:
 
     def __init__(self, config: Config):
         self.config = config
-        if isinstance(config.backend, ModuleType):
-            self._backend = self.config.backend.Backend(self.config.backend.BackendConfig())
-        else:
-            self._backend = self.config.backend()
+        self._backend = config.backend.module.Backend(config.backend.config)
         self._closed: asyncio.Future = asyncio.Future()
         self._running_tasks: Dict[UUID, asyncio.Task] = {}
         self._running_messages: Dict[UUID, asyncio.Task] = {}
-        self._executor = config.executor()
+        self._executor = config.executor.module.Executor(config.executor.config)
         self._context = ContextVar("context", default={})
 
         self._hooks = {
@@ -81,8 +78,8 @@ class App:
             "task_context": [],
         }
         self._plugins = {}
-        for plugin_cls in config.plugins:
-            plugin = plugin_cls(self)
+        for plugin_config in config.plugins:
+            plugin = plugin_config.module.Plugin(self, plugin_config.config)
             self._plugins[plugin.name] = plugin
             for k, hooks in self._hooks.items():
                 if getattr(plugin, k).__func__ != getattr(Plugin, k):

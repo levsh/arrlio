@@ -3,15 +3,15 @@ from unittest import mock
 
 import pytest
 
+from arrlio import serializers
 from arrlio.backends import rabbitmq
-from arrlio.serializers.json import Serializer
 
 
-class TestBackendConfig:
+class TestConfig:
     def test_init(self, cleanup):
-        config = rabbitmq.BackendConfig()
+        config = rabbitmq.Config()
         assert config.id
-        assert config.serializer == Serializer
+        assert config.serializer.module == serializers.json
         assert config.url.get_secret_value() == rabbitmq.URL
         assert config.timeout == rabbitmq.TIMEOUT
         assert config.conn_retry_timeouts
@@ -36,11 +36,7 @@ class TestBackendConfig:
         assert config.results_shared_queue_ttl == rabbitmq.RESULTS_SHARED_QUEUE_TTL
 
     def test_init_custom(self, cleanup):
-        def serializer_factory():
-            return Serializer()
-
-        config = rabbitmq.BackendConfig(
-            serializer=serializer_factory,
+        config = rabbitmq.Config(
             id="Custom Name",
             url="amqps://admin@example.com",
             timeout=123,
@@ -61,7 +57,7 @@ class TestBackendConfig:
             events_prefetch_count=20,
             messages_prefetch_count=30,
         )
-        assert config.serializer == serializer_factory
+        assert config.serializer.module == serializers.json
         assert config.id == "Custom Name"
         assert config.url.get_secret_value() == "amqps://admin@example.com"
         assert config.timeout == 123
@@ -143,9 +139,9 @@ class TestRMQConnection:
 class TestBackend:
     @pytest.mark.asyncio
     async def test_init(self, cleanup):
-        backend = rabbitmq.Backend(rabbitmq.BackendConfig())
+        backend = rabbitmq.Backend(rabbitmq.Config())
         try:
-            assert isinstance(backend.serializer, Serializer)
+            assert isinstance(backend.serializer, serializers.json.Serializer)
             assert backend._task_consumers == {}
             assert backend._message_consumers == {}
             assert backend._events_consumer == []
@@ -154,12 +150,12 @@ class TestBackend:
             await backend.close()
 
     # def test_init_custom(self):
-    #     backend = local.Backend(local.BackendConfig(serializer=lambda: nop.Serializer()))
+    #     backend = local.Backend(local.Config(serializer=lambda: nop.Serializer()))
     #     assert isinstance(backend.serializer, nop.Serializer)
 
     @pytest.mark.asyncio
     async def test_str(self, cleanup):
-        backend = rabbitmq.Backend(rabbitmq.BackendConfig())
+        backend = rabbitmq.Backend(rabbitmq.Config())
         try:
             assert str(backend) == "RMQBackend[RMQConnection#1[localhost:None]]"
         finally:
@@ -167,7 +163,7 @@ class TestBackend:
 
     @pytest.mark.asyncio
     async def test_repr(self, cleanup):
-        backend = rabbitmq.Backend(rabbitmq.BackendConfig())
+        backend = rabbitmq.Backend(rabbitmq.Config())
         try:
             assert repr(backend) == "RMQBackend[RMQConnection#1[localhost:None]]"
         finally:

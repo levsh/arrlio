@@ -32,8 +32,7 @@ BACKEND = "arrlio.backends.local"
 # BACKEND = "arrlio.backends.redis"
 
 async def main():
-    app = arrlio.App(arrlio.Config(backend=BACKEND))
-    # app = arrlio.App(arrlio.Config(backend=lambda: backends.local.Backend(backends.local.BackendConfig())))
+    app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
 
     async with app:
         await app.consume_tasks()
@@ -69,7 +68,7 @@ graph.add_edge("B", "C")
 BACKEND = "arrlio.backends.local"
 
 async def main():
-    app = arrlio.App(arrlio.Config(backend=BACKEND))
+    app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
 
     async with app:
         await app.consume_tasks()
@@ -101,7 +100,7 @@ graph.add_edge("A", "B")
 BACKEND = "arrlio.backends.local"
 
 async def main():
-    app = arrlio.App(arrlio.Config(backend=BACKEND))
+    app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
 
     async with app:
         await app.consume_tasks()

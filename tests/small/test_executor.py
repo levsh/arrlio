@@ -2,14 +2,14 @@ from unittest import mock
 
 import pytest
 
-from arrlio.executor import Executor
+from arrlio.executor import Config, Executor
 from tests import tasks
 
 
 class TestExecutor:
     @pytest.mark.asyncio
     async def test_execute(self, cleanup):
-        executor = Executor()
+        executor = Executor(Config())
 
         result = await executor.execute(tasks.hello_world.instantiate())
         assert result.exc is None
@@ -32,7 +32,7 @@ class TestExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_in_thread(self, cleanup):
-        executor = Executor()
+        executor = Executor(Config())
 
         result = await executor.execute_in_thread(tasks.hello_world.instantiate())
         assert result.exc is None
@@ -55,7 +55,7 @@ class TestExecutor:
 
     @pytest.mark.asyncio
     async def test_call(self, cleanup):
-        executor = Executor()
+        executor = Executor(Config())
 
         with mock.patch.object(executor, "execute") as mock_execute:
             task_instance = tasks.hello_world.instantiate()

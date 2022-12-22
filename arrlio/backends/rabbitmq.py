@@ -19,7 +19,7 @@ from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PriorityT, SerializerT, TimeoutT
+from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PriorityT, TimeoutT
 from arrlio.utils import InfIter, retry, wait_for
 
 logger = logging.getLogger("arrlio.backends.rabbitmq")
@@ -65,8 +65,10 @@ RESULTS_SHARED_QUEUE_TTL: int = 600
 POOL_SIZE: int = 100
 
 
-class BackendConfig(base.BackendConfig):
-    serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
+class Config(base.Config):
+    serializer: base.SerializerConfig = Field(
+        default_factory=lambda: base.SerializerConfig(module="arrlio.serializers.json")
+    )
     url: Union[AmqpDsn, List[AmqpDsn]] = Field(default_factory=lambda: URL)
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
     conn_retry_timeouts: Optional[Union[List[int], Iterable[int]]] = Field(default_factory=lambda: CONN_RETRY_TIMEOUTS)
@@ -337,7 +339,7 @@ class RMQConnection:
 
 
 class Backend(base.Backend):
-    def __init__(self, config: BackendConfig):
+    def __init__(self, config: Config):
         super().__init__(config)
 
         self._task_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
@@ -390,7 +392,7 @@ class Backend(base.Backend):
         return f"{self.config.results_queue_prefix}{self.config.id}.results"
 
     async def _declare(self):
-        config: BackendConfig = self.config
+        config: Config = self.config
         timeout: TimeoutT = config.timeout
 
         async def fn():
@@ -426,7 +428,7 @@ class Backend(base.Backend):
         await self._create_backend_task("declare", fn)
 
     async def _declare_events(self):
-        config: BackendConfig = self.config
+        config: Config = self.config
         timeout: TimeoutT = config.timeout
 
         async with self._conn.channel_ctx() as channel:
@@ -459,7 +461,7 @@ class Backend(base.Backend):
         if queue in self._declared:
             return
 
-        config: BackendConfig = self.config
+        config: Config = self.config
         timeout: TimeoutT = config.timeout
         arguments = {"x-max-priority": PriorityT.le, "x-queue-type": config.tasks_queue_type.value}
         if config.tasks_queue_ttl is not None:
@@ -478,7 +480,7 @@ class Backend(base.Backend):
         self._declared.add(queue)
 
     async def _declare_result_queue(self, task_instance: TaskInstance) -> str:
-        config: BackendConfig = self.config
+        config: Config = self.config
         task_data: TaskInstance = task_instance.data
         extra: dict = task_data.extra
         result_queue_mode = extra.get("result_queue_mode") or config.results_queue_mode
@@ -849,7 +851,7 @@ class Backend(base.Backend):
                 self.__conn.remove_callback("on_close", "consume_messages")
 
     async def send_event(self, event: Event):
-        config: BackendConfig = self.config
+        config: Config = self.config
 
         @retry(retry_timeouts=self.config.push_retry_timeouts)
         async def fn():
@@ -869,7 +871,7 @@ class Backend(base.Backend):
         await self._create_backend_task("send_event", fn)
 
     async def consume_events(self, on_event: AsyncCallableT):
-        config: BackendConfig = self.config
+        config: Config = self.config
         timeout: TimeoutT = config.timeout
 
         @retry()

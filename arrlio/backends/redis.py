@@ -14,7 +14,7 @@ from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.tp import AsyncCallableT, RedisDsn, SerializerT, TimeoutT
+from arrlio.tp import AsyncCallableT, RedisDsn, TimeoutT
 from arrlio.utils import retry
 
 logger = logging.getLogger("arrlio.backends.redis")
@@ -31,9 +31,11 @@ PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)
 POOL_SIZE: int = 100
 
 
-class BackendConfig(base.BackendConfig):
-    name: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
-    serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
+class Config(base.Config):
+    # id: Optional[str] = Field(default_factory=lambda: BACKEND_NAME)
+    serializer: base.SerializerConfig = Field(
+        default_factory=lambda: base.SerializerConfig(module="arrlio.serializers.json")
+    )
     url: RedisDsn = Field(default_factory=lambda: URL)
     timeout: Optional[TimeoutT] = Field(default_factory=lambda: TIMEOUT)
     connect_timeout: Optional[TimeoutT] = Field(default_factory=lambda: CONNECT_TIMEOUT)
@@ -48,7 +50,7 @@ class BackendConfig(base.BackendConfig):
 
 
 class Backend(base.Backend):
-    def __init__(self, config: BackendConfig):
+    def __init__(self, config: Config):
         super().__init__(config)
         self.redis_pool = siderpy.RedisPool(
             config.url.get_secret_value(),

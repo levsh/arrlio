@@ -1,10 +1,14 @@
 from typing import Any
 
 from arrlio.models import Event, TaskInstance, TaskResult
-from arrlio.serializers.base import Serializer
+from arrlio.serializers import base
 
 
-class Serializer(Serializer):  # pylint: disable=function-redefined
+class Config(base.Config):
+    pass
+
+
+class Serializer(base.Serializer):  # pylint: disable=function-redefined
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 

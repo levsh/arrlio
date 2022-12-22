@@ -8,10 +8,10 @@ from arrlio.models import Event, Task, TaskResult
 
 class TestSerializer:
     def test_init(self):
-        serializers.json.Serializer()
+        serializers.json.Serializer(serializers.json.Config())
 
     def test_dumps_task_instance(self):
-        serializer = serializers.json.Serializer()
+        serializer = serializers.json.Serializer(serializers.json.Config())
         task_instance = Task(None, "test").instantiate(task_id="2d29459b-3245-492e-977b-09043c0f1f27", queue="queue")
         assert serializer.dumps_task_instance(task_instance) == (
             b'{"name": "test", "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, '
@@ -20,7 +20,7 @@ class TestSerializer:
         )
 
     def test_loads_task_instance(self):
-        serializer = serializers.json.Serializer()
+        serializer = serializers.json.Serializer(serializers.json.Config())
         assert serializer.loads_task_instance(
             (
                 b'{"name": "test", "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, '
@@ -30,7 +30,7 @@ class TestSerializer:
         ) == Task(None, "test").instantiate(task_id="2d29459b-3245-492e-977b-09043c0f1f27", queue="queue")
 
     def test_dumps_task_result(self):
-        serializer = serializers.json.Serializer()
+        serializer = serializers.json.Serializer(serializers.json.Config())
 
         task_instance = Task(None, "test").instantiate(task_id="2d29459b-3245-492e-977b-09043c0f1f27", queue="queue")
         task_result = TaskResult(res="ABC")
@@ -51,7 +51,7 @@ class TestSerializer:
         )
 
     def test_loads_task_result(self):
-        serializer = serializers.json.Serializer()
+        serializer = serializers.json.Serializer(serializers.json.Config())
 
         assert serializer.loads_task_result(b'["ABC", null, null]') == TaskResult(res="ABC")
 
@@ -79,7 +79,7 @@ class TestSerializer:
         # )
 
     def test_dumps_event(self):
-        serializer = serializers.json.Serializer()
+        serializer = serializers.json.Serializer(serializers.json.Config())
 
         event = Event(
             event_id="f3410fd3-660c-4e26-b433-a6c2f5bdf700",
@@ -87,16 +87,19 @@ class TestSerializer:
             dt=datetime.datetime(2022, 3, 12),
             data={"k": "v"},
         )
-        assert (
-            serializer.dumps_event(event)
-            == b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", "dt": "2022-03-12T00:00:00", "ttl": 300}'
+        assert serializer.dumps_event(event) == (
+            b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", '
+            b'"dt": "2022-03-12T00:00:00", "ttl": 300}'
         )
 
     def test_loads_event(self):
-        serializer = serializers.json.Serializer()
+        serializer = serializers.json.Serializer(serializers.json.Config())
 
         event = serializer.loads_event(
-            b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", "dt": "2022-03-12T00:00:00", "ttl": 300}'
+            (
+                b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", '
+                b'"dt": "2022-03-12T00:00:00", "ttl": 300}'
+            )
         )
         assert event == Event(
             event_id="f3410fd3-660c-4e26-b433-a6c2f5bdf700",

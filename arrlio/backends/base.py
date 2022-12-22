@@ -3,21 +3,29 @@ import asyncio
 import logging
 from asyncio import create_task
 from collections import defaultdict
-from typing import Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set
 from uuid import uuid4
 
 from pydantic import BaseSettings, Field
 
 from arrlio.models import Event, Message, TaskInstance, TaskResult
-from arrlio.serializers.base import Serializer
+from arrlio.settings import ENV_PREFIX, ConfigValidatorMixIn
 from arrlio.tp import AsyncCallableT, SerializerT
 
 logger = logging.getLogger("arrlio.backends.base")
 
 
-class BackendConfig(BaseSettings):
+class SerializerConfig(BaseSettings, ConfigValidatorMixIn):
+    module: SerializerT
+    config: Any = Field(default_factory=dict)
+
+    class Config:
+        env_prefix = f"{ENV_PREFIX}SERIALIZER_"
+
+
+class Config(BaseSettings):
     id: str = Field(default_factory=lambda: f"{uuid4()}")
-    serializer: SerializerT
+    serializer: SerializerConfig = Field(default_factory=lambda: SerializerConfig(module="arrlio.serializers.nop"))
 
     class Config:
         validate_assignment = True
@@ -26,9 +34,9 @@ class BackendConfig(BaseSettings):
 class Backend(abc.ABC):
     __slots__ = ("config", "serializer", "_closed", "_backend_tasks")
 
-    def __init__(self, config: BackendConfig):
-        self.config: BackendConfig = config
-        self.serializer: Serializer = config.serializer()
+    def __init__(self, config: Config):
+        self.config: Config = config
+        self.serializer = config.serializer.module.Serializer(config.serializer.config)
         self._closed: asyncio.Future = asyncio.Future()
         self._backend_tasks: Dict[str, Set[asyncio.Task]] = defaultdict(set)
 

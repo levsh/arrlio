@@ -6,13 +6,23 @@ from inspect import iscoroutinefunction
 from threading import Thread
 from time import monotonic
 
+from pydantic import BaseSettings
+
 from arrlio.exc import NotFoundError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 
 logger = logging.getLogger("arrlio.executor")
 
 
+class Config(BaseSettings):
+    class Config:
+        validate_assignment = True
+
+
 class Executor:
+    def __init__(self, config: Config):
+        self.config = config
+
     def __str__(self):
         return self.__class__.__name__
 

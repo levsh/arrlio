@@ -79,7 +79,7 @@ def cleanup():
 
 @pytest_asyncio.fixture(scope="function")
 async def app(backend, cleanup):
-    config = Config(backend=lambda: backend.module.Backend(backend.module.BackendConfig(**backend.config_kwds)))
+    config = Config(backend={"module": backend.module, "config": backend.config_kwds})
     app = App(config)
     try:
         yield app

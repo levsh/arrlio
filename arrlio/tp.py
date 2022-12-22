@@ -1,6 +1,6 @@
 import importlib
 import re
-from types import FunctionType, ModuleType
+from types import ModuleType
 from typing import Any, Callable, Coroutine, Dict, Optional, no_type_check
 
 from pydantic import AnyUrl, conint
@@ -76,12 +76,12 @@ class BackendT:
     def validate(cls, v):
         if isinstance(v, str):
             v = importlib.import_module(v)
-            if not hasattr(v, "BackendConfig"):
-                raise TypeError("Module doesn't provide BackendConfig class")
+            if not hasattr(v, "Config"):
+                raise TypeError("Module doesn't provide Config class")
             if not hasattr(v, "Backend"):
                 raise TypeError("Module doesn't provide Backend class")
-        if not isinstance(v, (FunctionType, ModuleType)):
-            raise ValueError("Expect Function or Module")
+        if not isinstance(v, ModuleType):
+            raise ValueError("Expect Module")
         return v
 
 
@@ -96,10 +96,12 @@ class SerializerT:
     def validate(cls, v):
         if isinstance(v, str):
             v = importlib.import_module(v)
-        if isinstance(v, ModuleType):
-            v = v.Serializer
-        if not callable(v):
-            raise ValueError("Expect module path, module or callable object")
+            if not hasattr(v, "Config"):
+                raise TypeError("Module doesn't provide Config class")
+            if not hasattr(v, "Serializer"):
+                raise TypeError("Module doesn't provide Serializer class")
+        if not isinstance(v, ModuleType):
+            raise ValueError("Expect Module")
         return v
 
 
@@ -114,10 +116,12 @@ class PluginT:
     def validate(cls, v):
         if isinstance(v, str):
             v = importlib.import_module(v)
-        if isinstance(v, ModuleType):
-            v = v.Plugin
-        if not callable(v):
-            raise ValueError("Expect module path, module or callable object")
+            if not hasattr(v, "Config"):
+                raise TypeError("Module doesn't provide Config class")
+            if not hasattr(v, "Plugin"):
+                raise TypeError("Module doesn't provide Plugin class")
+        if not isinstance(v, ModuleType):
+            raise ValueError("Expect Module")
         return v
 
 
@@ -132,8 +136,10 @@ class ExecutorT:
     def validate(cls, v):
         if isinstance(v, str):
             v = importlib.import_module(v)
-        if isinstance(v, ModuleType):
-            v = v.Executor
-        if not callable(v):
-            raise ValueError("Expect module path, module or callable object")
+            if not hasattr(v, "Config"):
+                raise TypeError("Module doesn't provide Config class")
+            if not hasattr(v, "Executor"):
+                raise TypeError("Module doesn't provide Executor class")
+        if not isinstance(v, ModuleType):
+            raise ValueError("Expect Module")
         return v

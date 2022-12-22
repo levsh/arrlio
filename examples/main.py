@@ -4,7 +4,6 @@ import logging
 import arrlio
 import tasks
 
-
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
@@ -13,7 +12,7 @@ BACKEND = "arrlio.backends.local"
 
 async def main():
     async def example_1():
-        app = arrlio.App(arrlio.Config(backend=BACKEND))
+        app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
 
         async with app:
             await app.consume_tasks()
@@ -47,7 +46,7 @@ async def main():
         graph.add_edge("A", "B")
         graph.add_edge("B", "C")
 
-        app = arrlio.App(arrlio.Config(backend=BACKEND))
+        app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
 
         async with app:
             await app.consume_tasks()
@@ -63,7 +62,7 @@ async def main():
         graph.add_node("B", tasks.bash, args=("wc -w",))
         graph.add_edge("A", "B")
 
-        app = arrlio.App(arrlio.Config(backend=BACKEND))
+        app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
 
         async with app:
             await app.consume_tasks()

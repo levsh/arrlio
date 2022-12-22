@@ -6,7 +6,7 @@ from typing import Any
 
 from arrlio.core import __tasks__
 from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
-from arrlio.serializers.base import Serializer
+from arrlio.serializers import base
 from arrlio.utils import ExtendedJSONEncoder
 
 logger = logging.getLogger("arrlio.serializers.json")
@@ -15,8 +15,13 @@ json_dumps = json.dumps
 json_loads = json.loads
 
 
-class Serializer(Serializer):  # pylint: disable=function-redefined
-    def __init__(self, encoder=None):
+class Config(base.Config):
+    pass
+
+
+class Serializer(base.Serializer):  # pylint: disable=function-redefined
+    def __init__(self, *args, encoder=None, **kwds):
+        super().__init__(*args, **kwds)
         self.encoder = encoder or ExtendedJSONEncoder
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:

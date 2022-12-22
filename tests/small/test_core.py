@@ -2,7 +2,7 @@ from unittest import mock
 
 import pytest
 
-from arrlio import App, AsyncResult, Config, settings, task
+from arrlio import App, AsyncResult, Config, backends, serializers, settings, task
 
 
 def test_task():
@@ -21,7 +21,8 @@ class TestApp:
         config = Config()
         app = App(config)
         assert app.config == config
-        assert isinstance(app.backend, config.backend.Backend)
+        assert isinstance(app.backend, backends.local.Backend)
+        assert isinstance(app.backend.serializer, serializers.nop.Serializer)
         await app.close()
 
     @pytest.mark.asyncio

@@ -2,12 +2,16 @@ import logging
 from datetime import datetime, timezone
 
 from arrlio.models import Event, TaskInstance, TaskResult
-from arrlio.plugins.base import Plugin
+from arrlio.plugins import base
 
 logger = logging.getLogger("arrlio.plugins.events")
 
 
-class Plugin(Plugin):  # pylint: disable=function-redefined
+class Config(base.Config):
+    pass
+
+
+class Plugin(base.Plugin):
     @property
     def name(self) -> str:
         return "events"

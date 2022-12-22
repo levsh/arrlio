@@ -3,6 +3,7 @@ from unittest import mock
 import pytest
 
 from arrlio import App, Config
+from arrlio.plugins.events import Config as EventsPluginConfig
 from arrlio.plugins.events import Plugin as EventsPlugin
 from tests import tasks
 
@@ -12,7 +13,7 @@ class TestEventsPlugin:
     async def test_init(self, cleanup):
         app = App(Config())
         try:
-            plugin = EventsPlugin(app)
+            plugin = EventsPlugin(app, EventsPluginConfig())
             assert plugin.name == "events"
             await plugin.on_init()
             await plugin.on_close()
@@ -23,7 +24,7 @@ class TestEventsPlugin:
     async def test_on_task_received(self, cleanup):
         app = App(Config())
         try:
-            plugin = EventsPlugin(app)
+            plugin = EventsPlugin(app, EventsPluginConfig())
             task_instance = tasks.hello_world.instantiate()
             with mock.patch.object(app, "send_event") as mock_send_event:
                 await plugin.on_task_received(task_instance)
@@ -42,7 +43,7 @@ class TestEventsPlugin:
     async def test_on_task_don(self, cleanup):
         app = App(Config())
         try:
-            plugin = EventsPlugin(app)
+            plugin = EventsPlugin(app, EventsPluginConfig())
             task_instance = tasks.hello_world.instantiate()
             task_result = await app.executor(task_instance)
             with mock.patch.object(app, "send_event") as mock_send_event:

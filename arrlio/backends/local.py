@@ -14,7 +14,7 @@ from arrlio.backends import base
 from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.tp import AsyncCallableT, PriorityT, SerializerT
+from arrlio.tp import AsyncCallableT, PriorityT
 
 logger = logging.getLogger("arrlio.backends.local")
 
@@ -23,9 +23,8 @@ SERIALIZER: str = "arrlio.serializers.nop"
 POOL_SIZE: int = 100
 
 
-class BackendConfig(base.BackendConfig):
+class Config(base.Config):
     id: str = Field(default_factory=lambda: BACKEND_ID)
-    serializer: SerializerT = Field(default_factory=lambda: SERIALIZER)
     pool_size: PositiveInt = Field(default_factory=lambda: POOL_SIZE)
 
     class Config:
@@ -35,7 +34,7 @@ class BackendConfig(base.BackendConfig):
 class Backend(base.Backend):
     __shared: dict = {}
 
-    def __init__(self, config: BackendConfig):
+    def __init__(self, config: Config):
         super().__init__(config)
         shared: dict = self.__shared
         if config.id not in shared:
@@ -57,10 +56,6 @@ class Backend(base.Backend):
         self._consumed_task_queues = set()
         self._consumed_message_queues = set()
         self._semaphore = Semaphore(value=config.pool_size)
-
-        self._serializer_dumps_task_instance = self.serializer.dumps_task_instance
-        self._serializer_dumps_task_result = self.serializer.dumps_task_result
-        self._serializer_loads_task_result = self.serializer.loads_task_result
 
     def __del__(self):
         if self.config.id in self.__shared:
@@ -97,7 +92,7 @@ class Backend(base.Backend):
                     (PriorityT.le - task_data.priority) if task_data.priority else PriorityT.ge,
                     monotonic(),
                     task_data.ttl,
-                    self._serializer_dumps_task_instance(task_instance),
+                    self.serializer.dumps_task_instance(task_instance),
                 )
             )
 
@@ -154,7 +149,7 @@ class Backend(base.Backend):
         task_id: UUID = task_data.task_id
         result = self._results[task_id]
 
-        result[1] = self._serializer_dumps_task_result(task_instance, task_result)
+        result[1] = self.serializer.dumps_task_result(task_instance, task_result)
         result[0].set()
 
         if task_data.result_ttl is not None:
@@ -177,7 +172,7 @@ class Backend(base.Backend):
         async def fn():
             await result[0].wait()
             try:
-                return self._serializer_loads_task_result(result[1])
+                return self.serializer.loads_task_result(result[1])
             finally:
                 del results[task_id]
 
