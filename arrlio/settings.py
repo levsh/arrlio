@@ -33,8 +33,10 @@ MESSAGE_QUEUES = [MESSAGE_EXCHANGE]
 
 
 class ConfigValidatorMixIn(BaseModel):
-    @validator("config", check_fields=False, allow_reuse=True)
+    @validator("config", check_fields=False)
     def validate_config(cls, v, values):  # pylint: disable=no-self-argument
+        if "module" not in values:
+            return v
         config_cls = values["module"].Config
         if isinstance(v, config_cls):
             return v
@@ -86,7 +88,7 @@ class EventConfig(BaseSettings):
 
 
 class PluginConfig(BaseSettings, ConfigValidatorMixIn):
-    module: PluginT = "arrlio.plugins.events"
+    module: PluginT
     config: Any = Field(default_factory=dict)
 
     class Config:
@@ -111,7 +113,7 @@ class Config(BaseSettings):
     event: EventConfig = Field(default_factory=EventConfig)
     task_queues: Set[str] = Field(default_factory=lambda: TASK_QUEUES)
     message_queues: Set[str] = Field(default_factory=lambda: MESSAGE_QUEUES)
-    plugins: List[PluginConfig] = Field(default_factory=lambda: [PluginConfig()])
+    plugins: List[PluginConfig] = Field(default_factory=list)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
     class Config:

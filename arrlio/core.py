@@ -143,10 +143,11 @@ class App:
             for hooks in self._hooks.values():
                 hooks.clear()
 
-            await asyncio.gather(
+            await gather(
                 self.stop_consume_tasks(),
                 self.stop_consume_messages(),
                 self.stop_consume_events(),
+                return_exceptions=True,
             )
 
             for task_id, aio_task in self._running_tasks.items():
