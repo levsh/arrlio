@@ -130,8 +130,8 @@ class TaskInstance:
 
     def dict(self, exclude=None):
         exclude = exclude or []
-        task_exclude = [x for x in exclude if x.startswith("task.")]
-        data_exclude = [x for x in exclude if x.startswith("data.")]
+        task_exclude = [x.split("task.", 1)[-1] for x in exclude if x.startswith("task.")]
+        data_exclude = [x.split("data.", 1)[-1] for x in exclude if x.startswith("data.")]
         return {"task": self.task.dict(exclude=task_exclude), "data": self.data.dict(exclude=data_exclude)}
 
 

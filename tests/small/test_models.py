@@ -222,3 +222,106 @@ def test_graph():
     assert graph.edges == {"A": [["B", None], ["C", None]], "B": [["B", None]]}
 
     assert graph.roots == {"A"}
+
+
+def test_dict():
+    @arrlio.task(
+        loads=lambda *args, **kwds: (args, kwds),
+        dumps=lambda r: r,
+    )
+    def foo(x, y=None):
+        pass
+
+    task_instance = foo.instantiate(args=(1,), kwds={"y": "value"})
+
+    data = task_instance.task.dict()
+    data.pop("func")
+    assert data == {
+        "name": "test_models.foo",
+        "bind": False,
+        "queue": "arrlio.tasks",
+        "priority": 1,
+        "timeout": 300,
+        "ttl": 300,
+        "ack_late": True,
+        "result_ttl": 300,
+        "result_return": True,
+        "thread": None,
+        "events": False,
+        "event_ttl": 300,
+        "extra": {},
+    }
+
+    data = task_instance.data.dict()
+    data.pop("task_id")
+    assert data == {
+        "args": (1,),
+        "kwds": {"y": "value"},
+        "meta": {},
+        "graph": None,
+        "queue": "arrlio.tasks",
+        "priority": 1,
+        "timeout": 300,
+        "ttl": 300,
+        "ack_late": True,
+        "result_ttl": 300,
+        "result_return": True,
+        "thread": None,
+        "events": False,
+        "event_ttl": 300,
+        "extra": {},
+    }
+
+    data = task_instance.data.dict(exclude=["args", "kwds"])
+    data.pop("task_id")
+    assert data == {
+        "meta": {},
+        "graph": None,
+        "queue": "arrlio.tasks",
+        "priority": 1,
+        "timeout": 300,
+        "ttl": 300,
+        "ack_late": True,
+        "result_ttl": 300,
+        "result_return": True,
+        "thread": None,
+        "events": False,
+        "event_ttl": 300,
+        "extra": {},
+    }
+
+    data = task_instance.dict(exclude=["data.args", "data.kwds"])
+    data["task"].pop("func")
+    data["data"].pop("task_id")
+    assert data == {
+        "task": {
+            "name": "test_models.foo",
+            "bind": False,
+            "queue": "arrlio.tasks",
+            "priority": 1,
+            "timeout": 300,
+            "ttl": 300,
+            "ack_late": True,
+            "result_ttl": 300,
+            "result_return": True,
+            "thread": None,
+            "events": False,
+            "event_ttl": 300,
+            "extra": {},
+        },
+        "data": {
+            "meta": {},
+            "graph": None,
+            "queue": "arrlio.tasks",
+            "priority": 1,
+            "timeout": 300,
+            "ttl": 300,
+            "ack_late": True,
+            "result_ttl": 300,
+            "result_return": True,
+            "thread": None,
+            "events": False,
+            "event_ttl": 300,
+            "extra": {},
+        },
+    }
