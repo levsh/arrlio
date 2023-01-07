@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import json
 import uuid
@@ -7,8 +8,110 @@ import pytest
 from arrlio import task, utils
 
 
-class C:
-    pass
+@pytest.mark.asyncio
+async def test_wait_for():
+    async def foo():
+        await asyncio.sleep(0.1)
+        return "foo"
+
+    assert await utils.wait_for(foo(), 2) == "foo"
+
+    flag = asyncio.Event()
+
+    async def foo():
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            flag.set()
+
+    with pytest.raises(asyncio.TimeoutError):
+        await utils.wait_for(foo(), 0.1)
+    await asyncio.sleep(0)
+    assert flag.is_set()
+
+
+@pytest.mark.asyncio
+async def test_retry():
+    counter = 0
+
+    @utils.retry(retry_timeouts=[], exc_filter=lambda e: False)
+    async def foo():
+        nonlocal counter
+        counter += 1
+        raise KeyError
+
+    with pytest.raises(KeyError):
+        await foo()
+    assert counter == 1
+
+    counter = 0
+
+    @utils.retry(retry_timeouts=[0, 0], exc_filter=lambda e: False)
+    async def foo():
+        nonlocal counter
+        counter += 1
+        raise KeyError
+
+    with pytest.raises(KeyError):
+        await foo()
+    assert counter == 1
+
+    counter = 0
+
+    @utils.retry(retry_timeouts=[0, 0], exc_filter=lambda e: isinstance(e, KeyError))
+    async def foo():
+        nonlocal counter
+        counter += 1
+        raise KeyError
+
+    with pytest.raises(KeyError):
+        await foo()
+    assert counter == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_generator():
+    counter = 0
+
+    @utils.retry(retry_timeouts=[], exc_filter=lambda e: False)
+    async def foo():
+        nonlocal counter
+        counter += 1
+        raise KeyError
+        yield
+
+    with pytest.raises(KeyError):
+        async for _ in foo():
+            pass
+    assert counter == 1
+
+    counter = 0
+
+    @utils.retry(retry_timeouts=[0, 0], exc_filter=lambda e: False)
+    async def foo():
+        nonlocal counter
+        counter += 1
+        raise KeyError
+        yield
+
+    with pytest.raises(KeyError):
+        async for _ in foo():
+            pass
+    assert counter == 1
+
+    counter = 0
+
+    @utils.retry(retry_timeouts=[0, 0], exc_filter=lambda e: isinstance(e, KeyError))
+    async def foo():
+        nonlocal counter
+        counter += 1
+        raise KeyError
+        yield
+
+    with pytest.raises(KeyError):
+        async for _ in foo():
+            pass
+    assert counter == 3
 
 
 def test_ExtendedJSONEncoder():
@@ -44,6 +147,9 @@ def test_ExtendedJSONEncoder():
         """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, """
         """\"thread\": null, \"events\": false, \"event_ttl\": 300, \"extra\": {}}"""
     )
+
+    class C:
+        pass
 
     with pytest.raises(TypeError):
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)

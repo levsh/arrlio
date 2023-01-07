@@ -31,7 +31,7 @@ class SecretAnyUrl(AnyUrl):
         return obj
 
     def __repr__(self) -> str:
-        return f"AnyUrl('{self}')"
+        return f"SecretAnyUrl('{self}')"
 
     def __eq__(self, other: Any) -> bool:
         return isinstance(other, SecretAnyUrl) and self.get_secret_value() == other.get_secret_value()

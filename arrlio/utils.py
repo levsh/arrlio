@@ -9,7 +9,6 @@ from inspect import isasyncgenfunction
 from typing import Awaitable, Iterable
 from uuid import UUID
 
-import aiormq.exceptions
 from pydantic import SecretBytes, SecretStr
 
 from arrlio.models import Task
@@ -55,7 +54,6 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
                     ConnectionError,
                     TimeoutError,
                     asyncio.TimeoutError,
-                    aiormq.exceptions.ConnectionClosed,
                 ),
             )
 
