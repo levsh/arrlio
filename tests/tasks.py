@@ -65,7 +65,10 @@ def add_one(x: str):
 
 @arrlio.task
 def logger_info(data, *, meta: dict = None):
-    assert meta["source_node"]
+    assert meta["graph_source_node"]
+    assert meta["graph_app_id"]
+    assert meta["graph_id"]
+    assert meta["graph_name"]
     logger.info(data)
 
 
@@ -84,3 +87,17 @@ class LoadsDumps:
 def loads_dumps(x: LoadsDumps):
     assert isinstance(x, LoadsDumps)
     return x
+
+
+@arrlio.task
+async def xrange(n, sleep=None):
+    sleep = sleep or 0
+    for x in range(n):
+        yield x
+        await asyncio.sleep(sleep)
+
+
+@arrlio.task
+def grange(n):
+    for x in range(n):
+        yield x

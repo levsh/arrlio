@@ -7,7 +7,7 @@ from arrlio import models, settings
 
 
 class Test_TaskData:
-    def test_init_default(self):
+    def test__init_default(self):
         task_data = models.TaskData()
         assert isinstance(task_data.task_id, uuid.UUID)
         assert task_data.args == ()
@@ -23,7 +23,7 @@ class Test_TaskData:
         assert task_data.event_ttl == settings.TASK_EVENT_TTL
         assert task_data.thread is None
 
-    def test_init_custom(self):
+    def test__init_custom(self):
         task_data = models.TaskData(
             task_id="cbb6f1e9-2ae7-4674-bce1-83ab4b3d2ce9",
             args=[1, 2],
@@ -56,7 +56,7 @@ class Test_TaskData:
 
 
 class Test_Task:
-    def test_init_default(self):
+    def test__init_default(self):
         def foo():
             pass
 
@@ -91,7 +91,7 @@ class Test_Task:
         assert task_instance.data.event_ttl == task.event_ttl
         assert task_instance.data.thread is None
 
-    def test_init_custom(self):
+    def test__init_custom(self):
         def foo():
             pass
 
@@ -200,7 +200,7 @@ def test_graph():
         pass
 
     graph = models.Graph("Test")
-    assert graph.id == "Test"
+    assert graph.name == "Test"
     assert graph.nodes == {}
     assert graph.edges == {}
     assert graph.roots == set()
@@ -243,7 +243,7 @@ def test_dict():
         "priority": 1,
         "timeout": 300,
         "ttl": 300,
-        "ack_late": True,
+        "ack_late": False,
         "result_ttl": 300,
         "result_return": True,
         "thread": None,
@@ -258,12 +258,11 @@ def test_dict():
         "args": (1,),
         "kwds": {"y": "value"},
         "meta": {},
-        "graph": None,
         "queue": "arrlio.tasks",
         "priority": 1,
         "timeout": 300,
         "ttl": 300,
-        "ack_late": True,
+        "ack_late": False,
         "result_ttl": 300,
         "result_return": True,
         "thread": None,
@@ -276,12 +275,11 @@ def test_dict():
     data.pop("task_id")
     assert data == {
         "meta": {},
-        "graph": None,
         "queue": "arrlio.tasks",
         "priority": 1,
         "timeout": 300,
         "ttl": 300,
-        "ack_late": True,
+        "ack_late": False,
         "result_ttl": 300,
         "result_return": True,
         "thread": None,
@@ -301,7 +299,7 @@ def test_dict():
             "priority": 1,
             "timeout": 300,
             "ttl": 300,
-            "ack_late": True,
+            "ack_late": False,
             "result_ttl": 300,
             "result_return": True,
             "thread": None,
@@ -311,12 +309,11 @@ def test_dict():
         },
         "data": {
             "meta": {},
-            "graph": None,
             "queue": "arrlio.tasks",
             "priority": 1,
             "timeout": 300,
             "ttl": 300,
-            "ack_late": True,
+            "ack_late": False,
             "result_ttl": 300,
             "result_return": True,
             "thread": None,

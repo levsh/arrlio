@@ -4,20 +4,21 @@ from unittest import mock
 
 import pytest
 
-from arrlio import TaskNoResultError, serializers
+from arrlio import serializers
 from arrlio.backends import local
+from arrlio.exc import TaskNoResultError
 from arrlio.models import Event, Message, Task
 
 
 class TestConfig:
-    def test_init(self, cleanup):
+    def test__init(self, cleanup):
         config = local.Config()
         assert config.serializer.module == serializers.nop
         assert config.id == local.BACKEND_ID
 
 
 class TestBackend:
-    def test_init(self, cleanup):
+    def test__init(self, cleanup):
         backend = local.Backend(local.Config())
         assert isinstance(backend.serializer, serializers.nop.Serializer)
 
@@ -28,6 +29,12 @@ class TestBackend:
     def test_repr(self, cleanup):
         backend = local.Backend(local.Config())
         assert repr(backend)
+
+    @pytest.mark.asyncio
+    async def test_with(self, cleanup):
+        backend = local.Backend(local.Config())
+        async with backend:
+            pass
 
     @pytest.mark.asyncio
     async def test_shared(self, cleanup):
@@ -103,13 +110,16 @@ class TestBackend:
     async def test_push_pop_task_result(self, cleanup):
         backend = local.Backend(local.Config())
         task_instance = Task(None, "test_push_pop_task_result").instantiate(
-            queue="queue", result_return=True, result_ttl=1
+            queue="queue",
+            result_return=True,
+            result_ttl=100,
         )
         result = mock.MagicMock()
-        backend._results[task_instance.data.task_id] = [asyncio.Event(), None]
 
         await backend.push_task_result(task_instance, result)
-        assert await backend.pop_task_result(task_instance) == result
+        assert await backend.pop_task_result(task_instance).__anext__() == result
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(backend.pop_task_result(task_instance).__anext__(), 0.5)
         assert task_instance.data.task_id not in backend._results
 
         task_instance = Task(None, "test_push_pop_task_result", result_return=False).instantiate(queue="queue")
@@ -118,17 +128,21 @@ class TestBackend:
         await backend.push_task_result(task_instance, result)
         assert task_instance.data.task_id not in backend._results
         with pytest.raises(TaskNoResultError):
-            await backend.pop_task_result(task_instance)
+            await backend.pop_task_result(task_instance).__anext__()
 
         await backend.close()
 
     @pytest.mark.asyncio
-    async def test_pop_task_result(self, cleanup):
+    async def test_pop_task_result_timeout(self, cleanup):
         backend = local.Backend(local.Config())
-        task_instance = Task(None, "test_pop_task_result").instantiate(queue="queue", result_return=True, result_ttl=1)
+        task_instance = Task(None, "test_pop_task_result").instantiate(
+            queue="queue",
+            result_return=True,
+            result_ttl=1,
+        )
 
         with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(backend.pop_task_result(task_instance), 0.1)
+            await asyncio.wait_for(backend.pop_task_result(task_instance).__anext__(), 0.1)
 
         await backend.close()
 
@@ -179,7 +193,7 @@ class TestBackend:
             assert args == (event,)
             fut.set_result(True)
 
-        await backend.consume_events(on_event)
+        await backend.consume_events("test", on_event)
         await backend.send_event(event)
 
         await asyncio.wait_for(fut, 1)

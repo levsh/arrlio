@@ -8,7 +8,7 @@ class Config(base.Config):
     pass
 
 
-class Serializer(base.Serializer):  # pylint: disable=function-redefined
+class Serializer(base.Serializer):
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 

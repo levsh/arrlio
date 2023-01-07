@@ -14,10 +14,16 @@ def test_task():
     async def bar():
         pass
 
+    with pytest.raises(TypeError):
+
+        @task
+        class TaskInvalid:
+            pass
+
 
 class TestApp:
     @pytest.mark.asyncio
-    async def test_init(self, cleanup):
+    async def test__init(self, cleanup):
         config = Config()
         app = App(config)
         assert app.config == config
@@ -105,3 +111,24 @@ class TestApp:
             assert ar.task_instance == task_instance
 
         await app.close()
+
+    @pytest.mark.asyncio
+    async def test_init(self):
+        with mock.patch("arrlio.plugins.events.Plugin.on_init") as mock_events_on_init, mock.patch(
+            "arrlio.plugins.graphs.Plugin.on_init"
+        ) as mock_graphs_on_init:
+            mock_events_on_init.__func__ = True
+            mock_graphs_on_init.__func__ = True
+            app = App(
+                Config(
+                    plugins=[
+                        {"module": "arrlio.plugins.events"},
+                        {"module": "arrlio.plugins.graphs"},
+                    ]
+                )
+            )
+            await app.init()
+            mock_events_on_init.assert_awaited_once()
+            mock_graphs_on_init.assert_awaited_once()
+            assert app.plugins["arrlio.events"].name == "arrlio.events"
+            assert app.plugins["arrlio.graphs"].name == "arrlio.graphs"

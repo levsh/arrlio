@@ -1,17 +1,17 @@
 import asyncio
-import copy
 import logging
 from asyncio import current_task, gather
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
+from inspect import isasyncgenfunction, isgeneratorfunction
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Type, Union
+from typing import Any, AsyncGenerator, Callable, Dict, List, Type, Union
 from uuid import UUID
 
 from roview import rodict
 
-from arrlio.exc import TaskError, TaskNoResultError
-from arrlio.models import Event, Graph, Message, Task, TaskData, TaskInstance, TaskResult
+from arrlio.exc import GraphError, TaskClosedError, TaskError
+from arrlio.models import Event, Message, Task, TaskData, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
@@ -25,10 +25,10 @@ __tasks__ = {}
 registered_tasks = rodict(__tasks__, nested=True)
 
 
-def task(func: Union[FunctionType, MethodType] = None, name: str = None, base: Type[Task] = None, **kwds):
+def task(func: Union[FunctionType, MethodType, Type] = None, name: str = None, base: Type[Task] = None, **kwds):
     """
     Args:
-        func (FunctionType, optional): Task function.
+        func (Union[FunctionType, MethodType, Type], optional): Task function.
         name (str, optional): ~arrlio.models.Task name.
         base (~arrlio.models.Task, optional): ~arrlio.models.Task base class.
         kwds (dict, optional): ~arrlio.models.TaskData arguments.
@@ -74,6 +74,7 @@ class App:
             "on_close": [],
             "on_task_send": [],
             "on_task_received": [],
+            "on_task_result": [],
             "on_task_done": [],
             "task_context": [],
         }
@@ -128,11 +129,19 @@ class App:
     def is_closed(self) -> bool:
         return self._closed.done()
 
+    @property
+    def task_settings(self) -> dict:
+        return self._task_settings
+
     async def init(self):
         if self.is_closed:
             return
 
+        logger.info("%s: initialization...", self)
+
         await self._execute_hooks("on_init")
+
+        logger.info("%s: initialization done", self)
 
     async def close(self):
         if self.is_closed:
@@ -151,12 +160,12 @@ class App:
             )
 
             for task_id, aio_task in self._running_tasks.items():
-                logger.debug("%s: cancel processing task '%s'", str(self), task_id)
+                logger.debug("%s: cancel processing task '%s'", self, task_id)
                 aio_task.cancel()
             self._running_tasks = {}
 
             for message_id, aio_task in self._running_messages.items():
-                logger.debug("%s: cancel processing message '%s'", str(self), message_id)
+                logger.debug("%s: cancel processing message '%s'", self, message_id)
                 aio_task.cancel()
 
             await self._backend.close()
@@ -229,59 +238,6 @@ class App:
 
         return AsyncResult(self, task_instance)
 
-    async def send_graph(
-        self,
-        graph: Graph,
-        args: tuple = None,
-        kwds: dict = None,
-        meta: dict = None,
-    ) -> Dict[str, "AsyncResult"]:
-        """
-        Args:
-            graph (Graph): ~arrlio.models.Graph.
-            args (tuple, optional): ~arrlio.models.Graph root nodes args.
-            kwds (dict, optional): ~arrlio.models.Graph root nodes kwds.
-            meta (dict, optional): ~arrlio.models.Graph root nodes meta.
-
-        Returns:
-            Dict[str, ~arrlio.core.AsyncResult]: Dictionary with AsyncResult objects.
-        """
-
-        nodes = copy.deepcopy(graph.nodes)
-        edges = graph.edges
-        roots = graph.roots
-
-        if not nodes or not roots:
-            raise ValueError("Empty graph or missing roots")
-
-        logger.info("%s: send %s", self, graph)
-
-        task_instances = {}
-
-        # pylint: disable=redefined-outer-name
-        for node_name, (task, node_kwds) in nodes.items():
-            if node_name not in roots and node_kwds.get("task_id"):
-                continue
-            if task in __tasks__:
-                task_instance = __tasks__[task].instantiate(**node_kwds)
-            else:
-                task_instance = Task(None, task).instantiate(**node_kwds)
-            node_kwds["task_id"] = task_instance.data.task_id
-            task_instances[node_name] = task_instance
-
-        for root in roots:
-            data = task_instances[root].data
-            data.args += tuple(args or ())
-            data.kwds.update(kwds or {})
-            data.meta.update(meta or {})
-            data.graph = Graph(graph.id, nodes=nodes, edges=edges, roots={root})
-
-            logger.info("%s: send %s", self, task_instances[root].dict(exclude=["data.args", "data.kwds"]))
-
-            await self._backend.send_task(task_instances[root])
-
-        return {k: AsyncResult(self, task_instance) for k, task_instance in task_instances.items()}
-
     async def send_message(self, data: Any, routing_key: str = None, **kwds):
         """
         Args:
@@ -301,15 +257,18 @@ class App:
         logger.info("%s: send %s", self, event)
         await self._backend.send_event(event)
 
-    async def pop_result(self, task_instance: TaskInstance):
-        if not task_instance.data.result_return:
-            raise TaskNoResultError(task_instance.data.task_id)
-        task_result: TaskResult = await self._backend.pop_task_result(task_instance)
-        if task_result.exc:
-            if isinstance(task_result.exc, TaskError):
-                raise task_result.exc
-            raise TaskError(task_result.exc, task_result.trb)
-        return task_result.res
+    async def pop_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
+        # if not task_instance.data.result_return:
+        #     raise TaskNoResultError(task_instance.data.task_id)
+
+        async for task_result in self._backend.pop_task_result(task_instance):
+
+            if task_result.exc:
+                if isinstance(task_result.exc, TaskError):
+                    raise task_result.exc
+                raise TaskError(task_result.exc, task_result.trb)
+
+            yield task_result.res
 
     async def consume_tasks(self, queues: List[str] = None):
         queues = queues or self.config.task_queues
@@ -317,24 +276,45 @@ class App:
             return
 
         async def cb(task_instance: TaskInstance):
-            task_id: UUID = task_instance.data.task_id
+            task_data: TaskData = task_instance.data
+            task_id: UUID = task_data.task_id
 
             try:
                 self._running_tasks[task_id] = current_task()
 
                 async with AsyncExitStack() as stack:
-                    for context in self._hooks["task_context"]:
-                        await stack.enter_async_context(context(task_instance))
+
+                    # for context in self._hooks["task_context"]:
+                    #     await stack.enter_async_context(context(task_instance))
+
+                    await gather(
+                        stack.enter_async_context(context(task_instance)) for context in self._hooks["task_context"]
+                    )
 
                     await self._execute_hooks("on_task_received", task_instance)
 
-                    task_result: TaskResult = await self.execute_task(task_instance)
+                    task_result: TaskResult = TaskResult()
 
-                    if task_instance.data.result_return:
-                        await self._backend.push_task_result(task_instance, task_result)
+                    async for task_result in self.execute_task(task_instance):
 
-                    await self._execute_hooks("on_task_done", task_instance, task_result)
+                        if task_data.result_return:
+                            await self._backend.push_task_result(task_instance, task_result)
 
+                        await self._execute_hooks("on_task_result", task_instance, task_result)
+
+                    if task_data.result_return and not task_data.extra.get("graph"):
+                        func = task_instance.task.func
+                        if isasyncgenfunction(func) or isgeneratorfunction(func):
+                            await self._backend.close_task(task_instance)
+
+                    await self._execute_hooks(
+                        "on_task_done",
+                        task_instance,
+                        {"exc": task_result.exc, "trb": task_result.trb},
+                    )
+
+            except asyncio.CancelledError:
+                logger.error("%s: task %s(%s) cancelled", self, task_id, task_instance.task.name)
             except Exception as e:
                 logger.exception(e)
             finally:
@@ -351,32 +331,8 @@ class App:
             logger.info("%s: stop consuming task queues", self)
 
     async def execute_task(self, task_instance: TaskInstance) -> TaskResult:
-        task_result: TaskResult = await self._executor(task_instance)
-
-        graph: Graph = task_instance.data.graph
-        if graph is not None and task_result.exc is None:
-            routes = task_result.routes
-            args = (task_result.res,) or ()
-            if isinstance(routes, str):
-                routes = [routes]
-
-            root: str = next(iter(graph.roots))
-            if root in graph.edges:
-                for node_id, node_id_routes in graph.edges[root]:
-                    if not ((routes is None and node_id_routes is None) or set(routes) & set(node_id_routes)):
-                        continue
-                    await self.send_graph(
-                        Graph(
-                            id=graph.id,
-                            nodes=graph.nodes,
-                            edges=graph.edges,
-                            roots={node_id},
-                        ),
-                        args=args,
-                        meta={"source_node": root},
-                    )
-
-        return task_result
+        async for task_result in self._executor(task_instance):
+            yield task_result
 
     async def consume_messages(self, on_message: AsyncCallableT):
         queues = self.config.message_queues
@@ -399,24 +355,28 @@ class App:
 
     async def stop_consume_messages(self):
         await self._backend.stop_consume_messages()
-        logger.info("%s: stop consuming messages", str(self))
+        logger.info("%s: stop consuming messages", self)
         self._running_messages = {}
 
-    async def consume_events(self, on_event: AsyncCallableT):
-        logger.info("%s: consuming events", str(self))
-        await self._backend.consume_events(on_event)
+    async def consume_events(self, cb_id: str, cb: Union[Callable, AsyncCallableT], event_types: List[str] = None):
+        await self._backend.consume_events(cb_id, cb, event_types=event_types)
 
-    async def stop_consume_events(self):
-        await self._backend.stop_consume_events()
-        logger.info("%s: stop consuming events", str(self))
+    async def stop_consume_events(self, cb_id=None):
+        await self._backend.stop_consume_events(cb_id=cb_id)
+
+    def send_graph(self, *args, **kwds):
+        if "arrlio.graphs" not in self.plugins:
+            raise GraphError("Plugin required: allrio.graphs")
+        return self.plugins["arrlio.graphs"].send_graph(*args, **kwds)
 
 
 class AsyncResult:
-    __slots__ = ("_app", "_task_instance", "_result", "_exception", "_ready")
+    __slots__ = ("_app", "_task_instance", "_gen", "_result", "_exception", "_ready")
 
     def __init__(self, app: App, task_instance: TaskInstance):
         self._app: App = app
         self._task_instance: TaskInstance = task_instance
+        self._gen = self._app.pop_result(self._task_instance)
         self._result = None
         self._exception: Exception = None
         self._ready: bool = False
@@ -424,6 +384,10 @@ class AsyncResult:
     @property
     def task_instance(self) -> TaskInstance:
         return self._task_instance
+
+    @property
+    def task_id(self):
+        return self._task_instance.data.task_id
 
     @property
     def result(self):
@@ -437,16 +401,32 @@ class AsyncResult:
     def ready(self) -> bool:
         return self._ready
 
-    async def get(self):
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
         if not self._ready:
             try:
-                self._result = await self._app.pop_result(self._task_instance)
-                self._ready = True
+                self._result = await self._gen.__anext__()
+                return self._result
             except TaskError as e:
-                self._exception = e
                 self._ready = True
+                self._exception = e
+            except StopAsyncIteration as e:
+                self._ready = True
+                raise e
+
         if self._exception:
             if isinstance(self._exception.args[0], Exception):
                 raise self._exception from self._exception.args[0]
             raise self._exception
+
+        raise StopAsyncIteration
+
+    async def get(self):
+        noresult = not self._ready
+        async for _ in self:
+            noresult = False
+        if noresult:
+            raise TaskClosedError(self.task_id)
         return self._result

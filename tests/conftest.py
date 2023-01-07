@@ -23,6 +23,7 @@ def container_executor():
 def cleanup():
     yield
     gc.collect()
+    backends.local.Backend._Backend__shared.clear()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -45,7 +46,7 @@ async def params(request, container_executor, cleanup):
         )
         time.sleep(0.1)
     if config["backend"]["module"] == "arrlio.backends.redis":
-        container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly no')
+        container = container_executor.run_wait_up("redis:latest", command='redis-server --save "" --appendonly yes')
         address = (container.attrs["NetworkSettings"]["IPAddress"], 6379)
         config["backend"].setdefault("config", {}).update({"url": f"redis://{address[0]}:{address[1]}"})
         time.sleep(0.1)
@@ -59,8 +60,7 @@ async def params(request, container_executor, cleanup):
 
     app = App(Config(**config))
     try:
+        await app.init()
         yield container, app
     finally:
         await app.close()
-        if config["backend"]["module"] == "arrlio.backends.local":
-            backends.local.Backend._Backend__shared.clear()

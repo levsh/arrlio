@@ -38,6 +38,13 @@ async def main():
                 logger.exception(e)
                 print()
 
+            # generator
+            results = []
+            ar = await app.send_task(tasks.xrange, args=(3,))
+            async for result in ar:
+                results.append(result)
+            logger.info(results)
+
     async def example_2():
         graph = arrlio.Graph("My Graph")
         graph.add_node("A", tasks.add_one, root=True)
@@ -46,7 +53,15 @@ async def main():
         graph.add_edge("A", "B")
         graph.add_edge("B", "C")
 
-        app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
+        app = arrlio.App(
+            arrlio.Config(
+                backend={"module": BACKEND},
+                plugins=[
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            )
+        )
 
         async with app:
             await app.consume_tasks()
@@ -62,7 +77,15 @@ async def main():
         graph.add_node("B", tasks.bash, args=("wc -w",))
         graph.add_edge("A", "B")
 
-        app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
+        app = arrlio.App(
+            arrlio.Config(
+                backend={"module": BACKEND},
+                plugins=[
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            )
+        )
 
         async with app:
             await app.consume_tasks()

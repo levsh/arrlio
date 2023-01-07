@@ -1,4 +1,4 @@
-# Arrlio [WIP]
+# Arrlio [Unstable, WIP]
 
 [Documentation](https://levsh.github.io/arrlio)
 
@@ -13,106 +13,195 @@ pip install arrlio
 ```
 
 ```python
-import asyncio
-import os
+# tasks.py
+
+import io
+
+import invoke
 
 import arrlio
 
 
-@arrlio.task(name="sync hello_world")
-def sync_hello_world():
+@arrlio.task
+async def hello_world():
     return "Hello World!"
 
-@arrlio.task(name="async hello_world")
-async def async_hello_world():
-    return "Hello World!"
 
-BACKEND = "arrlio.backends.local"
-# BACKEND = "arrlio.backends.rabbitmq"
-# BACKEND = "arrlio.backends.redis"
-
-async def main():
-    app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
-
-    async with app:
-        await app.consume_tasks()
-
-        ar = await app.send_task("sync hello_world")
-        print(await ar.get())
-
-        ar = await app.send_task("async hello_world")
-        print(await ar.get())
+@arrlio.task(name="foo")
+async def foo():
+    arrlio.logger.info("Hello from task 'foo'!")
 
 
-asyncio.run(main())
-```
+@arrlio.task(bind=True)
+async def bind(self):
+    arrlio.logger.info(self.data.task_id)
+    arrlio.logger.info(self)
 
-```python
-import asyncio
-import os
 
-import arrlio
+@arrlio.task
+async def exception():
+    raise ZeroDivisionError
+
+
+@arrlio.task
+def xrange(count):
+    for x in range(count):
+        yield x
 
 
 @arrlio.task
 async def add_one(value: str):
     return int(value) + 1
 
-graph = arrlio.Graph("My Graph")
-graph.add_node("A", add_one, root=True)
-graph.add_node("B", add_one)
-graph.add_node("C", add_one)
-graph.add_edge("A", "B")
-graph.add_edge("B", "C")
+
+@arrlio.task
+async def bash(cmd, stdin: str = None):
+    in_stream = io.StringIO(stdin)
+    out_stream = io.StringIO()
+    result = invoke.run(cmd, in_stream=in_stream, out_stream=out_stream)
+    return result.stdout
+```
+
+```python
+import asyncio
+import logging
+
+import arrlio
+import tasks
+
+logger = logging.getLogger("arrlio")
+logger.setLevel("INFO")
 
 BACKEND = "arrlio.backends.local"
+# BACKEND = "arrlio.backends.rabbitmq"
+# BACKEND = "arrlio.backends.redis"
+
 
 async def main():
     app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
+
+    async with app:
+        await app.consume_tasks()
+
+        # call by task
+        ar = await app.send_task(tasks.hello_world)
+        logger.info(await ar.get())
+
+        # call by task name
+        ar = await app.send_task("foo")
+        logger.info(await ar.get())
+
+        # task args example
+        ar = await app.send_task(tasks.add_one, args=(1,))
+        logger.info(await ar.get())
+
+        # exception
+        try:
+            ar = await app.send_task(tasks.exception)
+            logger.info(await ar.get())
+        except Exception as e:
+            print(f"\nThis is example exception for {app.backend}:\n")
+            logger.exception(e)
+            print()
+
+        # generator
+        results = []
+        ar = await app.send_task(tasks.xrange, args=(3,))
+        async for result in ar:
+            results.append(result)
+        logger.info(results)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```python
+import asyncio
+import logging
+
+import arrlio
+import tasks
+
+logger = logging.getLogger("arrlio")
+logger.setLevel("INFO")
+
+BACKEND = "arrlio.backends.local"
+# BACKEND = "arrlio.backends.rabbitmq"
+# BACKEND = "arrlio.backends.redis"
+
+
+async def main():
+    graph = arrlio.Graph("My Graph")
+    graph.add_node("A", tasks.add_one, root=True)
+    graph.add_node("B", tasks.add_one)
+    graph.add_node("C", tasks.add_one)
+    graph.add_edge("A", "B")
+    graph.add_edge("B", "C")
+
+    app = arrlio.App(
+        arrlio.Config(
+            backend={"module": BACKEND},
+            plugins=[
+                {"module": "arrlio.plugins.events"},
+                {"module": "arrlio.plugins.graphs"},
+            ],
+        )
+    )
 
     async with app:
         await app.consume_tasks()
 
         ars = await app.send_graph(graph, args=(0,))
-        print(await ars["C"].get())
+        logger.info("A: %i", await ars["A"].get())
+        logger.info("B: %i", await ars["B"].get())
+        logger.info("C: %i", await ars["C"].get())
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ```python
 import asyncio
-import os
+import logging
 
 import arrlio
-import invoke
+import tasks
 
-
-@arrlio.task(thread=True)
-async def bash(cmd):
-    return invoke.run(cmd).stdout
-
-graph = arrlio.Graph("My Graph")
-graph.add_node("A", bash, root=True)
-graph.add_node("B", bash, args=("wc -w",))
-graph.add_edge("A", "B")
+logger = logging.getLogger("arrlio")
+logger.setLevel("INFO")
 
 BACKEND = "arrlio.backends.local"
+# BACKEND = "arrlio.backends.rabbitmq"
+# BACKEND = "arrlio.backends.redis"
+
 
 async def main():
-    app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
+    graph = arrlio.Graph("My Graph")
+    graph.add_node("A", tasks.bash, root=True)
+    graph.add_node("B", tasks.bash, args=("wc -w",))
+    graph.add_edge("A", "B")
+
+    app = arrlio.App(
+        arrlio.Config(
+            backend={"module": BACKEND},
+            plugins=[
+                {"module": "arrlio.plugins.events"},
+                {"module": "arrlio.plugins.graphs"},
+            ],
+        )
+    )
 
     async with app:
         await app.consume_tasks()
 
-        ars = await app.send_graph(
-            graph,
-            args=('echo "Number of words in this sentence:"',)
-        )
-        print(await asyncio.wait_for(ars["B"].get(), timeout=2))
+        ars = await app.send_graph(graph, args=('echo "Number of words in this sentence:"',))
+        logger.info(await asyncio.wait_for(ars["B"].get(), timeout=2))
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ```bash

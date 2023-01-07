@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from roview import rodict, roset
 
+from arrlio.exc import GraphError
 from arrlio.settings import (
     EVENT_TTL,
     MESSAGE_ACK_LATE,
@@ -29,14 +30,13 @@ from arrlio.settings import (
 class TaskData:
     """
     Args:
-        meta (dict, optional): additional task functionc keyworad argument.
+        meta (dict, optional): additional task function keyworad argument.
     """
 
     task_id: UUID = field(default_factory=uuid4)
     args: tuple = field(default_factory=tuple)
     kwds: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
-    graph: "Graph" = None
 
     queue: str = TASK_QUEUE
     priority: int = TASK_PRIORITY
@@ -126,7 +126,11 @@ class TaskInstance:
             kwds["meta"] = self.data.meta
         if self.task.bind:
             args = (self,) + args
-        return self.task.func(*args, **kwds)
+        if isinstance(self.task.func, type):
+            func = self.task.func()
+        else:
+            func = self.task.func
+        return func(*args, **kwds)
 
     def dict(self, exclude=None):
         exclude = exclude or []
@@ -143,7 +147,12 @@ class TaskResult:
     routes: Union[str, List[str]] = None
 
     def dict(self):
-        return asdict(self)
+        return {
+            "res": self.res,
+            "exc": self.exc,
+            "trb": self.trb,
+            "routes": self.routes,
+        }
 
 
 @dataclass(frozen=True)
@@ -183,12 +192,12 @@ class Event:
 class Graph:
     def __init__(
         self,
-        id: str,  # pylint: disable=redefined-builtin
+        name: str,
         nodes: Dict = None,
         edges: Dict = None,
         roots: Set = None,
     ):
-        self.id = id
+        self.name = name
         self.nodes: Dict[str, List[str]] = rodict({}, nested=True)
         self.edges: Dict[str, List[str]] = rodict({}, nested=True)
         self.roots: Set[str] = roset(set())
@@ -202,11 +211,14 @@ class Graph:
                 self.add_edge(node_id_from, node_id_to, routes=routes)
 
     def __str__(self):
-        return f"{self.__class__.__name__}(id={self.id} nodes={self.nodes} edges={self.edges} roots={self.roots}"
+        return f"{self.__class__.__name__}(name={self.name} nodes={self.nodes} edges={self.edges} roots={self.roots}"
+
+    def __repr__(self):
+        return self.__str__()
 
     def add_node(self, node_id: str, task: Union[Task, str], root: bool = None, **kwds):
         if node_id in self.nodes:
-            raise Exception(f"Node '{node_id}' already in graph")
+            raise GraphError(f"Node '{node_id}' already in graph")
         if isinstance(task, Task):
             task = task.name
         self.nodes.__original__[node_id] = [task, kwds]
@@ -215,16 +227,16 @@ class Graph:
 
     def add_edge(self, node_id_from: str, node_id_to: str, routes: Union[str, List[str]] = None):
         if node_id_from not in self.nodes:
-            raise Exception(f"Node '{node_id_from}' not found in graph")
+            raise GraphError(f"Node '{node_id_from}' not found in graph")
         if node_id_to not in self.nodes:
-            raise Exception(f"Node '{node_id_to}' not found in graph")
+            raise GraphError(f"Node '{node_id_to}' not found in graph")
         if isinstance(routes, str):
             routes = [routes]
         self.edges.__original__.setdefault(node_id_from, []).append([node_id_to, routes])
 
     def dict(self):
         return {
-            "id": self.id,
+            "name": self.name,
             "nodes": self.nodes,
             "edges": self.edges,
             "roots": self.roots,
@@ -233,7 +245,7 @@ class Graph:
     @classmethod
     def from_dict(cls, data):
         return cls(
-            id=data["id"],
+            name=data["name"],
             nodes=data["nodes"],
             edges=data["edges"],
             roots=data["roots"],

@@ -26,25 +26,41 @@ class TestArrlio:
         ],
     )
     @pytest.mark.asyncio
-    async def test_task_default(self, params):
+    async def test_task_basic(self, params):
         backend, app = params
 
         await app.consume_tasks()
 
-        ar = await app.send_task(tasks.hello_world)
-        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        for _ in range(2):
+            ar = await app.send_task(tasks.hello_world)
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
-        ar = await app.send_task("hello_world")
-        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        for _ in range(2):
+            ar = await app.send_task("hello_world")
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
-        ar = await app.send_task("hello_world", extra={"result_queue_mode": "shared"})
-        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        for _ in range(2):
+            ar = await app.send_task("hello_world", extra={"result_queue_mode": "shared"})
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
-        ar = await app.send_task("hello_world", extra={"result_queue_mode": "shared"})
-        assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        for _ in range(2):
+            ar = await app.send_task(tasks.sync_task)
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
 
-        ar = await app.send_task(tasks.sync_task)
-        assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
+        for _ in range(2):
+            results = []
+            ar = await app.send_task(tasks.xrange, args=(3,))
+            async for x in ar:
+                results.append(x)
+            assert results == [0, 1, 2]
+            results = []
+            async for x in ar:
+                results.append(x)
+            assert results == []
 
     @pytest.mark.parametrize(
         "params",
@@ -70,6 +86,8 @@ class TestArrlio:
         with pytest.raises(arrlio.exc.TaskError):
             ar = await app.send_task("invalid")
             await ar.get()
+        with pytest.raises(arrlio.exc.TaskError):
+            await ar.get()
 
     @pytest.mark.parametrize(
         "params",
@@ -94,12 +112,27 @@ class TestArrlio:
         app.config.task_queues = ["queue1", "queue2"]
         await app.consume_tasks()
 
-        ar = await app.send_task(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4}, queue="queue1")
-        res = await asyncio.wait_for(ar.get(), 5)
-        assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
+        for _ in range(2):
+            ar = await app.send_task(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4}, queue="queue1")
+            res = await asyncio.wait_for(ar.get(), 5)
+            assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
+            assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
 
-        ar = await app.send_task(tasks.bind_true, queue="queue1")
-        res = await asyncio.wait_for(ar.get(), 5)
+        for _ in range(2):
+            ar = await app.send_task(tasks.bind_true, queue="queue1")
+            res = await asyncio.wait_for(ar.get(), 5)
+            res = await asyncio.wait_for(ar.get(), 5)
+
+        for _ in range(2):
+            results = []
+            ar = await app.send_task(tasks.xrange, queue="queue2", args=(3,))
+            async for x in ar:
+                results.append(x)
+            assert results == [0, 1, 2]
+            results = []
+            async for x in ar:
+                results.append(x)
+            assert results == []
 
     @pytest.mark.parametrize(
         "params",
@@ -127,18 +160,37 @@ class TestArrlio:
         backend, app = params
 
         await app.consume_tasks()
-        await app.send_task(tasks.sleep, args=(0.5,), priority=10)
-        aw1 = (await app.send_task(tasks.sleep, args=(1,), priority=1)).get()
-        aw2 = (await app.send_task(tasks.sleep, args=(1,), priority=2)).get()
-        done, pending = await asyncio.wait_for(asyncio.wait({aw1, aw2}, return_when=asyncio.FIRST_COMPLETED), 5)
-        assert {t.get_coro() for t in done} == {aw2}
-        assert {t.get_coro() for t in pending} == {aw1}
+
+        for _ in range(2):
+            await app.send_task(tasks.sleep, args=(0.5,), priority=10, ack_late=True)
+            aw1 = (await app.send_task(tasks.sleep, args=(1,), priority=1, ack_late=True)).get()
+            aw2 = (await app.send_task(tasks.sleep, args=(1,), priority=2, ack_late=True)).get()
+            done, pending = await asyncio.wait_for(asyncio.wait({aw1, aw2}, return_when=asyncio.FIRST_COMPLETED), 5)
+            assert {t.get_coro() for t in done} == {aw2}
+            assert {t.get_coro() for t in pending} == {aw1}
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {
+                "backend": {
+                    "module": "arrlio.backends.rabbitmq",
+                    "config": {
+                        "tasks_queue_durable": True,
+                        "results_single_queue_durable": True,
+                    },
+                }
+            },
+            {
+                "backend": {
+                    "module": "arrlio.backends.rabbitmq",
+                    "config": {
+                        "tasks_queue_durable": True,
+                        "results_queue_mode": "shared",
+                        "results_shared_queue_durable": True,
+                    },
+                }
+            },
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
@@ -153,13 +205,22 @@ class TestArrlio:
         backend, app = params
 
         await app.consume_tasks()
-        await asyncio.sleep(1)
-        backend.stop()
-        await asyncio.sleep(3)
-        backend.start()
-        await asyncio.sleep(1)
-        ar = await app.send_task(tasks.hello_world)
-        assert await asyncio.wait_for(ar.get(), 10) == "Hello World!"
+
+        for _ in range(3):
+            ar = await app.send_task(tasks.xrange, args=(3,), kwds={"sleep": 1})
+            await asyncio.sleep(1)
+            backend.stop()
+            await asyncio.sleep(3)
+            backend.start()
+            await asyncio.sleep(1)
+
+            results = []
+            async for x in ar:
+                results.append(x)
+            assert results == [0, 1, 2]
+
+            ar = await app.send_task(tasks.hello_world)
+            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
     @pytest.mark.parametrize(
         "params",
@@ -182,9 +243,11 @@ class TestArrlio:
         backend, app = params
 
         await app.consume_tasks()
-        ar = await app.send_task(tasks.sleep, args=(3600,), timeout=1)
-        with pytest.raises(arrlio.TaskError):
-            await asyncio.wait_for(ar.get(), 5)
+
+        for _ in range(2):
+            ar = await app.send_task(tasks.sleep, args=(3600,), timeout=1)
+            with pytest.raises(arrlio.exc.TaskError):
+                await asyncio.wait_for(ar.get(), 5)
 
     @pytest.mark.parametrize(
         "params",
@@ -208,11 +271,12 @@ class TestArrlio:
 
         await app.consume_tasks()
 
-        ar = await app.send_task(tasks.thread_name)
-        assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
+        for _ in range(2):
+            ar = await app.send_task(tasks.thread_name)
+            assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
 
-        ar = await app.send_task("thread_name")
-        assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
+            ar = await app.send_task("thread_name")
+            assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), 5))
 
     @pytest.mark.parametrize(
         "params",
@@ -237,11 +301,11 @@ class TestArrlio:
         await app.consume_tasks()
 
         ar = await app.send_task(tasks.noresult)
-        with pytest.raises(arrlio.TaskNoResultError):
+        with pytest.raises(arrlio.exc.TaskNoResultError):
             await asyncio.wait_for(ar.get(), 5)
 
         ar = await app.send_task(tasks.hello_world, result_return=False)
-        with pytest.raises(arrlio.TaskNoResultError):
+        with pytest.raises(arrlio.exc.TaskNoResultError):
             await asyncio.wait_for(ar.get(), 5)
 
     @pytest.mark.parametrize(
@@ -265,11 +329,12 @@ class TestArrlio:
         backend, app = params
 
         await app.consume_tasks()
-        ar = await app.send_task(tasks.hello_world, result_ttl=1)
-        await asyncio.sleep(3)
 
-        with pytest.raises((arrlio.TaskNoResultError, asyncio.TimeoutError)):
-            await asyncio.wait_for(ar.get(), 2)
+        for _ in range(2):
+            ar = await app.send_task(tasks.hello_world, result_ttl=1)
+            await asyncio.sleep(3)
+            with pytest.raises((arrlio.exc.TaskNoResultError, asyncio.TimeoutError)):
+                await asyncio.wait_for(ar.get(), 2)
 
     @pytest.mark.parametrize(
         "params",
@@ -290,21 +355,21 @@ class TestArrlio:
         backend, app = params
 
         if isinstance(app.backend, backends.rabbitmq.Backend):
-            async with app.backend._conn.channel_ctx() as channel:
-                exchange = arrlio.settings.MESSAGE_EXCHANGE
-                await channel.exchange_declare(
-                    exchange,
-                    exchange_type="direct",
+            channel = await app.backend._conn.channel()
+            exchange = arrlio.settings.MESSAGE_EXCHANGE
+            await channel.exchange_declare(
+                exchange,
+                exchange_type="direct",
+                durable=False,
+                auto_delete=True,
+            )
+            for queue in app.config.message_queues:
+                await channel.queue_declare(
+                    queue,
                     durable=False,
                     auto_delete=True,
                 )
-                for queue in app.config.message_queues:
-                    await channel.queue_declare(
-                        queue,
-                        durable=False,
-                        auto_delete=True,
-                    )
-                    await channel.queue_bind(queue, exchange, routing_key=queue)
+                await channel.queue_bind(queue, exchange, routing_key=queue)
 
         flag = asyncio.Future()
 
@@ -320,9 +385,18 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}, "plugins": [{"module": "arrlio.plugins.events"}]},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}, "plugins": [{"module": "arrlio.plugins.events"}]},
-            {"backend": {"module": "arrlio.backends.redis"}, "plugins": [{"module": "arrlio.plugins.events"}]},
+            {
+                "backend": {"module": "arrlio.backends.local"},
+                "plugins": [{"module": "arrlio.plugins.events"}],
+            },
+            {
+                "backend": {"module": "arrlio.backends.rabbitmq"},
+                "plugins": [{"module": "arrlio.plugins.events"}],
+            },
+            {
+                "backend": {"module": "arrlio.backends.redis"},
+                "plugins": [{"module": "arrlio.plugins.events"}],
+            },
         ],
         indirect=True,
         ids=[
@@ -339,11 +413,11 @@ class TestArrlio:
         ev.clear()
 
         async def on_event(event):
-            if event.type == "task:done" and event.data["status"] is True:
+            if event.type == "task:done" and event.data["status"]["exc"] is None:
                 ev.set()
 
         await app.consume_tasks()
-        await app.consume_events(on_event)
+        await app.consume_events("test", on_event)
 
         ar = await app.send_task(tasks.hello_world, events=True)
         assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
@@ -352,10 +426,34 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
-            {"backend": {"module": "arrlio.backends.redis"}},
+            {
+                "backend": {"module": "arrlio.backends.local"},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
+            {
+                "backend": {"module": "arrlio.backends.rabbitmq"},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
+            {
+                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
+            {
+                "backend": {"module": "arrlio.backends.redis"},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
         ],
         indirect=True,
         ids=[
@@ -371,6 +469,8 @@ class TestArrlio:
 
         await app.consume_tasks()
 
+        # basic
+
         graph = arrlio.Graph("Test")
         graph.add_node("A", tasks.add_one, root=True)
         graph.add_node("B", tasks.add_one)
@@ -379,23 +479,74 @@ class TestArrlio:
         graph.add_edge("B", "C")
 
         ars = await app.send_graph(graph, args=(0,))
-        assert await asyncio.wait_for(ars["A"].get(), 1) == 1
-        assert await asyncio.wait_for(ars["B"].get(), 1) == 2
-        assert await asyncio.wait_for(ars["C"].get(), 1) == 3
+
+        assert await asyncio.wait_for(ars["A"].get(), 5) == 1
+        assert await asyncio.wait_for(ars["B"].get(), 5) == 2
+        assert await asyncio.wait_for(ars["C"].get(), 5) == 3
+
+        # xrange
+
+        graph = arrlio.Graph("Test")
+        graph.add_node("A", tasks.xrange, root=True)
+        graph.add_node("B", tasks.xrange)
+        graph.add_node("C", tasks.xrange)
+        graph.add_edge("A", "B")
+        graph.add_edge("B", "C")
+
+        ars = await app.send_graph(graph, args=(3,))
+
+        actual = []
+        async for result in ars["A"]:
+            actual.append(result)
+        assert actual == [0, 1, 2]
+
+        actual = []
+        async for result in ars["B"]:
+            actual.append(result)
+        assert actual == [0, 0, 1]
+
+        actual = []
+        async for result in ars["C"]:
+            actual.append(result)
+        assert actual == [0]
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            # {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
-            {"backend": {"module": "arrlio.backends.redis"}},
+            {
+                "backend": {"module": "arrlio.backends.local"},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
+            {
+                "backend": {"module": "arrlio.backends.rabbitmq"},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
+            {
+                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
+            {
+                "backend": {"module": "arrlio.backends.redis"},
+                "plugins": [
+                    {"module": "arrlio.plugins.events"},
+                    {"module": "arrlio.plugins.graphs"},
+                ],
+            },
         ],
         indirect=True,
         ids=[
             "          local",
             "       rabbitmq",
-            # "rabbitmq:shared",
+            "rabbitmq:shared",
             "          redis",
         ],
     )
@@ -412,17 +563,23 @@ class TestArrlio:
         graph.add_edge("A", "B", routes="true")
         graph.add_edge("A", "C", routes="false")
 
+        ###
+
         ars = await app.send_graph(graph, args=(0, 0))
-        assert await asyncio.wait_for(ars["B"].get(), 1) is None
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(ars["C"].get(), 1)
+
         assert await asyncio.wait_for(ars["A"].get(), 1) is True
+        assert await asyncio.wait_for(ars["B"].get(), 1) is None
+        with pytest.raises(arrlio.exc.TaskClosedError):
+            await asyncio.wait_for(ars["C"].get(), 5)
+
+        ###
 
         ars = await app.send_graph(graph, args=(0, 1))
-        assert await asyncio.wait_for(ars["C"].get(), 1) is None
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(ars["B"].get(), 1)
+
         assert await asyncio.wait_for(ars["A"].get(), 1) is False
+        with pytest.raises(arrlio.exc.TaskClosedError):
+            await asyncio.wait_for(ars["B"].get(), 1)
+        assert await asyncio.wait_for(ars["C"].get(), 1) is None
 
     @pytest.mark.parametrize(
         "params",
@@ -439,7 +596,7 @@ class TestArrlio:
         ],
     )
     @pytest.mark.asyncio
-    async def test_dumps_loads(self, params):
+    async def test_param_loads_result_dumps(self, params):
         backend, app = params
 
         await app.consume_tasks()

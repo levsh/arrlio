@@ -2,7 +2,6 @@ import json
 import os
 import re
 
-import httpx
 from invoke import task
 
 CWD = os.path.abspath(os.path.dirname(__file__))
@@ -33,7 +32,7 @@ def tests_small(c):
 def tests_medium(c):
     """Run medium tests"""
 
-    cmd = "pipenv run pytest -sv --maxfail=1 --timeout=60 tests/medium/"
+    cmd = "pipenv run pytest -sv --maxfail=1 --timeout=120 tests/medium/"
     c.run(cmd)
 
 
@@ -94,7 +93,7 @@ def bump_major(c):
         if match:
             groupdict = match.groupdict()
             major = int(groupdict["major"])
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', fr"\g<1>{major+1}.0.0\g<5>", text)
+            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major+1}.0.0\g<5>", text)
             f.seek(0)
             f.write(text)
             f.truncate()
@@ -111,7 +110,7 @@ def bump_minor(c):
             groupdict = match.groupdict()
             major = int(groupdict["major"])
             minor = int(groupdict["minor"])
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', fr"\g<1>{major}.{minor+1}.0\g<5>", text)
+            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major}.{minor+1}.0\g<5>", text)
             f.seek(0)
             f.write(text)
             f.truncate()
@@ -129,7 +128,7 @@ def bump_dev(c):
             major = int(groupdict["major"])
             minor = int(groupdict["minor"])
             dev = int(groupdict["dev"] or 0)
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', fr"\g<1>{major}.{minor}.{dev+1}\g<5>", text)
+            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major}.{minor}.{dev+1}\g<5>", text)
             f.seek(0)
             f.write(text)
             f.truncate()

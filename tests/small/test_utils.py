@@ -41,7 +41,7 @@ def test_ExtendedJSONEncoder():
     assert json.dumps(foo, cls=utils.ExtendedJSONEncoder) == (
         """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", \"bind\": false, """
         """\"queue\": \"arrlio.tasks\", \"priority\": 1, \"timeout\": 300, \"ttl\": 300, """
-        """\"ack_late\": true, \"result_ttl\": 300, \"result_return\": true, """
+        """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, """
         """\"thread\": null, \"events\": false, \"event_ttl\": 300, \"extra\": {}}"""
     )
 

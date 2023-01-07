@@ -6,7 +6,6 @@ from time import monotonic
 
 import pytest
 
-from arrlio import backends
 from tests import tasks
 
 
@@ -15,26 +14,30 @@ class TestPerf:
     count = 500
 
     @pytest.mark.parametrize(
-        "backend",
+        "params",
         [
-            # backends.local,
-            backends.rabbitmq,
-            # backends.redis,
+            # {"backend": {"module": "arrlio.backends.rabbitmq"}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
         ],
         indirect=True,
+        ids=[
+            # "       rabbitmq",
+            "rabbitmq:shared",
+        ],
     )
     @pytest.mark.asyncio
-    async def test_perf_arrlio(self, backend, app):
+    async def test_perf_arrlio(self, params):
+        backend, app = params
+
         logger = logging.getLogger("arrlio")
         logger.setLevel(logging.ERROR)
 
-        app.backend.config.results_queue_mode = "shared"
         url = app.backend.config.url[-1].get_secret_value()
         cmd = subprocess.run(["which", "python"], capture_output=True).stdout.decode().strip()
         ps = subprocess.Popen(
             [cmd, "tests/worker.py"],
             cwd=".",
-            env={"ARRLIO_RMQ_BACKEND_URL": url},
+            env={"ARRLIO_RABBITMQ_URL": url},
         )
         try:
 
@@ -42,11 +45,8 @@ class TestPerf:
 
             t0 = monotonic()
 
-            for _ in range(self.count):
-                ar = await app.send_task(
-                    hello_world,
-                    # extra={"result_queue_mode": "shared"},
-                )
+            ars = [await app.send_task(hello_world) for _ in range(self.count)]
+            for ar in ars:
                 assert await wait_for(ar.get(), 2) == "Hello World!"
 
             print(monotonic() - t0)
@@ -54,15 +54,21 @@ class TestPerf:
         finally:
             ps.terminate()
 
+    # @pytest.mark.skip
     @pytest.mark.parametrize(
-        "backend",
+        "params",
         [
-            backends.rabbitmq,
+            {"backend": {"module": "arrlio.backends.rabbitmq"}},
         ],
         indirect=True,
+        ids=[
+            "       rabbitmq",
+        ],
     )
     @pytest.mark.asyncio
-    async def test_perf_celery(self, backend, app):
+    async def test_perf_celery(self, params):
+        backend, app = params
+
         logger = logging.getLogger("arrlio")
         logger.setLevel(logging.ERROR)
 
@@ -79,8 +85,8 @@ class TestPerf:
 
             t0 = monotonic()
 
-            for _ in range(self.count):
-                ar = hello_world.delay()
+            ars = [hello_world.delay() for _ in range(self.count)]
+            for ar in ars:
                 assert ar.get(timeout=2) == "Hello World!"
 
             print(monotonic() - t0)

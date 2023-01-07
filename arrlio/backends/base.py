@@ -3,7 +3,7 @@ import asyncio
 import logging
 from asyncio import create_task
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set, Union
 from uuid import uuid4
 
 from pydantic import BaseSettings, Field
@@ -90,6 +90,10 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def close_task(self, task_instance: TaskInstance):
+        pass
+
+    @abc.abstractmethod
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
         pass
 
@@ -122,9 +126,9 @@ class Backend(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def consume_events(self, on_event: AsyncCallableT):
+    async def consume_events(self, cb_id: str, cb: Union[Callable, AsyncCallableT], event_types: List[str] = None):
         pass
 
     @abc.abstractmethod
-    async def stop_consume_events(self):
+    async def stop_consume_events(self, cb_id: str = None):
         pass

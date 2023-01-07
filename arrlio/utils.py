@@ -2,12 +2,14 @@ import asyncio
 import itertools
 import json
 import logging
-from asyncio import wait
+from asyncio import create_task, wait
 from datetime import datetime
 from functools import wraps
+from inspect import isasyncgenfunction
 from typing import Awaitable, Iterable
 from uuid import UUID
 
+import aiormq.exceptions
 from pydantic import SecretBytes, SecretStr
 
 from arrlio.models import Task
@@ -17,7 +19,7 @@ logger = logging.getLogger("arrlio.utils")
 
 
 async def wait_for(aw: Awaitable, timeout):
-    done, pending = await wait([aw], timeout=timeout)
+    done, pending = await wait({create_task(aw)}, timeout=timeout)
     if pending:
         for pending_coro in pending:
             pending_coro.cancel()
@@ -40,33 +42,72 @@ class ExtendedJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None):
+def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None, reraise: bool = True):
     if retry_timeouts is None:
         retry_timeouts = itertools.repeat(5)
 
     if exc_filter is None:
 
         def exc_filter(exc):
-            return isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError))
+            return isinstance(
+                exc,
+                (
+                    ConnectionError,
+                    TimeoutError,
+                    asyncio.TimeoutError,
+                    aiormq.exceptions.ConnectionClosed,
+                ),
+            )
 
     def decorator(fn):
-        @wraps(fn)
-        async def wrapper(*args, **kwds):
-            timeouts = iter(retry_timeouts)
-            attempt = 0
-            while True:
-                try:
-                    return await fn(*args, **kwds)
-                except Exception as e:
-                    if not exc_filter(e):
-                        raise e
+
+        if isasyncgenfunction(fn):
+
+            @wraps(fn)
+            async def wrapper(*args, **kwds):
+                timeouts = iter(retry_timeouts)
+                attempt = 0
+                while True:
                     try:
-                        t = next(timeouts)
-                        attempt += 1
-                        logger.error("%s %s %s - retry(%s) in %s second(s)", fn, e.__class__, e, attempt, t)
-                        await asyncio.sleep(t)
-                    except StopIteration:
-                        raise e
+                        async for res in fn(*args, **kwds):
+                            yield res
+                        return
+                    except Exception as e:
+                        if not exc_filter(e):
+                            if reraise:
+                                raise e
+                            logger.exception(e)
+                            return
+                        try:
+                            t = next(timeouts)
+                            attempt += 1
+                            logger.error("%s %s %s - retry(%s) in %s second(s)", fn, e.__class__, e, attempt, t)
+                            await asyncio.sleep(t)
+                        except StopIteration:
+                            raise e
+
+        else:
+
+            @wraps(fn)
+            async def wrapper(*args, **kwds):
+                timeouts = iter(retry_timeouts)
+                attempt = 0
+                while True:
+                    try:
+                        return await fn(*args, **kwds)
+                    except Exception as e:
+                        if not exc_filter(e):
+                            if reraise:
+                                raise e
+                            logger.exception(e)
+                            return
+                        try:
+                            t = next(timeouts)
+                            attempt += 1
+                            logger.error("%s %s %s - retry(%s) in %s second(s)", fn, e.__class__, e, attempt, t)
+                            await asyncio.sleep(t)
+                        except StopIteration:
+                            raise e
 
         return wrapper
 

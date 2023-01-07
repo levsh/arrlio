@@ -4,12 +4,12 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-aiormq = ">=6.2.3"
+aiormq = ">=6.6.4"
 pydantic = ">=1.10.1"
 yarl = "*"
 hiredis = "*"
 roview = "*"
-siderpy = "*"
+siderpy = ">=0.6.0"
 
 [dev-packages]
 arrlio = {editable = true, path = "."}

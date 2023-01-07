@@ -1,14 +1,15 @@
 import asyncio
 import logging
 import sys
+import threading
 from asyncio import wait_for
-from inspect import iscoroutinefunction
-from threading import Thread
+from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
+from threading import Thread, current_thread
 from time import monotonic
 
 from pydantic import BaseSettings
 
-from arrlio.exc import NotFoundError, TaskTimeoutError
+from arrlio.exc import NotFoundError, TaskError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 
 logger = logging.getLogger("arrlio.executor")
@@ -29,6 +30,14 @@ class Executor:
     def __repr__(self):
         return self.__str__()
 
+    async def __call__(self, task_instance: TaskInstance) -> TaskResult:
+        if task_instance.data.thread:
+            execute = self.execute_in_thread
+        else:
+            execute = self.execute
+        async for res in execute(task_instance):
+            yield res
+
     async def execute(self, task_instance: TaskInstance) -> TaskResult:
         task: Task = task_instance.task
         task_data: TaskData = task_instance.data
@@ -44,13 +53,58 @@ class Executor:
             kwdefaults = func.__kwdefaults__
             meta: bool = kwdefaults is not None and "meta" in kwdefaults
 
-            logger.info("%s: execute task %s(%s)", self, task.name, task_data.task_id)
+            logger.info("%s[%s]: execute task %s(%s)", self, current_thread().name, task_data.task_id, task.name)
 
             try:
+
                 if iscoroutinefunction(func):
+
                     res = await wait_for(task_instance(meta=meta), task_data.timeout)
+                    if isinstance(res, TaskResult):
+                        yield res
+                    else:
+                        yield TaskResult(res=res, exc=exc, trb=trb)
+
+                elif isgeneratorfunction(func):
+
+                    if task_data.extra.get("graph"):
+                        raise TaskError("generator not supported")
+
+                    for res in task_instance(meta=meta):
+                        if isinstance(res, TaskResult):
+                            yield res
+                        else:
+                            yield TaskResult(res=res, exc=exc, trb=trb)
+
+                elif isasyncgenfunction(func):
+
+                    agen = task_instance(meta=meta)
+
+                    timeout_time = (monotonic() + task_data.timeout) if task_data.timeout else None
+
+                    while True:
+                        timeout = (timeout_time - monotonic()) if timeout_time else None
+
+                        try:
+                            res = await wait_for(agen.__anext__(), timeout)
+                            if isinstance(res, TaskResult):
+                                yield res
+                            else:
+                                yield TaskResult(res=res, exc=exc, trb=trb)
+
+                        except StopAsyncIteration:
+                            break
+                        except asyncio.TimeoutError:
+                            raise TaskTimeoutError(task_data.timeout)
+
                 else:
+
                     res = task_instance(meta=meta)
+                    if isinstance(res, TaskResult):
+                        yield res
+                    else:
+                        yield TaskResult(res=res, exc=exc, trb=trb)
+
             except asyncio.TimeoutError:
                 raise TaskTimeoutError(task_data.timeout)
 
@@ -61,43 +115,52 @@ class Executor:
                 logger.error("%s: task %s(%s) timeout", self, task.name, task_data.task_id)
             else:
                 logger.exception(task_instance.dict(exclude=["data.args", "data.kwds"]))
+            yield TaskResult(res=res, exc=exc, trb=trb)
 
         logger.info(
             "%s: task %s(%s) done in %.2f second(s)",
             self,
-            task.name,
             task_data.task_id,
+            task.name,
             monotonic() - t0,
         )
-
-        if isinstance(res, TaskResult):
-            return res
-
-        return TaskResult(res=res, exc=exc, trb=trb)
 
     async def execute_in_thread(self, task_instance: TaskInstance) -> TaskResult:
         root_loop = asyncio.get_running_loop()
         done_ev: asyncio.Event = asyncio.Event()
+        res_ev: asyncio.Event = asyncio.Event()
+        sync_ev: threading.Event = threading.Event()
         task_result: TaskResult = None
 
-        def thread(done_ev):
+        def thread(root_loop, res_ev, sync_ev, done_ev):
             nonlocal task_result
             loop = asyncio.new_event_loop()
             try:
                 asyncio.set_event_loop(loop)
-                task_result = loop.run_until_complete(self.execute(task_instance))
+                agen = self.execute(task_instance)
+                while True:
+                    try:
+                        sync_ev.clear()
+                        task_result = loop.run_until_complete(agen.__anext__())
+                        root_loop.call_soon_threadsafe(res_ev.set)
+                        sync_ev.wait()
+                    except StopAsyncIteration:
+                        break
+                    except Exception as e:
+                        logger.exception(e)
             finally:
                 loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
-                root_loop.call_soon_threadsafe(done_ev.set)
+                if not root_loop.is_closed():
+                    root_loop.call_soon_threadsafe(done_ev.set)
+                    root_loop.call_soon_threadsafe(res_ev.set)
 
-        Thread(target=thread, args=(done_ev,)).start()
+        Thread(target=thread, args=(root_loop, res_ev, sync_ev, done_ev)).start()
 
-        await done_ev.wait()
-
-        return task_result
-
-    async def __call__(self, task_instance: TaskInstance) -> TaskResult:
-        if task_instance.data.thread:
-            return await self.execute_in_thread(task_instance)
-        return await self.execute(task_instance)
+        while True:
+            await res_ev.wait()
+            if done_ev.is_set():
+                break
+            res_ev.clear()
+            sync_ev.set()
+            yield task_result

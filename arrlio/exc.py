@@ -16,3 +16,11 @@ class TaskNoResultError(ArrlioError):
 
 class NotFoundError(ArrlioError):
     pass
+
+
+class TaskClosedError(ArrlioError):
+    pass
+
+
+class GraphError(ArrlioError):
+    pass

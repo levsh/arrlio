@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 
 def get_version():
@@ -26,11 +26,11 @@ setup(
     ),
     include_package_data=True,
     install_requires=[
-        "aiormq>=5.2.0",
+        "aiormq>=6.6.4",
         "pydantic>=1.9.0",
         "yarl",
         "roview",
-        "siderpy[hiredis]",
+        "siderpy[hiredis]>=0.6.0",
     ],
     python_requires=">=3.8",
     classifiers=[

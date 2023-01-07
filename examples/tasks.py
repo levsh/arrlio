@@ -1,7 +1,8 @@
 import io
 
-import arrlio
 import invoke
+
+import arrlio
 
 
 @arrlio.task
@@ -26,13 +27,19 @@ async def exception():
 
 
 @arrlio.task
+def xrange(count):
+    for x in range(count):
+        yield x
+
+
+@arrlio.task
 async def add_one(value: str):
     return int(value) + 1
 
 
 @arrlio.task
 async def bash(cmd, stdin: str = None):
-    in_stream=io.StringIO(stdin)
-    out_stream=io.StringIO()
+    in_stream = io.StringIO(stdin)
+    out_stream = io.StringIO()
     result = invoke.run(cmd, in_stream=in_stream, out_stream=out_stream)
     return result.stdout

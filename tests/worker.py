@@ -3,11 +3,9 @@ import asyncio
 import arrlio
 import tasks
 
-BACKEND = "arrlio.backends.rabbitmq"
-
 
 async def main():
-    app = arrlio.App(arrlio.Config(backend=BACKEND))
+    app = arrlio.App(arrlio.Config(backend={"module": "arrlio.backends.rabbitmq"}))
 
     async with app:
         await app.consume_tasks()
