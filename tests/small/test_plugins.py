@@ -1,9 +1,13 @@
+import asyncio
+from contextlib import asynccontextmanager
+from types import ModuleType
 from unittest import mock
 
 import pytest
 
 import arrlio
 from arrlio import App, Config, TaskResult
+from arrlio.plugins import base
 from arrlio.plugins.events import Config as EventsPluginConfig
 from arrlio.plugins.events import Plugin as EventsPlugin
 from arrlio.plugins.graphs import Plugin as GraphsPlugin
@@ -92,3 +96,37 @@ class TestGraphsPlugin:
             await plugin.on_close()
         finally:
             await app.close()
+
+
+class TestPlugin:
+    @pytest.mark.asyncio
+    async def test_task_context(self):
+        ev = asyncio.Event()
+
+        class _Config(base.Config):
+            pass
+
+        class _Plugin(base.Plugin):
+            @property
+            def name(self) -> str:
+                return "arrlio.tests"
+
+            @asynccontextmanager
+            async def task_context(self, task_instance):
+                self.app.context.set({"x": "y"})
+                yield
+
+            async def on_task_done(self, task_result, *args, **kwds):
+                if self.app.context.get() == {"x": "y"}:
+                    ev.set()
+
+        module = ModuleType("test")
+        module.Config = _Config
+        module.Plugin = _Plugin
+
+        app = App(Config(plugins=[{"module": module}]))
+        await app.init()
+        await app.consume_tasks()
+        ar = await app.send_task("hello_world")
+        await asyncio.wait_for(ar.get(), 5)
+        assert ev.is_set()

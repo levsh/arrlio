@@ -284,12 +284,8 @@ class App:
 
                 async with AsyncExitStack() as stack:
 
-                    # for context in self._hooks["task_context"]:
-                    #     await stack.enter_async_context(context(task_instance))
-
-                    await gather(
-                        stack.enter_async_context(context(task_instance)) for context in self._hooks["task_context"]
-                    )
+                    for context in self._hooks["task_context"]:
+                        await stack.enter_async_context(context(task_instance))
 
                     await self._execute_hooks("on_task_received", task_instance)
 
