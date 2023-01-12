@@ -427,7 +427,7 @@ class Backend(base.Backend):
 
             channel = await self._channel()
 
-            logger.debug("%s: channel: %s send %s", self, channel, task_instance)
+            logger.debug("%s: channel:%s send %s", self, channel, task_instance)
 
             await channel.basic_publish(
                 self.serializer.dumps_task_instance(task_instance),
