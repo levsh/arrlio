@@ -765,7 +765,7 @@ class Backend(base.Backend):
         async def reconsume():
             await self.consume_tasks(list(self._task_consumers.keys()), on_task)
 
-        self.__conn.add_callback("on_open", "consume_tasks", reconsume)
+        self.__conn.add_callback("on_lost", "consume_tasks", reconsume)
 
     async def stop_consume_tasks(self, queues: List[str] = None):
         if self._conn.is_closed:
@@ -787,7 +787,7 @@ class Backend(base.Backend):
             if queues is None:
                 self._task_consumers.clear()
             if not self._task_consumers:
-                self.__conn.remove_callback("on_open", "consume_tasks")
+                self.__conn.remove_callback("on_lost", "consume_tasks")
 
     async def push_task_result(self, task_instance: core.TaskInstance, task_result: TaskResult):
         await self._create_backend_task(
@@ -929,7 +929,7 @@ class Backend(base.Backend):
 
                     finally:
 
-                        if not self._conn.is_closed and channel and not channel.is_closed:
+                        if not self._conn.is_closed and not channel.is_closed:
                             await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
                             await channel.queue_delete(queue)
                             await channel.close()
@@ -1026,7 +1026,7 @@ class Backend(base.Backend):
         async def reconsume_messages():
             await self.consume_messages(list(self._message_consumers.keys()), on_message)
 
-        self._conn.add_callback("on_open", "consume_messages", reconsume_messages)
+        self._conn.add_callback("on_lost", "consume_messages", reconsume_messages)
 
     async def stop_consume_messages(self, queues: List[str] = None):
         if self._conn.is_closed:
@@ -1047,7 +1047,7 @@ class Backend(base.Backend):
             if queues is None:
                 self._message_consumers.clear()
             if not self._message_consumers:
-                self.__conn.remove_callback("on_open", "consume_messages")
+                self.__conn.remove_callback("on_lost", "consume_messages")
 
     async def send_event(self, event: Event):
         await self._create_backend_task("send_event", lambda: self._send_event(event))
@@ -1124,7 +1124,7 @@ class Backend(base.Backend):
             for cb_id, (cb, event_types) in self._event_callbacks.items():
                 await self.consume_events(cb_id, cb, event_types=event_types)
 
-        self._conn.add_callback("on_open", "consume_events", reconsume_events)
+        self._conn.add_callback("on_lost", "consume_events", reconsume_events)
 
     async def stop_consume_events(self, cb_id: str = None):
         if cb_id:
@@ -1137,7 +1137,7 @@ class Backend(base.Backend):
         if self._conn.is_closed:
             return
 
-        self.__conn.remove_callback("on_open", "consume_events")
+        self.__conn.remove_callback("on_lost", "consume_events")
 
         for aio_task in self._backend_tasks["consume_events"]:
             aio_task.cancel()
