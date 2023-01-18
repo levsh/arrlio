@@ -303,7 +303,7 @@ class RMQConnection:
         if connect_timeout is not None:
             connect_timeout = int(connect_timeout) / 1000
 
-        while True:
+        while not self.is_closed:
             try:
                 logger.info("%s: connecting...", self)
 
@@ -525,14 +525,14 @@ class Backend(base.Backend):
         return self.__conn
 
     async def _new_channel(self):
-        while True:
+        while not self.is_closed:
             channel = await self._conn.new_channel()
             await self._conn_open_ev.wait()
             if not channel.is_closed:
                 return channel
 
     async def _channel(self):
-        while True:
+        while not self.is_closed:
             channel = await self._conn.channel()
             await self._conn_open_ev.wait()
             if not channel.is_closed:
@@ -821,7 +821,7 @@ class Backend(base.Backend):
 
             if task_data.extra.get("graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
 
-                while True:
+                while not self.is_closed:
 
                     if task_id not in self._shared_results_storage:
                         raise TaskNoResultError(f"Result for {task_id}({task_instance.task.name}) expired")
@@ -890,7 +890,7 @@ class Backend(base.Backend):
             try:
                 func = task_instance.task.func
 
-                while True:
+                while not self.is_closed:
                     fut = asyncio.Future()
 
                     channel = await self._new_channel()
@@ -902,7 +902,7 @@ class Backend(base.Backend):
 
                         if task_data.extra.get("graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
 
-                            while True:
+                            while not self.is_closed:
 
                                 await fut
                                 fut = asyncio.Future()

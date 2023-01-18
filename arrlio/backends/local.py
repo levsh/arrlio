@@ -111,7 +111,7 @@ class Backend(base.Backend):
 
             self._consumed_task_queues.add(queue)
             try:
-                while True:
+                while not self.is_closed:
                     try:
                         await semaphore_acquire()
                         try:
@@ -188,7 +188,7 @@ class Backend(base.Backend):
 
             if task_data.extra.get("graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
 
-                while True:
+                while not self.is_closed:
 
                     if task_id not in self._results:
                         self._results[task_id] = [asyncio_Event(), [], None]
@@ -262,7 +262,7 @@ class Backend(base.Backend):
             loads = self.serializer.loads
 
             try:
-                while True:
+                while not self.is_closed:
                     try:
                         await semaphore_acquire()
                         try:
@@ -329,7 +329,7 @@ class Backend(base.Backend):
             event_callbacks = self._event_callbacks
             create_backend_task = self._create_backend_task
 
-            while True:
+            while not self.is_closed:
                 try:
                     if not events:
                         async with event_cond:
@@ -348,7 +348,7 @@ class Backend(base.Backend):
                             cb(event)
                 except asyncio.CancelledError:
                     logger.info("%s: stop consuming events", self)
-                    break
+                    return
                 except Exception as e:
                     logger.exception(e)
 

@@ -109,7 +109,7 @@ class Backend(base.Backend):
 
             if task_instance.data.extra.get("graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
 
-                while True:
+                while not self.is_closed:
                     raw_data = await self.redis_pool.blpop(result_key, 0)
 
                     logger.debug("%s: pop result for %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
@@ -205,7 +205,7 @@ class Backend(base.Backend):
 
             self._consumed_task_queues.add(queue)
             try:
-                while True:
+                while not self.is_closed:
                     try:
                         await semaphore_acquire()
                         try:
@@ -278,7 +278,7 @@ class Backend(base.Backend):
 
             self._consumed_message_queues.add(queue)
             try:
-                while True:
+                while not self.is_closed:
                     try:
                         await semaphore_acquire()
                         try:
@@ -339,7 +339,7 @@ class Backend(base.Backend):
             event_callbacks = self._event_callbacks
             create_backend_task = self._create_backend_task
 
-            while True:
+            while not self.is_closed:
                 try:
                     _, queue_value = await redis_pool.blpop(queue_key, 0)
                     event_id = queue_value.decode()
