@@ -54,9 +54,7 @@ class Serializer(base.Serializer):
 
         if task.loads:
             args, kwds = task.loads(*task_data.args, **task_data.kwds)
-            if not isinstance(args, tuple):
-                raise TypeError(f"Task '{task.name}' loads function should return Tuple[Tuple, Dict]")
-            if not isinstance(kwds, dict):
+            if not isinstance(args, tuple) or not isinstance(kwds, dict):
                 raise TypeError(f"Task '{task.name}' loads function should return Tuple[Tuple, Dict]")
             task_data.args = args
             task_data.kwds = kwds
@@ -71,10 +69,10 @@ class Serializer(base.Serializer):
             module = importlib.import_module(exc[0])
             return getattr(module, exc[1])(exc[2])
         except Exception:
-            pass
+            raise Exception(exc[1], exc[2])
 
     def dumps_trb(self, trb: TracebackType) -> str:
-        return "".join(traceback.format_tb(trb, 3)) if trb else None
+        return "".join(traceback.format_tb(trb, 5)) if trb else None
 
     def loads_trb(self, trb: str) -> str:
         return trb
