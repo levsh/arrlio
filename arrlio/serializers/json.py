@@ -3,7 +3,9 @@ import json
 import logging
 import traceback
 from types import TracebackType
-from typing import Any, Tuple
+from typing import Any, Tuple, Type
+
+from pydantic import Field
 
 from arrlio.core import __tasks__
 from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
@@ -14,16 +16,12 @@ logger = logging.getLogger("arrlio.serializers.json")
 
 
 class Config(base.Config):
-    pass
+    encoder: Type[json.JSONEncoder] = Field(default=ExtendedJSONEncoder)
 
 
 class Serializer(base.Serializer):
-    def __init__(self, *args, encoder=None, **kwds):
-        super().__init__(*args, **kwds)
-        self.encoder = encoder or ExtendedJSONEncoder
-
     def dumps(self, data: Any, **kwds) -> bytes:
-        return json.dumps(data, cls=self.encoder).encode()
+        return json.dumps(data, cls=self.config.encoder).encode()
 
     def loads(self, data: bytes) -> Any:
         return json.loads(data)
@@ -38,7 +36,7 @@ class Serializer(base.Serializer):
                 "name": dct["task"]["name"],
                 **{k: v for k, v in dct["data"].items() if v is not None},
             },
-            cls=self.encoder,
+            cls=self.config.encoder,
         )
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
