@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sys
 import threading
-from asyncio import wait_for
+from asyncio import get_running_loop, new_event_loop, set_event_loop, wait_for
 from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from threading import Thread, current_thread
 from time import monotonic
@@ -13,6 +13,9 @@ from arrlio.exc import NotFoundError, TaskError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 
 logger = logging.getLogger("arrlio.executor")
+
+asyncio_Event = asyncio.Event  # pylint: disable=invalid-name
+threading_Event = threading.Event  # pylint: disable=invalid-name
 
 
 class Config(BaseSettings):
@@ -126,17 +129,17 @@ class Executor:
         )
 
     async def execute_in_thread(self, task_instance: TaskInstance) -> TaskResult:
-        root_loop = asyncio.get_running_loop()
-        done_ev: asyncio.Event = asyncio.Event()
-        res_ev: asyncio.Event = asyncio.Event()
-        sync_ev: threading.Event = threading.Event()
+        root_loop = get_running_loop()
+        done_ev: asyncio_Event = asyncio_Event()
+        res_ev: asyncio_Event = asyncio_Event()
+        sync_ev: threading_Event = threading_Event()
         task_result: TaskResult = None
 
         def thread(root_loop, res_ev, sync_ev, done_ev):
             nonlocal task_result
-            loop = asyncio.new_event_loop()
+            loop = new_event_loop()
             try:
-                asyncio.set_event_loop(loop)
+                set_event_loop(loop)
                 agen = self.execute(task_instance)
                 while True:
                     try:

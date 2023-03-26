@@ -1,4 +1,5 @@
 import gc
+import os
 import time
 
 import pytest
@@ -34,7 +35,12 @@ async def params(request, container_executor, cleanup):
     container = None
 
     if config["backend"]["module"] == "arrlio.backends.rabbitmq":
-        container = container_executor.run_wait_up("rabbitmq:3-management", ports={"15672": "15672"})
+        f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rabbitmq.conf")
+        container = container_executor.run_wait_up(
+            "rabbitmq:3-management",
+            ports={"15672": "15672"},
+            # volumes={f: {"bind": "/etc/rabbitmq/rabbitmq.conf"}},
+        )
         address = (container.attrs["NetworkSettings"]["IPAddress"], 5672)
         config["backend"].setdefault("config", {}).update(
             {

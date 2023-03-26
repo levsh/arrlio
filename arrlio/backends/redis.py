@@ -21,7 +21,7 @@ logger = logging.getLogger("arrlio.backends.redis")
 
 SERIALIZER: str = "arrlio.serializers.json"
 
-URL: str = "redis://localhost?db=0"
+URL: str = "redis://localhost:6379/0"
 VERIFY_SSL: bool = True
 TIMEOUT: int = 60
 CONNECT_TIMEOUT: int = 30
@@ -29,8 +29,8 @@ CONN_POOL_SIZE: int = 10
 
 POOL_SIZE: int = 100
 
-PUSH_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [5, 5, 5, 5]
-PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)
+PUSH_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [5, 5, 5, 5]  # pylint: disable=invalid-name
+PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)  # pylint: disable=invalid-name
 
 
 class Config(base.Config):

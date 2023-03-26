@@ -137,7 +137,7 @@ class App:
         if self.is_closed:
             return
 
-        logger.info("%s: initialization...", self)
+        logger.info("%s: initialization with %s", self, self.config)
 
         await self._execute_hooks("on_init")
 

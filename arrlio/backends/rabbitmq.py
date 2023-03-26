@@ -1,7 +1,7 @@
 import asyncio
 import itertools
 import logging
-from asyncio import Semaphore, create_task, gather, get_event_loop, shield, wait
+from asyncio import FIRST_COMPLETED, create_task, gather, get_event_loop, shield, wait
 from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, PositiveInt
 
 from arrlio import core
 from arrlio.backends import base
-from arrlio.exc import TaskClosedError, TaskNoResultError
+from arrlio.exc import GraphError, TaskClosedError, TaskNoResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PriorityT, TimeoutT
@@ -28,6 +28,13 @@ datetime_now = datetime.now
 utc = timezone.utc
 BasicProperties = aiormq.spec.Basic.Properties
 
+asyncio_Lock = asyncio.Lock  # pylint: disable=invalid-name
+asyncio_Task = asyncio.Task  # pylint: disable=invalid-name
+asyncio_Event = asyncio.Event  # pylint: disable=invalid-name
+asyncio_Future = asyncio.Future  # pylint: disable=invalid-name
+asyncio_Semaphore = asyncio.Semaphore  # pylint: disable=invalid-name
+asyncio_TimeoutError = asyncio.TimeoutError  # pylint: disable=invalid-name
+
 
 class QueueType(str, Enum):
     CLASSIC = "classic"
@@ -35,8 +42,9 @@ class QueueType(str, Enum):
 
 
 class ResultQueueMode(str, Enum):
-    SINGLE = "single"
-    SHARED = "shared"
+    DIRECT_REPLY_TO = "direct_reply_to"
+    SEPARATE = "separate"
+    COMMON = "common"
 
 
 SERIALIZER: str = "arrlio.serializers.json"
@@ -47,9 +55,9 @@ TIMEOUT: int = 10
 
 POOL_SIZE: int = 100
 
-CONN_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = None
-PUSH_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [5, 5, 5, 5]
-PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)
+CONN_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = None  # pylint: disable=invalid-name
+PUSH_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = [5, 5, 5, 5]  # pylint: disable=invalid-name
+PULL_RETRY_TIMEOUTS: Union[List[int], Iterable[int]] = itertools.repeat(5)  # pylint: disable=invalid-name
 
 TASKS_EXCHANGE: str = "arrlio"
 TASKS_EXCHANGE_DURABLE: bool = False
@@ -69,13 +77,13 @@ EVENTS_PREFETCH_COUNT: int = 1
 MESSAGES_PREFETCH_COUNT: int = 1
 
 RESULTS_QUEUE_PREFIX: str = "arrlio."
-RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.SINGLE
-RESULTS_SINGLE_QUEUE_DURABLE: bool = False
-RESULTS_SINGLE_QUEUE_TYPE: QueueType = QueueType.CLASSIC
-RESULTS_SINGLE_QUEUE_TTL: int = 600
-RESULTS_SHARED_QUEUE_DURABLE: bool = False
-RESULTS_SHARED_QUEUE_TYPE: QueueType = QueueType.CLASSIC
-RESULTS_SHARED_QUEUE_TTL: int = 600
+RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.COMMON
+RESULTS_SEPARATE_QUEUE_DURABLE: bool = False
+RESULTS_SEPARATE_QUEUE_TYPE: QueueType = QueueType.CLASSIC
+RESULTS_SEPARATE_QUEUE_TTL: int = 600
+RESULTS_COMMON_QUEUE_DURABLE: bool = False
+RESULTS_COMMON_QUEUE_TYPE: QueueType = QueueType.CLASSIC
+RESULTS_COMMON_QUEUE_TTL: int = 600
 
 
 class Config(base.Config):
@@ -105,27 +113,27 @@ class Config(base.Config):
     messages_prefetch_count: Optional[PositiveInt] = Field(default_factory=lambda: MESSAGES_PREFETCH_COUNT)
     results_queue_prefix: str = Field(default_factory=lambda: RESULTS_QUEUE_PREFIX)
     results_queue_mode: ResultQueueMode = Field(default_factory=lambda: RESULTS_QUEUE_MODE)
-    results_single_queue_durable: bool = Field(default_factory=lambda: RESULTS_SINGLE_QUEUE_DURABLE)
-    results_single_queue_type: QueueType = Field(default_factory=lambda: RESULTS_SINGLE_QUEUE_TYPE)
-    results_single_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_SINGLE_QUEUE_TTL)
-    results_shared_queue_durable: bool = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_DURABLE)
-    results_shared_queue_type: QueueType = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_TYPE)
-    results_shared_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_SHARED_QUEUE_TTL)
+    results_separate_queue_durable: bool = Field(default_factory=lambda: RESULTS_SEPARATE_QUEUE_DURABLE)
+    results_separate_queue_type: QueueType = Field(default_factory=lambda: RESULTS_SEPARATE_QUEUE_TYPE)
+    results_separate_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_SEPARATE_QUEUE_TTL)
+    results_common_queue_durable: bool = Field(default_factory=lambda: RESULTS_COMMON_QUEUE_DURABLE)
+    results_common_queue_type: QueueType = Field(default_factory=lambda: RESULTS_COMMON_QUEUE_TYPE)
+    results_common_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_COMMON_QUEUE_TTL)
 
     class Config:
         env_prefix = f"{ENV_PREFIX}RABBITMQ_"
 
 
-def _exc_filter(e):
-    return isinstance(
-        e,
-        (
-            aiormq.exceptions.ConnectionClosed,
-            ConnectionError,
-            asyncio.TimeoutError,
-            TimeoutError,
-        ),
-    )
+RETRY_EXCEPTIONS = (
+    aiormq.exceptions.ConnectionClosed,
+    ConnectionError,
+    asyncio_TimeoutError,
+    TimeoutError,
+)
+
+
+def _exc_filter(e) -> bool:
+    return isinstance(e, RETRY_EXCEPTIONS)
 
 
 class RMQConnection:
@@ -134,24 +142,24 @@ class RMQConnection:
     def __init__(
         self,
         url: Union[Union[AmqpDsn, str], List[Union[AmqpDsn, str]]],
-        retry_timeouts: Iterable[int] = None,
+        retry_timeouts: Optional[Union[List[int], Iterable[int]]] = None,
         exc_filter: ExceptionFilterT = None,
     ):
-        urls: List[AmqpDsn] = self._normalize_url(url)
+        urls: List[AmqpDsn] = self._to_amqpdsn(url)
         self._url_iter = InfIter(urls)
         self.url: AmqpDsn = next(self._url_iter)
 
         self._retry_timeouts = retry_timeouts
         self._exc_filter = exc_filter or _exc_filter
 
-        self._open_task: Awaitable = asyncio.Future()
+        self._open_task: Awaitable = asyncio_Future()
         self._open_task.set_result(None)
 
-        self._supervisor_task: asyncio.Task = None
+        self._supervisor_task: asyncio_Task = None
 
-        self._closed: asyncio.Future = asyncio.Future()
+        self._closed: asyncio_Future = asyncio_Future()
 
-        key = (asyncio.get_event_loop(), tuple(sorted(u.get_secret_value() for u in urls)))
+        key = (get_event_loop(), tuple(sorted(u.get_secret_value() for u in urls)))
         self.__key = key
 
         if key not in self.__shared:
@@ -160,26 +168,27 @@ class RMQConnection:
                 "refs": 0,
                 "objs": 0,
                 "conn": None,
-                "connect_lock": asyncio.Lock(),
+                "connect_lock": asyncio_Lock(),
             }
 
-        self._shared = self.__shared[key]
-        self._shared["id"] += 1
-        self._shared["objs"] += 1
-        self._shared[self] = {
-            "on_open_order": {},
+        shared = self.__shared[key]
+        shared["id"] += 1
+        shared["objs"] += 1
+        shared[self] = {
+            "on_open_ordered": {},
             "on_open": {},
-            "on_lost_order": {},
+            "on_lost_ordered": {},
             "on_lost": {},
-            "on_close_order": {},
+            "on_close_ordered": {},
             "on_close": {},
             "callback_tasks": set(),
         }
+        self._shared = shared
 
-        self._id = self._shared["id"]
+        self._id = shared["id"]
         self._channel: aiormq.Channel = None
 
-    def _normalize_url(self, url: Union[Union[AmqpDsn, str], List[Union[AmqpDsn, str]]]) -> List[AmqpDsn]:
+    def _to_amqpdsn(self, url: Union[AmqpDsn, str, List[AmqpDsn], List[str]]) -> List[AmqpDsn]:
         if not isinstance(url, list):
             url = [url]
 
@@ -220,15 +229,13 @@ class RMQConnection:
         self._shared["refs"] = value
 
     def add_callback(self, tp: str, name: Hashable, cb: Callable):
-        shared = self._shared.get(self)
-        if shared:
+        if shared := self._shared.get(self):
             if tp not in shared:
                 raise ValueError("Invalid callback type")
             shared[tp][name] = cb
 
     def remove_callback(self, tp: str, name: Hashable):
-        shared = self._shared.get(self)
-        if shared:
+        if shared := self._shared.get(self):
             if tp not in shared:
                 raise ValueError("Invalid callback type")
             if name in shared[tp]:
@@ -241,7 +248,9 @@ class RMQConnection:
         self._shared.pop(self, None)
 
     def __str__(self):
-        return f"{self.__class__.__name__}#{self._id}[{self.url.host}:{self.url.port}]"
+        if logger.getEffectiveLevel() <= 20:
+            return f"{self.__class__.__name__}[{id(self):#x}]#{self._id}[{self.url.host}]"
+        return f"{self.__class__.__name__}#{self._id}[{self.url.host}]"
 
     def __repr__(self):
         return self.__str__()
@@ -257,25 +266,24 @@ class RMQConnection:
     async def _execute_callbacks(self, tp: str):
         async def fn(name, callback):
             try:
-                logger.debug("%s: execute callback '%s' '%s':%s", self, tp, name, callback)
+                # logger.debug("%s: execute callback '%s' '%s':%s", self, tp, name, callback)
                 if iscoroutinefunction(callback):
                     await callback()
                 else:
                     callback()
-                logger.debug("%s: callback '%s' '%s':%s done", self, tp, name, callback)
+                # logger.debug("%s: callback '%s' '%s':%s done", self, tp, name, callback)
             except Exception as e:
                 logger.error("%s: callback '%s' '%s':%s error: %s %s", self, tp, name, callback, e.__class__, e)
 
         async def do():
             items = list(self._shared[self][tp].items())
-            if tp.endswith("_order"):
+            if tp.endswith("_ordered"):
                 for item in items:
                     await fn(*item)
             else:
-                coros = [fn(*item) for item in items]
-                await gather(*coros)
+                await gather(*[fn(*item) for item in items])
 
-        task: asyncio.Task = create_task(do())
+        task: asyncio_Task = create_task(do())
         self._shared[self]["callback_tasks"].add(task)
         try:
             await task
@@ -285,7 +293,7 @@ class RMQConnection:
 
     async def _supervisor(self):
         try:
-            await wait([self._conn.closing, self._closed], return_when=asyncio.FIRST_COMPLETED)
+            await wait([self._conn.closing, self._closed], return_when=FIRST_COMPLETED)
         except Exception as e:
             logger.warning("%s: %s %s", self, e.__class__, e)
 
@@ -295,7 +303,7 @@ class RMQConnection:
             logger.warning("%s: connection lost", self)
             await self._channel.close()
             self._refs -= 1
-            await self._execute_callbacks("on_lost_order")
+            await self._execute_callbacks("on_lost_ordered")
             await self._execute_callbacks("on_lost")
 
     async def _connect(self):
@@ -305,21 +313,20 @@ class RMQConnection:
 
         while not self.is_closed:
             try:
-                logger.info("%s: connecting...", self)
+                logger.info("%s: connecting(timeout=%s)...", self, connect_timeout)
 
                 self._conn = await wait_for(aiormq.connect(self.url.get_secret_value()), connect_timeout)
-                self._refs += 1
                 self._url_iter.reset()
                 break
             except Exception as e:
-                if not _exc_filter(e):
+                if not self._exc_filter(e):
                     raise e
                 try:
                     url = next(self._url_iter)
-                    logger.warning("%s: %s %s", self, e.__class__, e)
-                    self.url = url
                 except StopIteration:
                     raise e
+                logger.warning("%s: %s %s", self, e.__class__, e)
+                self.url = url
 
         logger.info("%s: connected", self)
 
@@ -331,21 +338,21 @@ class RMQConnection:
             raise Exception("Can't reopen closed connection")
 
         async with self._shared["connect_lock"]:
-            if self.is_open:
-                return
+            if self._conn is None or self._conn.is_closed:
+                self._open_task = create_task(
+                    retry(
+                        fn_name=f"{self}:connect",
+                        retry_timeouts=self._retry_timeouts,
+                        exc_filter=self._exc_filter,
+                    )(self._connect)()
+                )
+                await self._open_task
 
-            self._open_task = create_task(
-                retry(
-                    retry_timeouts=self._retry_timeouts,
-                    exc_filter=self._exc_filter,
-                )(self._connect)()
-            )
-            await self._open_task
-
-            self._supervisor_task = create_task(self._supervisor())
-
-            await self._execute_callbacks("on_open_order")
-            await self._execute_callbacks("on_open")
+            if self._supervisor_task is None:
+                self._refs += 1
+                self._supervisor_task = create_task(self._supervisor())
+                await self._execute_callbacks("on_open_ordered")
+                await self._execute_callbacks("on_open")
 
     async def close(self):
         if self.is_closed:
@@ -354,13 +361,15 @@ class RMQConnection:
         if not self._open_task.done():
             self._open_task.cancel()
 
+        if self._conn:
+            await self._execute_callbacks("on_close_ordered")
+            await self._execute_callbacks("on_close")
+
         self._closed.set_result(None)
 
         self._refs = max(0, self._refs - 1)
         if self._refs == 0:
             if self._conn:
-                await self._execute_callbacks("on_close_order")
-                await self._execute_callbacks("on_close")
                 await self._conn.close()
                 self._conn = None
                 logger.info("%s: closed", self)
@@ -386,48 +395,47 @@ class Backend(base.Backend):
 
         self._task_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
         self._message_consumers: Dict[str, Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk]] = {}
-        self._events_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = []
+        self._events_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = ()
         self._event_callbacks: Dict[str, Tuple[AsyncCallableT, List[str]]] = {}
 
-        self._conn_open_ev: asyncio.Event = asyncio.Event()
-        self._semaphore = Semaphore(value=config.pool_size)
+        self._conn_open_ev: asyncio_Event = asyncio_Event()
+        self._tasks_semaphore = asyncio_Semaphore(value=config.pool_size)
 
         self._declared = set()
 
         self.__conn: RMQConnection = RMQConnection(config.url, retry_timeouts=config.conn_retry_timeouts)
 
-        self.__conn.add_callback("on_open_order", "declare", self._declare_basic)
-        self.__conn.add_callback("on_open_order", "consume_results_shared_queue", self._consume_results_shared_queue)
-        self.__conn.add_callback("on_open_order", "conn_open_ev", self._conn_open_ev.set)
+        self.__conn.add_callback("on_open_ordered", "declare_basic", self._declare_basic)
+        self.__conn.add_callback("on_open_ordered", "consume_results", self._consume_results)
+        self.__conn.add_callback("on_open_ordered", "conn_open_ev", self._conn_open_ev.set)
+        self.__conn.add_callback("on_open", "on_connection_open", self.on_connection_open)
 
-        self.__conn.add_callback("on_lost_order", "conn_open_ev", self._conn_open_ev.clear)
-        self.__conn.add_callback("on_lost_order", "cleanup", self._task_consumers.clear)
-        self.__conn.add_callback("on_lost_order", "cleanup", self._message_consumers.clear)
-        self.__conn.add_callback("on_lost_order", "cleanup", self._events_consumer.clear)
-        self.__conn.add_callback("on_lost_order", "cleanup", self._declared.clear)
+        self.__conn.add_callback("on_lost_ordered", "conn_open_ev", self._conn_open_ev.clear)
+        self.__conn.add_callback("on_lost", "on_connection_lost", self.on_connection_lost)
 
-        self.__conn.add_callback("on_close", "cleanup", self.stop_consume_tasks)
-        self.__conn.add_callback("on_close", "cleanup", self.stop_consume_messages)
-        self.__conn.add_callback("on_close", "cleanup", self.stop_consume_events)
+        self.__conn.add_callback("on_close", "on_connection_close", self.on_connection_close)
 
-        self._shared_results_storage: Dict[UUID, Tuple[asyncio.Event, List[TaskResult]]] = {}
-        self._shared_results_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = {}
+        self._common_results_storage: Dict[UUID, Tuple[asyncio_Event, List[TaskResult]]] = {}
+        self._common_results_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = {}
 
-        @retry(retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        self._direct_reply_to_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = {}
+        self._direct_reply_to_channel: aiormq.Channel = None
+
+        @retry(fn_name=f"{self}:send_task", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def send_task(task_instance: TaskInstance, **kwds):
             task_data: TaskData = task_instance.data
-            task_data.extra.update(
-                {
-                    "backend_id": config.id,
-                    "reply_to": self._result_routing_key(task_data),
-                }
-            )
+
+            task_data.extra.update({"backend_id": config.id})
+            results_queue_mode = task_data.extra.setdefault("results_queue_mode", config.results_queue_mode)
 
             await self._declare_tasks_queue(task_data.queue)
 
-            channel = await self._channel()
+            if results_queue_mode == ResultQueueMode.DIRECT_REPLY_TO:
+                channel = self._direct_reply_to_channel
+            else:
+                channel = await self._channel()
 
-            logger.debug("%s: channel:%s send %s", self, channel, task_instance)
+            logger.debug("%s: channel(%s) send %s", self, channel, task_instance)
 
             await channel.basic_publish(
                 self.serializer.dumps_task_instance(task_instance),
@@ -439,40 +447,49 @@ class Backend(base.Backend):
                     timestamp=datetime_now(tz=utc),
                     expiration=f"{int(task_data.ttl * 1000)}" if task_data.ttl is not None else None,
                     priority=task_data.priority,
+                    reply_to=self._reply_to(task_data),
+                    correlation_id=f"{task_data.task_id}",
                 ),
                 timeout=config.timeout,
             )
 
-        @retry(retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        @retry(fn_name=f"{self}:push_task_result", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def push_task_result(task_instance: core.TaskInstance, task_result: TaskResult):
             task_data: TaskData = task_instance.data
 
-            logger.debug("%s: push result for %s(%s)", self, task_data.task_id, task_instance.task.name)
-
-            result_queue_mode = task_data.extra.get("result_queue_mode") or self.config.results_queue_mode
-            if result_queue_mode == ResultQueueMode.SINGLE:
-                await self._declare_result_single_queue(task_data)
+            exchange, routing_key = await self._ensure_result_queue(task_data)
 
             channel = await self._channel()
 
+            logger.debug(
+                "%s: channel(%s) push result for task %s(%s) into exchange:'%s' routing_key:'%s'",
+                self,
+                channel,
+                task_data.task_id,
+                task_instance.task.name,
+                exchange,
+                routing_key,
+            )
+
             await channel.basic_publish(
                 self.serializer.dumps_task_result(task_instance, task_result),
-                exchange=config.tasks_exchange,
-                routing_key=task_data.extra["reply_to"],
+                exchange=exchange,
+                routing_key=routing_key,
                 properties=BasicProperties(
                     delivery_mode=2,
                     message_id=f"{task_data.task_id}",
                     timestamp=datetime.now(tz=utc),
                     expiration=f"{int(task_data.result_ttl * 1000)}" if task_data.result_ttl is not None else None,
+                    correlation_id=f"{task_data.task_id}",
                 ),
                 timeout=config.timeout,
             )
 
-        @retry(retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        @retry(fn_name=f"{self}:send_mesage", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def send_message(message: Message, *, routing_key: str, delivery_mode: int = None, **kwds):
             channel = await self._channel()
 
-            logger.debug("%s: channel:%s send %s", self, channel, message)
+            logger.debug("%s: channel(%s) send %s", self, channel, message)
 
             await channel.basic_publish(
                 self.serializer.dumps(message.data),
@@ -488,11 +505,11 @@ class Backend(base.Backend):
                 timeout=config.timeout,
             )
 
-        @retry(retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        @retry(fn_name=f"{self}:send_event", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def send_event(event: Event):
             channel = await self._channel()
 
-            logger.debug("%s: channel: %s send %s", self, channel, event)
+            logger.debug("%s: channel(%s) send %s", self, channel, event)
 
             await channel.basic_publish(
                 self.serializer.dumps_event(event),
@@ -524,31 +541,44 @@ class Backend(base.Backend):
             raise Exception(f"{self} is closed")
         return self.__conn
 
-    async def _new_channel(self):
+    async def on_connection_open(self):
+        pass
+
+    async def on_connection_lost(self):
+        self._declared.clear()
+
+    async def on_connection_close(self):
+        self._task_consumers.clear()
+        self._message_consumers.clear()
+        self._events_consumer = ()
+
+    async def _new_channel(self) -> aiormq.Channel:
         while not self.is_closed:
             channel = await self._conn.new_channel()
             await self._conn_open_ev.wait()
             if not channel.is_closed:
                 return channel
 
-    async def _channel(self):
+    async def _channel(self) -> aiormq.Channel:
         while not self.is_closed:
             channel = await self._conn.channel()
             await self._conn_open_ev.wait()
             if not channel.is_closed:
                 return channel
 
-    def _result_single_queue(self, task_data: TaskData) -> str:
+    def _results_separate_queue(self, task_data: TaskData) -> str:
         return f"{self.config.results_queue_prefix}result.{task_data.task_id}"
 
-    def _results_shared_queue(self) -> str:
+    def _results_common_queue(self) -> str:
         return f"{self.config.results_queue_prefix}{self.config.id}.results"
 
-    def _result_routing_key(self, task_data: TaskData) -> str:
-        result_queue_mode = task_data.extra.get("result_queue_mode") or self.config.results_queue_mode
-        if result_queue_mode == ResultQueueMode.SINGLE:
-            return f"{self.config.results_queue_prefix}result.{task_data.task_id}"
-        return f"{self.config.results_queue_prefix}{self.config.id}.results"
+    def _reply_to(self, task_data: TaskData) -> str:
+        result_queue_mode = task_data.extra.get("results_queue_mode") or self.config.results_queue_mode
+        if result_queue_mode == ResultQueueMode.SEPARATE:
+            return self._results_separate_queue(task_data)
+        if result_queue_mode == ResultQueueMode.COMMON:
+            return self._results_common_queue()
+        return "amq.rabbitmq.reply-to"
 
     async def _declare_basic(self):
         async def fn():
@@ -564,23 +594,23 @@ class Backend(base.Backend):
                 timeout=config.timeout,
             )
 
-            queue = self._results_shared_queue()
+            queue = self._results_common_queue()
 
-            arguments = {"x-queue-type": config.results_shared_queue_type.value}
-            if config.results_shared_queue_ttl is not None:
-                arguments["x-expires"] = config.results_shared_queue_ttl * 1000
+            arguments = {"x-queue-type": config.results_common_queue_type.value}
+            if config.results_common_queue_ttl is not None:
+                arguments["x-expires"] = config.results_common_queue_ttl * 1000
 
             await channel.queue_declare(
                 queue,
-                durable=config.results_shared_queue_durable,
-                auto_delete=not config.results_shared_queue_durable,
+                durable=config.results_common_queue_durable,
+                auto_delete=not config.results_common_queue_durable,
                 arguments=arguments,
                 timeout=config.timeout,
             )
             await channel.queue_bind(
                 queue,
                 config.tasks_exchange,
-                routing_key=f"{self.config.results_queue_prefix}{config.id}.results",
+                routing_key=queue,
                 timeout=config.timeout,
             )
 
@@ -648,18 +678,32 @@ class Backend(base.Backend):
 
         self._declared.add(queue)
 
-    def _allocate_result_shared_storage(self, task_id: UUID) -> str:
-        if task_id not in self._shared_results_storage:
-            self._shared_results_storage[task_id] = (asyncio.Event(), [])
+    def _allocate_common_results_storage(self, task_id: UUID) -> str:
+        if task_id not in self._common_results_storage:
+            self._common_results_storage[task_id] = (asyncio_Event(), [])
 
-    def _cleanup_result_shared_storage(self, task_id: UUID) -> str:
-        self._shared_results_storage.pop(task_id, None)
+    def _cleanup_common_results_storage(self, task_id: UUID) -> str:
+        self._common_results_storage.pop(task_id, None)
 
-    async def _declare_result_single_queue(self, task_data: TaskData) -> str:
+    async def _ensure_result_queue(self, task_data: TaskData) -> Tuple[str, str]:
         config: Config = self.config
 
-        queue = routing_key = self._result_single_queue(task_data)
-        durable: bool = task_data.extra.get("result_queue_durable", config.results_single_queue_durable)
+        exchange = config.tasks_exchange
+        routing_key = task_data.extra.get("reply_to") or self._reply_to(task_data)
+
+        result_queue_mode = task_data.extra.get("results_queue_mode") or self.config.results_queue_mode
+        if result_queue_mode == ResultQueueMode.SEPARATE:
+            await self._declare_results_separate_queue(task_data)
+        elif result_queue_mode == ResultQueueMode.DIRECT_REPLY_TO:
+            exchange = ""
+
+        return exchange, routing_key
+
+    async def _declare_results_separate_queue(self, task_data: TaskData) -> str:
+        config: Config = self.config
+
+        queue = routing_key = self._results_separate_queue(task_data)
+        durable: bool = task_data.extra.get("result_queue_durable", config.results_separate_queue_durable)
 
         channel = await self._channel()
 
@@ -679,62 +723,112 @@ class Backend(base.Backend):
 
         return queue
 
-    async def _consume_results_shared_queue(self):
-        @retry(exc_filter=_exc_filter, reraise=False)
+    async def _consume_results(self):
+        @retry(fn_name=f"{self}:consume_results", exc_filter=_exc_filter, reraise=False)
         async def fn():
-            async def on_msg(channel: aiormq.Channel, msg):
+            async def on_msg(channel: aiormq.Channel, msg, no_ack: bool = None):
                 try:
                     task_id: UUID = UUID(msg.header.properties.message_id)
+
+                    logger.debug("%s: channel(%s) got task result for task %s", self, channel, task_id)
+
                     task_result = self.serializer.loads_task_result(msg.body)
 
-                    await channel.basic_ack(msg.delivery.delivery_tag)
+                    if not no_ack:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
 
-                    self._allocate_result_shared_storage(task_id)
-                    self._shared_results_storage[task_id][1].append(task_result)
-                    self._shared_results_storage[task_id][0].set()
+                    self._allocate_common_results_storage(task_id)
+                    self._common_results_storage[task_id][1].append(task_result)
+                    self._common_results_storage[task_id][0].set()
 
                     expiration = msg.header.properties.expiration
                     if expiration:
                         get_event_loop().call_later(
                             int(expiration) / 1000,
-                            lambda *args: self._cleanup_result_shared_storage(task_id),
+                            lambda *args: self._cleanup_common_results_storage(task_id),
                         )
 
                 except Exception as e:
                     logger.exception(e)
 
-            queue: str = self._results_shared_queue()
             channel = await self._new_channel()
             await channel.basic_qos(prefetch_count=5, timeout=self.config.timeout)
-
-            self._shared_results_consumer = (
+            queue: str = self._results_common_queue()
+            self._common_results_consumer = (
                 channel,
-                await channel.basic_consume(queue, partial(on_msg, channel), timeout=self.config.timeout),
+                await channel.basic_consume(
+                    queue,
+                    partial(on_msg, channel),
+                    timeout=self.config.timeout,
+                ),
             )
-            logger.debug("%s: channel:%s start consuming results queue '%s'", self, channel, queue)
+            logger.debug("%s: channel(%s) start consuming results queue '%s'", self, channel, queue)
 
-        self._create_backend_task("consume_results_shared_queue", fn)
+            channel = self._direct_reply_to_channel = await self._new_channel()
+            queue: str = "amq.rabbitmq.reply-to"
+            self._direct_reply_to_consumer = (
+                channel,
+                await channel.basic_consume(
+                    queue,
+                    partial(on_msg, channel, no_ack=True),
+                    no_ack=True,
+                    timeout=self.config.timeout,
+                ),
+            )
+            logger.debug("%s: channel(%s) start consuming results queue '%s'", self, channel, queue)
+
+        self._create_backend_task("consume_results", fn)
+
+    async def stop_consume_results(self):
+        if self._conn.is_closed:
+            return
+
+        for aio_task in self._backend_tasks["consume_results"]:
+            aio_task.cancel()
+
+        if not self._common_results_consumer:
+            return
+
+        channel, consume_ok = self._common_results_consumer
+        if not self.__conn.is_closed and not channel.is_closed:
+            logger.debug("%s: channel(%s) stop consuming results queue", self, channel)
+            await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+            await channel.close()
+
+        channel, consume_ok = self._direct_reply_to_consumer
+        if not self.__conn.is_closed and not channel.is_closed:
+            logger.debug("%s: channel(%s) stop consuming results queue", self, channel)
+            await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+            await channel.close()
 
     async def close(self):
         if self.is_closed:
             return
-        await self.__conn.close()
+        await self.stop_consume_results()
         await super().close()
+        await self.__conn.close()
 
     async def send_task(self, task_instance: TaskInstance, **kwds):
+        if (
+            "graph_id" in task_instance.data.extra
+            and (task_instance.data.extra.get("results_queue_mode") or self.config.results_queue_mode)
+            == ResultQueueMode.DIRECT_REPLY_TO
+        ):
+            raise GraphError(f"Unsupported {ResultQueueMode.DIRECT_REPLY_TO}")
         await self._create_backend_task("send_task", lambda: self._send_task(task_instance, **kwds))
 
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
-        @retry(exc_filter=_exc_filter)
+        @retry(fn_name=f"{self}:consume_tasks", exc_filter=_exc_filter)
         async def fn(queue: str):
             await self._declare_tasks_queue(queue)
 
             config: Config = self.config
 
-            async def on_msg(channel: aiormq.Channel, msg):
+            async def on_msg(channel: aiormq.Channel, msg: aiormq.abc.DeliveredMessage):
                 try:
-                    async with self._semaphore:
-                        task_instance = self.serializer.loads_task_instance(msg.body)
+                    async with self._tasks_semaphore:
+                        task_instance: TaskInstance = self.serializer.loads_task_instance(msg.body)
+                        task_instance.data.extra["reply_to"] = msg.header.properties.reply_to
                         ack_late = task_instance.data.ack_late
                         if not ack_late:
                             await channel.basic_ack(msg.delivery.delivery_tag)
@@ -752,7 +846,7 @@ class Backend(base.Backend):
                 channel,
                 await channel.basic_consume(queue, partial(on_msg, channel), timeout=config.timeout),
             ]
-            logger.debug("%s: channel:%s start consuming tasks queue '%s'", self, channel, queue)
+            logger.debug("%s: channel(%s) start consuming tasks queue '%s'", self, channel, queue)
 
         coros = [
             self._create_backend_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
@@ -778,7 +872,7 @@ class Backend(base.Backend):
                         aio_task.cancel()
                     channel, consume_ok = self._task_consumers[queue]
                     if not self.__conn.is_closed and not channel.is_closed:
-                        logger.debug("%s: stop consuming queue '%s'", self, queue)
+                        logger.debug("%s: channel(%s) stop consuming queue '%s'", self, channel, queue)
                         await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
                         await channel.close()
                     self._task_consumers.pop(queue, None)
@@ -801,18 +895,17 @@ class Backend(base.Backend):
         if not task_data.result_return:
             raise TaskNoResultError(f"{task_data.task_id}")
 
-        extra = task_data.extra
-        result_queue_mode = extra.get("result_queue_mode") or self.config.results_queue_mode
+        result_queue_mode = task_data.extra.get("results_queue_mode") or self.config.results_queue_mode
 
-        if result_queue_mode == ResultQueueMode.SHARED:
-            pop_fn = self._pop_task_result_from_shared_queue
+        if result_queue_mode in (ResultQueueMode.COMMON, ResultQueueMode.DIRECT_REPLY_TO):
+            pop_fn = self._pop_task_results_from_common_queue
         else:
-            pop_fn = self._pop_task_result_from_single_queue
+            pop_fn = self._pop_task_results_from_separate_queue
 
         async for task_result in pop_fn(task_instance):
             yield task_result
 
-    async def _pop_task_result_from_shared_queue(self, task_instance: TaskInstance):
+    async def _pop_task_results_from_common_queue(self, task_instance: TaskInstance):
         task_data: TaskData = task_instance.data
         task_id: UUID = task_data.task_id
 
@@ -823,25 +916,27 @@ class Backend(base.Backend):
 
                 while not self.is_closed:
 
-                    if task_id not in self._shared_results_storage:
+                    if task_id not in self._common_results_storage:
                         raise TaskNoResultError(f"Result for {task_id}({task_instance.task.name}) expired")
 
-                    ev, results = self._shared_results_storage[task_id]
+                    ev, results = self._common_results_storage[task_id]
                     await ev.wait()
                     ev.clear()
 
                     while results:
                         task_result: TaskResult = results.pop(0)
 
+                        if isinstance(task_result.exc, TaskClosedError):
+                            logger.debug("%s: close result for %s(%s)", self, task_id, task_instance.task.name)
+                            return
+
                         logger.debug("%s: pop result for %s(%s)", self, task_id, task_instance.task.name)
 
-                        if isinstance(task_result.exc, TaskClosedError):
-                            return
                         yield task_result
 
             else:
 
-                ev, results = self._shared_results_storage[task_id]
+                ev, results = self._common_results_storage[task_id]
                 await ev.wait()
                 ev.clear()
 
@@ -851,23 +946,27 @@ class Backend(base.Backend):
 
         __anext__ = fn().__anext__
 
-        self._allocate_result_shared_storage(task_id)
+        self._allocate_common_results_storage(task_id)
         try:
             while not self.is_closed:
                 yield await self._create_backend_task("pop_task_result", __anext__)
         except StopAsyncIteration:
             return
         finally:
-            self._cleanup_result_shared_storage(task_id)
+            self._cleanup_common_results_storage(task_id)
 
-    async def _pop_task_result_from_single_queue(self, task_instance: TaskInstance) -> TaskResult:
-        @retry(retry_timeouts=self.config.pull_retry_timeouts, exc_filter=_exc_filter)
+    async def _pop_task_results_from_separate_queue(self, task_instance: TaskInstance) -> TaskResult:
+        @retry(
+            fn_name=f"{self}:pop_task_results_from_separate_queue",
+            retry_timeouts=self.config.pull_retry_timeouts,
+            exc_filter=_exc_filter,
+        )
         async def fn():
             task_data: TaskData = task_instance.data
-            queue = await self._declare_result_single_queue(task_data)
+            queue = await self._declare_results_separate_queue(task_data)
             task_id: UUID = task_data.task_id
 
-            fut: asyncio.Future = None
+            fut: asyncio_Future = None
             results: List[TaskResult] = []
 
             def on_conn_error():
@@ -891,12 +990,12 @@ class Backend(base.Backend):
                 func = task_instance.task.func
 
                 while not self.is_closed:
-                    fut = asyncio.Future()
+                    fut = asyncio_Future()
 
                     channel = await self._new_channel()
                     consume_ok = await channel.basic_consume(queue, on_result, timeout=self.config.timeout)
 
-                    logger.debug("%s: channel:%s start consuming result queue '%s'", self, channel, queue)
+                    logger.debug("%s: channel(%s) start consuming result queue '%s'", self, channel, queue)
 
                     try:
 
@@ -905,7 +1004,7 @@ class Backend(base.Backend):
                             while not self.is_closed:
 
                                 await fut
-                                fut = asyncio.Future()
+                                fut = asyncio_Future()
                                 while results:
                                     task_result: TaskResult = results.pop(0)
                                     if isinstance(task_result.exc, TaskClosedError):
@@ -951,14 +1050,11 @@ class Backend(base.Backend):
 
         logger.debug("%s: close task %s(%s)", self, task_data.task_id, task_instance.task.name)
 
-        if not task_data.extra.get("reply_to"):
-            task_data.extra["reply_to"] = self._result_routing_key(task_data)
-
-        result_queue_mode = task_data.extra.get("result_queue_mode") or self.config.results_queue_mode
-        if result_queue_mode == ResultQueueMode.SHARED:
-            self._allocate_result_shared_storage(task_data.task_id)
+        result_queue_mode = task_data.extra.get("results_queue_mode") or self.config.results_queue_mode
+        if result_queue_mode == ResultQueueMode.SEPARATE:
+            await self._declare_results_separate_queue(task_data)
         else:
-            await self._declare_result_single_queue(task_data)
+            self._allocate_common_results_storage(task_data.task_id)
 
         await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError()))
 
@@ -980,7 +1076,7 @@ class Backend(base.Backend):
         )
 
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        @retry(exc_filter=_exc_filter)
+        @retry(fn_name=f"{self}:consume_messages", exc_filter=_exc_filter)
         async def fn(queue: str):
             config: Config = self.config
 
@@ -1013,7 +1109,7 @@ class Backend(base.Backend):
                 channel,
                 await channel.basic_consume(queue, partial(on_msg, channel), timeout=config.timeout),
             ]
-            logger.debug("%s: channel:%s start consuming messages queue '%s'", self, channel, queue)
+            logger.debug("%s: channel(%s) start consuming messages queue '%s'", self, channel, queue)
 
         coros = [
             self._create_backend_task(f"consume_messages_queue_{queue}", partial(fn, queue))
@@ -1039,7 +1135,7 @@ class Backend(base.Backend):
                         aio_task.cancel()
                     channel, consume_ok = self._message_consumers[queue]
                     if not self.__conn.is_closed and not channel.is_closed:
-                        logger.debug("%s: stop consuming messages queue '%s'", self, queue)
+                        logger.debug("%s: channel(%s) stop consuming messages queue '%s'", self, channel, queue)
                         await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
                         await channel.close()
                     self._message_consumers.pop(queue, None)
@@ -1070,7 +1166,7 @@ class Backend(base.Backend):
         event_callbacks = self._event_callbacks
         create_backend_task = self._create_backend_task
 
-        @retry(exc_filter=_exc_filter)
+        @retry(fn_name=f"{self}:consume_events", exc_filter=_exc_filter)
         async def fn():
             if not self.__conn.is_open:
                 await self.__conn.open()
@@ -1103,16 +1199,16 @@ class Backend(base.Backend):
             channel = await self._new_channel()
             await channel.basic_qos(prefetch_count=config.events_prefetch_count, timeout=config.timeout)
 
-            self._events_consumer = [
+            self._events_consumer = (
                 channel,
                 await channel.basic_consume(
                     f"{config.events_queue_prefix}events.{config.id}",
                     partial(on_msg, channel),
                     timeout=config.timeout,
                 ),
-            ]
+            )
             logger.debug(
-                "%s: channel:%s satrt consuming events queue '%s'",
+                "%s: channel(%s) satrt consuming events queue '%s'",
                 self,
                 channel,
                 f"{config.events_queue_prefix}events.{config.id}",
@@ -1148,11 +1244,12 @@ class Backend(base.Backend):
         channel, consume_ok = self._events_consumer
         if not self.__conn.is_closed and not channel.is_closed:
             logger.debug(
-                "%s: stop consuming events queue '%s'",
+                "%s: channel(%s) stop consuming events queue '%s'",
                 self,
+                channel,
                 f"{self.config.events_queue_prefix}events.{self.config.id}",
             )
             await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
             await channel.close()
 
-        self._events_consumer = []
+        self._events_consumer = ()

@@ -9,20 +9,20 @@ import pytest
 from tests import tasks
 
 
-@pytest.mark.skip
+# @pytest.mark.skip
 class TestPerf:
-    count = 500
+    count = 1000
 
     @pytest.mark.parametrize(
         "params",
         [
-            # {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "common"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
         ],
         indirect=True,
         ids=[
-            # "       rabbitmq",
-            "rabbitmq:shared",
+            "         rabbitmq:common",
+            "rabbitmq:direct_reply_to",
         ],
     )
     @pytest.mark.asyncio
@@ -43,13 +43,21 @@ class TestPerf:
 
             hello_world = tasks.hello_world
 
-            t0 = monotonic()
+            print()
 
+            # A
+            t0 = monotonic()
+            for _ in range(self.count):
+                ar = await app.send_task(hello_world)
+                assert await wait_for(ar.get(), 5) == "Hello World!"
+            print(f"A: {monotonic() - t0}")
+
+            # B
+            t0 = monotonic()
             ars = [await app.send_task(hello_world) for _ in range(self.count)]
             for ar in ars:
-                assert await wait_for(ar.get(), 2) == "Hello World!"
-
-            print(monotonic() - t0)
+                assert await wait_for(ar.get(), 5) == "Hello World!"
+            print(f"B: {monotonic() - t0}")
 
         finally:
             ps.terminate()
@@ -62,7 +70,7 @@ class TestPerf:
         ],
         indirect=True,
         ids=[
-            "       rabbitmq",
+            "                  celery",
         ],
     )
     @pytest.mark.asyncio
@@ -83,13 +91,21 @@ class TestPerf:
         try:
             from tests.celery_tasks import hello_world
 
-            t0 = monotonic()
+            print()
 
+            # A
+            t0 = monotonic()
+            for _ in range(self.count):
+                ar = hello_world.delay()
+                assert ar.get(timeout=5) == "Hello World!"
+            print(f"A: {monotonic() - t0}")
+
+            # B
+            t0 = monotonic()
             ars = [hello_world.delay() for _ in range(self.count)]
             for ar in ars:
-                assert ar.get(timeout=2) == "Hello World!"
-
-            print(monotonic() - t0)
+                assert ar.get(timeout=5) == "Hello World!"
+            print(f"B: {monotonic() - t0}")
 
         finally:
             ps.terminate()

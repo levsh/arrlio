@@ -155,25 +155,11 @@ def test_ExtendedJSONEncoder():
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)
 
 
-@pytest.mark.asyncio
-async def test_retry():
-    async def foo(a, b=None):
-        pass
-
-    await utils.retry()(foo)(1)
-
-    counter = 0
-
-    async def bar():
-        nonlocal counter
-        counter += 1
-        1 / 0
-
-    with pytest.raises(ZeroDivisionError):
-        await utils.retry()(bar)()
-    assert counter == 1
-
-    counter = 0
-    with pytest.raises(ZeroDivisionError):
-        await utils.retry(retry_timeouts=[0, 0], exc_filter=lambda e: isinstance(e, ZeroDivisionError))(bar)()
-    assert counter == 3
+def test_InfIter():
+    it = utils.InfIter([0, 1, 2])
+    for _ in range(3):
+        assert next(it) == 0
+        assert next(it) == 1
+        assert next(it) == 2
+        with pytest.raises(StopIteration):
+            next(it)

@@ -35,12 +35,12 @@ class TestConfig:
         assert config.messages_prefetch_count == rabbitmq.MESSAGES_PREFETCH_COUNT
         assert config.results_queue_mode == rabbitmq.RESULTS_QUEUE_MODE
         assert config.results_queue_prefix == rabbitmq.RESULTS_QUEUE_PREFIX
-        assert config.results_shared_queue_durable == rabbitmq.RESULTS_SHARED_QUEUE_DURABLE
-        assert config.results_shared_queue_ttl == rabbitmq.RESULTS_SHARED_QUEUE_TTL
-        assert config.results_shared_queue_type == rabbitmq.RESULTS_SHARED_QUEUE_TYPE
-        assert config.results_single_queue_durable == rabbitmq.RESULTS_SINGLE_QUEUE_DURABLE
-        assert config.results_single_queue_ttl == rabbitmq.RESULTS_SINGLE_QUEUE_TTL
-        assert config.results_single_queue_type == rabbitmq.RESULTS_SINGLE_QUEUE_TYPE
+        assert config.results_common_queue_durable == rabbitmq.RESULTS_COMMON_QUEUE_DURABLE
+        assert config.results_common_queue_ttl == rabbitmq.RESULTS_COMMON_QUEUE_TTL
+        assert config.results_common_queue_type == rabbitmq.RESULTS_COMMON_QUEUE_TYPE
+        assert config.results_separate_queue_durable == rabbitmq.RESULTS_SEPARATE_QUEUE_DURABLE
+        assert config.results_separate_queue_ttl == rabbitmq.RESULTS_SEPARATE_QUEUE_TTL
+        assert config.results_separate_queue_type == rabbitmq.RESULTS_SEPARATE_QUEUE_TYPE
 
     def test__init_custom(self, cleanup):
         config = rabbitmq.Config(
@@ -66,11 +66,11 @@ class TestConfig:
             events_queue_ttl=333,
             events_prefetch_count=20,
             messages_prefetch_count=30,
-            results_queue_mode="shared",
+            results_queue_mode="common",
             results_queue_prefix="results.",
-            results_shared_queue_durable=True,
-            results_shared_queue_ttl=10,
-            results_shared_queue_type="quorum",
+            results_common_queue_durable=True,
+            results_common_queue_ttl=10,
+            results_common_queue_type="quorum",
         )
         assert config.serializer.module == serializers.json
         assert config.id == "id"
@@ -95,11 +95,11 @@ class TestConfig:
         assert config.events_queue_ttl == 333
         assert config.events_prefetch_count == 20
         assert config.messages_prefetch_count == 30
-        assert config.results_queue_mode == "shared"
+        assert config.results_queue_mode == "common"
         assert config.results_queue_prefix == "results."
-        assert config.results_shared_queue_durable is True
-        assert config.results_shared_queue_ttl == 10
-        assert config.results_shared_queue_type == "quorum"
+        assert config.results_common_queue_durable is True
+        assert config.results_common_queue_ttl == 10
+        assert config.results_common_queue_type == "quorum"
 
 
 class TestRMQConnection:
@@ -116,18 +116,18 @@ class TestRMQConnection:
         assert conn._shared["objs"] == 1
         assert conn in conn._shared
         assert conn._shared[conn] == {
-            "on_open_order": {},
+            "on_open_ordered": {},
             "on_open": {},
             "on_lost": {},
-            "on_lost_order": {},
+            "on_lost_ordered": {},
             "on_close": {},
-            "on_close_order": {},
+            "on_close_ordered": {},
             "callback_tasks": set(),
         }
         assert conn._id == 1
         assert conn._conn is None
-        assert str(conn) == "RMQConnection#1[example.com:None]"
-        assert repr(conn) == "RMQConnection#1[example.com:None]"
+        assert str(conn) == "RMQConnection#1[example.com]"
+        assert repr(conn) == "RMQConnection#1[example.com]"
 
     @pytest.mark.asyncio
     async def test_connect(self, cleanup):
@@ -169,7 +169,7 @@ class TestBackend:
             assert isinstance(backend.serializer, serializers.json.Serializer)
             assert backend._task_consumers == {}
             assert backend._message_consumers == {}
-            assert backend._events_consumer == []
+            assert backend._events_consumer == ()
             assert backend._Backend__conn is not None
         finally:
             await backend.close()
@@ -182,7 +182,7 @@ class TestBackend:
     async def test_str(self, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
-            assert str(backend) == "RMQBackend[RMQConnection#1[localhost:None]]"
+            assert str(backend) == "RMQBackend[RMQConnection#1[localhost]]"
         finally:
             await backend.close()
 
@@ -190,6 +190,6 @@ class TestBackend:
     async def test_repr(self, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
-            assert repr(backend) == "RMQBackend[RMQConnection#1[localhost:None]]"
+            assert repr(backend) == "RMQBackend[RMQConnection#1[localhost]]"
         finally:
             await backend.close()

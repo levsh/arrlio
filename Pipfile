@@ -9,7 +9,7 @@ pydantic = ">=1.10.1"
 yarl = "*"
 hiredis = "*"
 roview = "*"
-siderpy = ">=0.6.0"
+siderpy = ">=0.7.0"
 
 [dev-packages]
 arrlio = {editable = true, path = "."}
@@ -20,7 +20,7 @@ coverage = "*"
 docker = "*"
 httpx = "*"
 flake8 = "*"
-invoke = "*"
+invoke = ">=2.0.0"
 mkdocs = "*"
 mkdocs-material = "*"
 pyamqp = "*"

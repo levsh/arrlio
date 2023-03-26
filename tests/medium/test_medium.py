@@ -14,15 +14,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -41,10 +43,16 @@ class TestArrlio:
             assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
             assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
-        for _ in range(2):
-            ar = await app.send_task("hello_world", extra={"result_queue_mode": "shared"})
-            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
-            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+        if isinstance(app.backend, backends.rabbitmq.Backend):
+            for _ in range(2):
+                ar = await app.send_task("hello_world", extra={"result_queue_mode": "separate"})
+                assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+                assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+
+            for _ in range(2):
+                ar = await app.send_task("hello_world", extra={"result_queue_mode": "direct_reply_to"})
+                assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+                assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
         for _ in range(2):
             ar = await app.send_task(tasks.sync_task)
@@ -67,15 +75,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -94,15 +104,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -142,16 +154,16 @@ class TestArrlio:
             {
                 "backend": {
                     "module": "arrlio.backends.rabbitmq",
-                    "config": {"pool_size": 1, "results_queue_mode": "shared"},
+                    "config": {"pool_size": 1, "results_queue_mode": "separate"},
                 }
             },
             # {"backend": {"module": "arrlio.backends.redis", "config": {"pool_size": 1}}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
+            "            local",
+            "         rabbitmq",
+            "rabbitmq:separate",
             # "          redis",
         ],
     )
@@ -163,11 +175,11 @@ class TestArrlio:
 
         for _ in range(2):
             await app.send_task(tasks.sleep, args=(0.5,), priority=10, ack_late=True)
-            aw1 = (await app.send_task(tasks.sleep, args=(1,), priority=1, ack_late=True)).get()
-            aw2 = (await app.send_task(tasks.sleep, args=(1,), priority=2, ack_late=True)).get()
-            done, pending = await asyncio.wait_for(asyncio.wait({aw1, aw2}, return_when=asyncio.FIRST_COMPLETED), 5)
-            assert {t.get_coro() for t in done} == {aw2}
-            assert {t.get_coro() for t in pending} == {aw1}
+            t1 = asyncio.create_task((await app.send_task(tasks.sleep, args=(1,), priority=1, ack_late=True)).get())
+            t2 = asyncio.create_task((await app.send_task(tasks.sleep, args=(1,), priority=2, ack_late=True)).get())
+            done, pending = await asyncio.wait_for(asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED), 5)
+            assert done == {t2}
+            assert pending == {t1}
 
     @pytest.mark.parametrize(
         "params",
@@ -177,7 +189,7 @@ class TestArrlio:
                     "module": "arrlio.backends.rabbitmq",
                     "config": {
                         "tasks_queue_durable": True,
-                        "results_single_queue_durable": True,
+                        "results_common_queue_durable": True,
                     },
                 }
             },
@@ -186,8 +198,8 @@ class TestArrlio:
                     "module": "arrlio.backends.rabbitmq",
                     "config": {
                         "tasks_queue_durable": True,
-                        "results_queue_mode": "shared",
-                        "results_shared_queue_durable": True,
+                        "results_queue_mode": "separate",
+                        "results_separate_queue_durable": True,
                     },
                 }
             },
@@ -195,9 +207,9 @@ class TestArrlio:
         ],
         indirect=True,
         ids=[
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "         rabbitmq",
+            "rabbitmq:separate",
+            "            redis",
         ],
     )
     @pytest.mark.asyncio
@@ -227,15 +239,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -254,15 +268,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -283,15 +299,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -313,15 +331,17 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                   local",
+            "                rabbitmq",
+            "       rabbitmq:separate",
+            "rabbitmq:direct_reply_to",
+            "                   redis",
         ],
     )
     @pytest.mark.asyncio
@@ -441,7 +461,7 @@ class TestArrlio:
                 ],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}},
+                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
@@ -457,10 +477,10 @@ class TestArrlio:
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                    local",
+            "                 rabbitmq",
+            "        rabbitmq:separate",
+            "                    redis",
         ],
     )
     @pytest.mark.asyncio
@@ -528,7 +548,7 @@ class TestArrlio:
                 ],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "shared"}},
+                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
@@ -544,10 +564,10 @@ class TestArrlio:
         ],
         indirect=True,
         ids=[
-            "          local",
-            "       rabbitmq",
-            "rabbitmq:shared",
-            "          redis",
+            "                    local",
+            "                 rabbitmq",
+            "        rabbitmq:separate",
+            "                    redis",
         ],
     )
     @pytest.mark.asyncio

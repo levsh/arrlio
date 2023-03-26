@@ -41,7 +41,12 @@ class ExtendedJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = None, reraise: bool = True):
+def retry(
+    fn_name: str = None,
+    retry_timeouts: Iterable[int] = None,
+    exc_filter: ExceptionFilterT = None,
+    reraise: bool = True,
+):
     if retry_timeouts is None:
         retry_timeouts = itertools.repeat(5)
 
@@ -79,7 +84,14 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
                         try:
                             t = next(timeouts)
                             attempt += 1
-                            logger.error("%s %s %s - retry(%s) in %s second(s)", fn, e.__class__, e, attempt, t)
+                            logger.error(
+                                "%s (%s %s) retry(%s) in %s second(s)",
+                                fn_name or fn,
+                                e.__class__,
+                                e,
+                                attempt,
+                                t,
+                            )
                             await asyncio.sleep(t)
                         except StopIteration:
                             raise e
@@ -102,7 +114,14 @@ def retry(retry_timeouts: Iterable[int] = None, exc_filter: ExceptionFilterT = N
                         try:
                             t = next(timeouts)
                             attempt += 1
-                            logger.error("%s %s %s - retry(%s) in %s second(s)", fn, e.__class__, e, attempt, t)
+                            logger.error(
+                                "%s (%s %s) retry(%s) in %s second(s)",
+                                fn_name or fn,
+                                e.__class__,
+                                e,
+                                attempt,
+                                t,
+                            )
                             await asyncio.sleep(t)
                         except StopIteration:
                             raise e

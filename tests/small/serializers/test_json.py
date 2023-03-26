@@ -73,11 +73,18 @@ class TestSerializer:
             trb = exc_info[2]
 
         task_result = TaskResult(exc=exc, trb=trb)
-        assert serializer.dumps_task_result(task_instance, task_result) == (
-            b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
-            b'"trb": "  File \\"%s\\", line 69, '
-            b'in test_dumps_task_result\\n    1 / 0\\n", "routes": null}' % __file__.encode()
-        )
+        if sys.version_info.minor < 11:
+            assert serializer.dumps_task_result(task_instance, task_result) == (
+                b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
+                b'"trb": "  File \\"%s\\", line 69, '
+                b'in test_dumps_task_result\\n    1 / 0\\n", "routes": null}' % __file__.encode()
+            )
+        else:
+            assert serializer.dumps_task_result(task_instance, task_result) == (
+                b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
+                b'"trb": "  File \\"%s\\", line 69, '
+                b'in test_dumps_task_result\\n    1 / 0\\n    ~~^~~\\n", "routes": null}' % __file__.encode()
+            )
 
     def test_loads_task_result(self):
         serializer = serializers.json.Serializer(serializers.json.Config())

@@ -53,7 +53,7 @@ class RedisDsn(SecretAnyUrl):
     user_required = False
 
     @classmethod
-    def validate_parts(cls, parts: Dict[str, str]) -> Dict[str, str]:
+    def validate_parts(cls, parts: Dict[str, str], **kwds) -> Dict[str, str]:  # pylint: disable=arguments-differ
         defaults = {
             "domain": "localhost" if not (parts["ipv4"] or parts["ipv6"]) else "",
             "port": "6379",
@@ -62,7 +62,7 @@ class RedisDsn(SecretAnyUrl):
         for key, value in defaults.items():
             if not parts[key]:
                 parts[key] = value
-        return super().validate_parts(parts)
+        return super().validate_parts(parts, **kwds)
 
 
 class BackendT:
