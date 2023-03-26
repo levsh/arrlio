@@ -6,8 +6,9 @@ from contextvars import ContextVar
 from inspect import isasyncgenfunction, isgeneratorfunction
 from types import FunctionType, MethodType
 from typing import Any, AsyncGenerator, Callable, Dict, List, Type, Union
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from rich.pretty import pretty_repr
 from roview import rodict
 
 from arrlio.exc import GraphError, TaskClosedError, TaskError
@@ -137,7 +138,7 @@ class App:
         if self.is_closed:
             return
 
-        logger.info("%s: initialization with %s", self, self.config)
+        logger.info("%s: initializing with config\n%s", self, pretty_repr(self.config.dict()))
 
         await self._execute_hooks("on_init")
 
@@ -230,7 +231,11 @@ class App:
                 **{**self._task_settings, **kwargs},
             )
 
-        logger.info("%s: send %s", self, task_instance.dict(exclude=["data.args", "data.kwds"]))
+        logger.info(
+            "%s: send task instance\n%s",
+            self,
+            pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
+        )
 
         await self._execute_hooks("on_task_send", task_instance)
 
@@ -249,17 +254,17 @@ class App:
         message_settings = self.config.message.dict(exclude_unset=True)
         message = Message(data=data, **{**message_settings, **kwds})
 
-        logger.info("%s: send %s", self, message)
+        logger.info("%s: send message\n%s", self, pretty_repr(message.dict()))
 
         await self._backend.send_message(message, routing_key=routing_key)
 
     async def send_event(self, event: Event):
-        logger.info("%s: send %s", self, event)
+        logger.info("%s: send event\n%s", self, pretty_repr(event.dict()))
         await self._backend.send_event(event)
 
     async def pop_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         # if not task_instance.data.result_return:
-        #     raise TaskNoResultError(task_instance.data.task_id)
+        #     raise TaskResultError(task_instance.data.task_id)
 
         async for task_result in self._backend.pop_task_result(task_instance):
 
@@ -291,7 +296,12 @@ class App:
 
                     task_result: TaskResult = TaskResult()
 
+                    idx_0 = uuid4().hex
+                    idx_1 = 0
+
                     async for task_result in self.execute_task(task_instance):
+                        idx_1 += 1
+                        task_result.set_idx([idx_0, idx_1])
 
                         if task_data.result_return:
                             await self._backend.push_task_result(task_instance, task_result)

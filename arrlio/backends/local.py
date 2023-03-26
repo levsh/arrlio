@@ -14,7 +14,7 @@ from uuid import UUID
 from pydantic import Field, PositiveInt
 
 from arrlio.backends import base
-from arrlio.exc import TaskClosedError, TaskNoResultError
+from arrlio.exc import TaskClosedError, TaskResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT
@@ -180,7 +180,7 @@ class Backend(base.Backend):
         task_id: UUID = task_data.task_id
 
         if not task_data.result_return:
-            raise TaskNoResultError(f"{task_id}({task_instance.task.name})")
+            raise TaskResultError(f"{task_id}({task_instance.task.name})")
 
         async def fn():
             serializer_loads_task_result = self.serializer.loads_task_result

@@ -144,13 +144,18 @@ class TaskResult:
     res: Any = None
     exc: Union[Exception, Tuple[str, str, str]] = None
     trb: Union[TracebackType, str] = None
+    idx: Tuple[str, int] = None
     routes: Union[str, List[str]] = None
+
+    def set_idx(self, idx: Tuple[str, int]):
+        object.__setattr__(self, "idx", idx)
 
     def dict(self):
         return {
             "res": self.res,
             "exc": self.exc,
             "trb": self.trb,
+            "idx": self.idx,
             "routes": self.routes,
         }
 

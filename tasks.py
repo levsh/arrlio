@@ -117,8 +117,8 @@ def bump_minor(c):
 
 
 @task
-def bump_dev(c):
-    regex = re.compile(r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<dev>\d+))?.*"', re.MULTILINE | re.DOTALL)
+def bump_fix(c):
+    regex = re.compile(r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<fix>\d+))?.*"', re.MULTILINE | re.DOTALL)
     filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
     with open(filepath, "r+") as f:
         text = f.read()
@@ -127,8 +127,8 @@ def bump_dev(c):
             groupdict = match.groupdict()
             major = int(groupdict["major"])
             minor = int(groupdict["minor"])
-            dev = int(groupdict["dev"] or 0)
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major}.{minor}.{dev+1}\g<5>", text)
+            fix = int(groupdict["fix"] or 0)
+            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major}.{minor}.{fix+1}\g<5>", text)
             f.seek(0)
             f.write(text)
             f.truncate()

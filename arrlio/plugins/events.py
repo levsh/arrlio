@@ -17,7 +17,7 @@ class Plugin(base.Plugin):
         return "arrlio.events"
 
     async def on_init(self):
-        logger.info("%s initialization ...", self)
+        logger.info("%s initializing ...", self)
         logger.info("%s initialization done", self)
 
     async def on_task_send(self, task_instance: TaskInstance) -> None:

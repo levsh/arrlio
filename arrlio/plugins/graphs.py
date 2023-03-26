@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import Dict, List
 from uuid import uuid4
 
+from rich.pretty import pretty_repr
+
 from arrlio.core import AsyncResult, __tasks__
 from arrlio.exc import ArrlioError, GraphError
 from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
@@ -26,7 +28,7 @@ class Plugin(base.Plugin):
         self.graphs: Dict[str, List[Graph, int]] = {}
 
     async def on_init(self):
-        logger.info("%s initialization ...", self)
+        logger.info("%s initializing ...", self)
 
         if "arrlio.events" not in self.app.plugins:
             raise ArrlioError("'arrlio.graphs' plugin requires 'arrlio.events' plugin'")
@@ -126,7 +128,7 @@ class Plugin(base.Plugin):
 
         graph: Graph = self._init_graph(graph, extra=extra)
 
-        logger.info("%s: send graph %s(%s)", self.app, graph.name, graph_id)
+        logger.info("%s: send graph '%s'(%s)", self, graph.name, graph_id)
 
         self.graphs[graph_id] = [graph, 0]
         try:
@@ -194,7 +196,12 @@ class Plugin(base.Plugin):
             task_data.kwds.update(kwds or {})
             task_data.meta.update(meta or {})
 
-            logger.info("%s: send %s", self, task_instance.dict(exclude=["data.args", "data.kwds"]))
+            logger.info(
+                "%s: send graph '%s' task\n%s",
+                self,
+                graph.name,
+                pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
+            )
 
             await self.app.backend.send_task(task_instance)
 

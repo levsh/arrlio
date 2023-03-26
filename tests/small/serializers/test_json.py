@@ -62,7 +62,7 @@ class TestSerializer:
         task_result = TaskResult(res=foo())
         assert (
             serializer.dumps_task_result(task_instance, task_result)
-            == b'{"res": {"x": 1}, "exc": null, "trb": null, "routes": null}'
+            == b'{"res": {"x": 1}, "exc": null, "trb": null, "idx": null, "routes": null}'
         )
 
         try:
@@ -77,27 +77,28 @@ class TestSerializer:
             assert serializer.dumps_task_result(task_instance, task_result) == (
                 b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
                 b'"trb": "  File \\"%s\\", line 69, '
-                b'in test_dumps_task_result\\n    1 / 0\\n", "routes": null}' % __file__.encode()
+                b'in test_dumps_task_result\\n    1 / 0\\n", "idx": null, "routes": null}' % __file__.encode()
             )
         else:
             assert serializer.dumps_task_result(task_instance, task_result) == (
                 b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
                 b'"trb": "  File \\"%s\\", line 69, '
-                b'in test_dumps_task_result\\n    1 / 0\\n    ~~^~~\\n", "routes": null}' % __file__.encode()
+                b'in test_dumps_task_result\\n    1 / 0\\n    ~~^~~\\n", "idx": null, "routes": null}'
+                % __file__.encode()
             )
 
     def test_loads_task_result(self):
         serializer = serializers.json.Serializer(serializers.json.Config())
 
-        assert serializer.loads_task_result(b'{"res": "ABC", "exc": null, "trb": null, "routes": null}') == TaskResult(
-            res="ABC"
-        )
+        assert serializer.loads_task_result(
+            b'{"res": "ABC", "exc": null, "idx": null, "trb": null, "routes": null}'
+        ) == TaskResult(res="ABC")
 
         result = serializer.loads_task_result(
             (
                 b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
                 b'"trb": "  File \\"%s\\", line 41, in '
-                b'test_dumps_task_result\\n    1 / 0\\n", "routes": null}' % __file__.encode()
+                b'test_dumps_task_result\\n    1 / 0\\n", "idx": null, "routes": null}' % __file__.encode()
             )
         )
         assert isinstance(result, TaskResult)

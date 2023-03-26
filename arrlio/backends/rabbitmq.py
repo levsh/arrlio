@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, PositiveInt
 
 from arrlio import core
 from arrlio.backends import base
-from arrlio.exc import GraphError, TaskClosedError, TaskNoResultError
+from arrlio.exc import GraphError, TaskClosedError, TaskResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AmqpDsn, AsyncCallableT, ExceptionFilterT, PriorityT, TimeoutT
@@ -495,7 +495,7 @@ class Backend(base.Backend):
                 self.serializer.dumps(message.data),
                 exchange=message.exchange,
                 routing_key=routing_key,
-                properties=aiormq.spec.Basic.Properties(
+                properties=BasicProperties(
                     message_id=f"{message.message_id}",
                     delivery_mode=delivery_mode or 2,
                     timestamp=datetime.now(tz=utc),
@@ -515,7 +515,7 @@ class Backend(base.Backend):
                 self.serializer.dumps_event(event),
                 exchange=config.events_exchange,
                 routing_key="events",
-                properties=aiormq.spec.Basic.Properties(
+                properties=BasicProperties(
                     delivery_mode=2,
                     timestamp=datetime.now(tz=utc),
                     expiration=str(int(event.ttl * 1000)) if event.ttl is not None else None,
@@ -893,7 +893,7 @@ class Backend(base.Backend):
         task_data: TaskData = task_instance.data
 
         if not task_data.result_return:
-            raise TaskNoResultError(f"{task_data.task_id}")
+            raise TaskResultError(f"{task_data.task_id}")
 
         result_queue_mode = task_data.extra.get("results_queue_mode") or self.config.results_queue_mode
 
@@ -917,7 +917,7 @@ class Backend(base.Backend):
                 while not self.is_closed:
 
                     if task_id not in self._common_results_storage:
-                        raise TaskNoResultError(f"Result for {task_id}({task_instance.task.name}) expired")
+                        raise TaskResultError(f"Result for {task_id}({task_instance.task.name}) expired")
 
                     ev, results = self._common_results_storage[task_id]
                     await ev.wait()
@@ -947,24 +947,40 @@ class Backend(base.Backend):
         __anext__ = fn().__anext__
 
         self._allocate_common_results_storage(task_id)
+
+        idx_data: [str, int] = {}
+
         try:
             while not self.is_closed:
-                yield await self._create_backend_task("pop_task_result", __anext__)
+                task_result: TaskResult = await self._create_backend_task("pop_task_result", __anext__)
+                idx = task_result.idx
+                if idx:
+                    idx_0, idx_1 = idx
+                    if idx_0 not in idx_data:
+                        idx_data[idx_0] = idx_1
+                    else:
+                        idx_data[idx_0] += 1
+                    if idx_data[idx_0] != idx_1:
+                        raise TaskResultError(
+                            f"Unexpected result index for task {task_id}. Expect {idx_data[idx_0]}, got {idx_1}"
+                        )
+                yield task_result
         except StopAsyncIteration:
             return
         finally:
             self._cleanup_common_results_storage(task_id)
 
     async def _pop_task_results_from_separate_queue(self, task_instance: TaskInstance) -> TaskResult:
+        task_data: TaskData = task_instance.data
+        task_id: UUID = task_data.task_id
+
         @retry(
             fn_name=f"{self}:pop_task_results_from_separate_queue",
             retry_timeouts=self.config.pull_retry_timeouts,
             exc_filter=_exc_filter,
         )
         async def fn():
-            task_data: TaskData = task_instance.data
             queue = await self._declare_results_separate_queue(task_data)
-            task_id: UUID = task_data.task_id
 
             fut: asyncio_Future = None
             results: List[TaskResult] = []
@@ -1039,9 +1055,24 @@ class Backend(base.Backend):
 
         gen = fn()
 
+        idx_data: [str, int] = {}
+
         try:
             while not self.is_closed:
-                yield await self._create_backend_task(f"pop_task_result.{task_instance.data.task_id}", gen.__anext__)
+                task_result: TaskResult = await self._create_backend_task(f"pop_task_result.{task_id}", gen.__anext__)
+                idx = task_result.idx
+                if idx:
+                    idx_0, idx_1 = idx
+                    if idx_0 not in idx_data:
+                        idx_data[idx_0] = idx_1
+                    else:
+                        idx_data[idx_0] += 1
+                    if idx_data[idx_0] != idx_1:
+                        raise TaskResultError(
+                            f"Unexpected result index for task {task_id}. Expect {idx_data[idx_0]}, got {idx_1}"
+                        )
+                yield task_result
+
         except StopAsyncIteration:
             return
 

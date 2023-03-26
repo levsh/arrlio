@@ -10,7 +10,7 @@ class TaskTimeoutError(ArrlioError):
     pass
 
 
-class TaskNoResultError(ArrlioError):
+class TaskResultError(ArrlioError):
     pass
 
 

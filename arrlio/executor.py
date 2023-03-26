@@ -115,9 +115,9 @@ class Executor:
             exc_info = sys.exc_info()
             exc, trb = exc_info[1], exc_info[2]
             if isinstance(e, TaskTimeoutError):
-                logger.error("%s: task %s(%s) timeout", self, task.name, task_data.task_id)
+                logger.error("%s: task %s(%s) timeout", self, task_data.task_id, task.name)
             else:
-                logger.exception(task_instance.dict(exclude=["data.args", "data.kwds"]))
+                logger.exception("%s: task %s(%s)", self, task_data.task_id, task.name)
             yield TaskResult(res=res, exc=exc, trb=trb)
 
         logger.info(

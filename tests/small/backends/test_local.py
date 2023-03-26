@@ -6,7 +6,7 @@ import pytest
 
 from arrlio import serializers
 from arrlio.backends import local
-from arrlio.exc import TaskNoResultError
+from arrlio.exc import TaskResultError
 from arrlio.models import Event, Message, Task
 
 
@@ -127,7 +127,7 @@ class TestBackend:
 
         await backend.push_task_result(task_instance, result)
         assert task_instance.data.task_id not in backend._results
-        with pytest.raises(TaskNoResultError):
+        with pytest.raises(TaskResultError):
             await backend.pop_task_result(task_instance).__anext__()
 
         await backend.close()

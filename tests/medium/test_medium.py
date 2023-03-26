@@ -319,11 +319,11 @@ class TestArrlio:
         await app.consume_tasks()
 
         ar = await app.send_task(tasks.noresult)
-        with pytest.raises(arrlio.exc.TaskNoResultError):
+        with pytest.raises(arrlio.exc.TaskResultError):
             await asyncio.wait_for(ar.get(), 5)
 
         ar = await app.send_task(tasks.hello_world, result_return=False)
-        with pytest.raises(arrlio.exc.TaskNoResultError):
+        with pytest.raises(arrlio.exc.TaskResultError):
             await asyncio.wait_for(ar.get(), 5)
 
     @pytest.mark.parametrize(
@@ -353,7 +353,7 @@ class TestArrlio:
         for _ in range(2):
             ar = await app.send_task(tasks.hello_world, result_ttl=1)
             await asyncio.sleep(3)
-            with pytest.raises((arrlio.exc.TaskNoResultError, asyncio.TimeoutError)):
+            with pytest.raises((arrlio.exc.TaskResultError, asyncio.TimeoutError)):
                 await asyncio.wait_for(ar.get(), 2)
 
     @pytest.mark.parametrize(
@@ -506,29 +506,45 @@ class TestArrlio:
 
         # xrange
 
-        graph = arrlio.Graph("Test")
-        graph.add_node("A", tasks.xrange, root=True)
-        graph.add_node("B", tasks.xrange)
-        graph.add_node("C", tasks.xrange)
-        graph.add_edge("A", "B")
-        graph.add_edge("B", "C")
+        for i in range(50):
+            graph = arrlio.Graph(f"Test {i}")
+            graph.add_node("A", tasks.xrange, root=True)
+            graph.add_node("B", tasks.xrange)
+            graph.add_node("C", tasks.xrange)
+            graph.add_node("D", tasks.xrange)
+            graph.add_node("E", tasks.xrange)
+            graph.add_edge("A", "B")
+            graph.add_edge("B", "C")
+            graph.add_edge("C", "D")
+            graph.add_edge("D", "E")
 
-        ars = await app.send_graph(graph, args=(3,))
+            await app.send_graph(graph, args=(5,))
+            ars = await app.send_graph(graph, args=(5,))
 
-        actual = []
-        async for result in ars["A"]:
-            actual.append(result)
-        assert actual == [0, 1, 2]
+            actual = []
+            async for result in ars["A"]:
+                actual.append(result)
+            assert sorted(actual) == sorted([0, 1, 2, 3, 4])
 
-        actual = []
-        async for result in ars["B"]:
-            actual.append(result)
-        assert actual == [0, 0, 1]
+            actual = []
+            async for result in ars["B"]:
+                actual.append(result)
+            assert sorted(actual) == sorted([0, 0, 1, 0, 1, 2, 0, 1, 2, 3])
 
-        actual = []
-        async for result in ars["C"]:
-            actual.append(result)
-        assert actual == [0]
+            actual = []
+            async for result in ars["C"]:
+                actual.append(result)
+            assert sorted(actual) == sorted([0, 0, 0, 1, 0, 0, 1, 0, 1, 2])
+
+            actual = []
+            async for result in ars["D"]:
+                actual.append(result)
+            assert sorted(actual) == sorted([0, 0, 0, 0, 1])
+
+            actual = []
+            async for result in ars["E"]:
+                actual.append(result)
+            assert sorted(actual) == sorted([0])
 
     @pytest.mark.parametrize(
         "params",

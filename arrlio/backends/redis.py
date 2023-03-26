@@ -6,12 +6,13 @@ from asyncio import Semaphore, create_task
 from functools import partial
 from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, Union
+from uuid import uuid4
 
 import siderpy  # pylint: disable=import-error
 from pydantic import Field, PositiveInt
 
 from arrlio.backends import base
-from arrlio.exc import TaskClosedError, TaskNoResultError
+from arrlio.exc import TaskClosedError, TaskResultError
 from arrlio.models import Event, Message, TaskData, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, RedisDsn, TimeoutT
@@ -74,11 +75,13 @@ class Backend(base.Backend):
 
             logger.debug("%s: send %s", self, task_instance)
 
+            task_key = f"{task_data.task_id}#{uuid4()}"
+
             async with self.redis_pool.get_redis() as redis:
                 with redis.pipeline():
                     await redis.multi()
-                    await redis.setex(f"{task_data.task_id}", task_data.ttl, data)
-                    await redis.rpush(queue_key, f"{task_data.priority}|{task_data.task_id}")
+                    await redis.setex(task_key, task_data.ttl, data)
+                    await redis.rpush(queue_key, f"{task_data.priority}|{task_key}")
                     if task_data.priority:
                         await redis.sort(queue, "BY", "*", "ASC", "STORE", queue)
                     await redis.execute()
@@ -210,8 +213,8 @@ class Backend(base.Backend):
                         await semaphore_acquire()
                         try:
                             _, queue_value = await redis_pool.blpop(queue_key, 0)
-                            _, task_id = queue_value.decode().split("|")
-                            serialized_data = await redis_pool.get(task_id)
+                            _, task_key = queue_value.decode().split("|")
+                            serialized_data = await redis_pool.get(task_key)
                             if serialized_data is None:
                                 continue
                             task_instance: TaskInstance = loads_task_instance(serialized_data)
@@ -247,7 +250,7 @@ class Backend(base.Backend):
 
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
         if not task_instance.data.result_return:
-            raise TaskNoResultError(f"{task_instance.data.task_id}")
+            raise TaskResultError(f"{task_instance.data.task_id}")
 
         __anext__ = self._pop_task_result(task_instance).__anext__
 

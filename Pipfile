@@ -5,11 +5,12 @@ name = "pypi"
 
 [packages]
 aiormq = ">=6.6.4"
-pydantic = ">=1.10.1"
-yarl = "*"
 hiredis = "*"
+pydantic = ">=1.10.1"
+rich = "*"
 roview = "*"
 siderpy = ">=0.7.0"
+yarl = "*"
 
 [dev-packages]
 arrlio = {editable = true, path = "."}
