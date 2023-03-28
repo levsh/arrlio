@@ -85,7 +85,10 @@ def generate_coverage_gist(c):
 
 @task
 def bump_major(c):
-    regex = re.compile(r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)(\.\d+)?.*"', re.MULTILINE | re.DOTALL)
+    regex = re.compile(
+        r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)\.(\d+)".*',
+        re.MULTILINE | re.DOTALL,
+    )
     filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
     with open(filepath, "r+") as f:
         text = f.read()
@@ -93,7 +96,11 @@ def bump_major(c):
         if match:
             groupdict = match.groupdict()
             major = int(groupdict["major"])
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major+1}.0.0\g<5>", text)
+            text = re.sub(
+                r'(.*__version__ = ")(\d+)\.(\d+)\.(\d+)(".*)',
+                rf"\g<1>{major+1}.0.0\g<5>",
+                text,
+            )
             f.seek(0)
             f.write(text)
             f.truncate()
@@ -101,7 +108,10 @@ def bump_major(c):
 
 @task
 def bump_minor(c):
-    regex = re.compile(r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)(\.\d+)?.*"', re.MULTILINE | re.DOTALL)
+    regex = re.compile(
+        r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)\.(\d+)".*',
+        re.MULTILINE | re.DOTALL,
+    )
     filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
     with open(filepath, "r+") as f:
         text = f.read()
@@ -110,15 +120,22 @@ def bump_minor(c):
             groupdict = match.groupdict()
             major = int(groupdict["major"])
             minor = int(groupdict["minor"])
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major}.{minor+1}.0\g<5>", text)
+            text = re.sub(
+                r'(.*__version__ = ")(\d+)\.(\d+)\.(\d+)(".*)',
+                rf"\g<1>{major}.{minor+1}.0\g<5>",
+                text,
+            )
             f.seek(0)
             f.write(text)
             f.truncate()
 
 
 @task
-def bump_fix(c):
-    regex = re.compile(r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)(\.(?P<fix>\d+))?.*"', re.MULTILINE | re.DOTALL)
+def bump_micro(c):
+    regex = re.compile(
+        r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)\.(?P<micro>\d+)".*',
+        re.MULTILINE | re.DOTALL,
+    )
     filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
     with open(filepath, "r+") as f:
         text = f.read()
@@ -127,8 +144,12 @@ def bump_fix(c):
             groupdict = match.groupdict()
             major = int(groupdict["major"])
             minor = int(groupdict["minor"])
-            fix = int(groupdict["fix"] or 0)
-            text = re.sub(r'(.*__version__ = ")(\d+)\.(\d+)(\.\d+)?(".*)', rf"\g<1>{major}.{minor}.{fix+1}\g<5>", text)
+            micro = int(groupdict["micro"])
+            text = re.sub(
+                r'(.*__version__ = ")(\d+)\.(\d+)\.(\d+)(".*)',
+                rf"\g<1>{major}.{minor}.{micro+1}\g<5>",
+                text,
+            )
             f.seek(0)
             f.write(text)
             f.truncate()
