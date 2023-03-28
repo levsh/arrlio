@@ -14,6 +14,9 @@ from arrlio.utils import ExtendedJSONEncoder
 
 logger = logging.getLogger("arrlio.serializers.json")
 
+json_dumps = json.dumps
+json_loads = json.loads
+
 
 class Config(base.Config):
     encoder: Type[json.JSONEncoder] = Field(default=ExtendedJSONEncoder)
@@ -21,28 +24,28 @@ class Config(base.Config):
 
 class Serializer(base.Serializer):
     def dumps(self, data: Any, **kwds) -> bytes:
-        return json.dumps(data, cls=self.config.encoder).encode()
+        return json_dumps(data, cls=self.config.encoder).encode()
 
     def loads(self, data: bytes) -> Any:
-        return json.loads(data)
+        return json_loads(data)
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
-        dct = task_instance.dict()
-        extra = dct["data"]["extra"]
-        if graph := extra.get("graph"):
-            extra["graph"] = graph.dict()
+        data = task_instance.dict()
+        extra = data["data"]["extra"]
+        if graph := extra.get("graph:graph"):
+            extra["graph:graph"] = graph.dict()
         return self.dumps(
             {
-                "name": dct["task"]["name"],
-                **{k: v for k, v in dct["data"].items() if v is not None},
+                "name": data["task"]["name"],
+                **{k: v for k, v in data["data"].items() if v is not None},
             },
             cls=self.config.encoder,
         )
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
         data = self.loads(data)
-        if data["extra"].get("graph"):
-            data["extra"]["graph"] = Graph.from_dict(data["extra"]["graph"])
+        if data["extra"].get("graph:graph"):
+            data["extra"]["graph:graph"] = Graph.from_dict(data["extra"]["graph:graph"])
         name = data.pop("name")
         if name in __tasks__:
             task_instance = __tasks__[name].instantiate(**data)

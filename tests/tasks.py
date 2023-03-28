@@ -65,10 +65,10 @@ def add_one(x: str):
 
 @arrlio.task
 def logger_info(data, *, meta: dict = None):
-    assert meta["graph_source_node"]
-    assert meta["graph_app_id"]
-    assert meta["graph_id"]
-    assert meta["graph_name"]
+    assert meta["graph:source_node"]
+    assert meta["graph:app_id"]
+    assert meta["graph:id"]
+    assert meta["graph:name"]
     logger.info(data)
 
 

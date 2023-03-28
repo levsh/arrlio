@@ -1,5 +1,6 @@
 import datetime
 from dataclasses import asdict, dataclass, field
+from functools import cached_property
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Set, Tuple, Union
 from uuid import UUID, uuid4
@@ -30,7 +31,7 @@ from arrlio.settings import (
 class TaskData:
     """
     Args:
-        meta (dict, optional): additional task function keyworad argument.
+        meta (dict, optional): additional task function keyword argument.
     """
 
     task_id: UUID = field(default_factory=uuid4)
@@ -85,9 +86,13 @@ class Task:
     loads: Callable = None
     dumps: Callable = None
 
+    @cached_property
+    def _exclude(self):
+        return {"loads", "dumps"}
+
     def dict(self, exclude=None):
         exclude = exclude or []
-        return {k: v for k, v in asdict(self).items() if k not in {"loads", "dumps"} and k not in exclude}
+        return {k: v for k, v in asdict(self).items() if k not in self._exclude and k not in exclude}
 
     def instantiate(self, extra: dict = None, **kwds) -> "TaskInstance":
         data: TaskData = TaskData(
@@ -120,16 +125,18 @@ class TaskInstance:
     data: TaskData
 
     def __call__(self, meta: bool = False):
-        args = self.data.args
-        kwds = self.data.kwds
+        task = self.task
+        data = self.data
+        args = data.args
+        kwds = data.kwds
         if meta is True:
-            kwds["meta"] = self.data.meta
-        if self.task.bind:
+            kwds["meta"] = data.meta
+        if task.bind:
             args = (self,) + args
-        if isinstance(self.task.func, type):
-            func = self.task.func()
+        if isinstance(task.func, type):
+            func = task.func()
         else:
-            func = self.task.func
+            func = task.func
         return func(*args, **kwds)
 
     def dict(self, exclude=None):

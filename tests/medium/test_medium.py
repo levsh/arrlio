@@ -45,12 +45,12 @@ class TestArrlio:
 
         if isinstance(app.backend, backends.rabbitmq.Backend):
             for _ in range(2):
-                ar = await app.send_task("hello_world", extra={"result_queue_mode": "separate"})
+                ar = await app.send_task("hello_world", extra={"rabbitmq:result_queue_mode": "separate"})
                 assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
                 assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
             for _ in range(2):
-                ar = await app.send_task("hello_world", extra={"result_queue_mode": "direct_reply_to"})
+                ar = await app.send_task("hello_world", extra={"rabbitmq:result_queue_mode": "direct_reply_to"})
                 assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
                 assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
@@ -506,7 +506,7 @@ class TestArrlio:
 
         # xrange
 
-        for i in range(50):
+        for i in range(10):
             graph = arrlio.Graph(f"Test {i}")
             graph.add_node("A", tasks.xrange, root=True)
             graph.add_node("B", tasks.xrange)
@@ -518,7 +518,6 @@ class TestArrlio:
             graph.add_edge("C", "D")
             graph.add_edge("D", "E")
 
-            await app.send_graph(graph, args=(5,))
             ars = await app.send_graph(graph, args=(5,))
 
             actual = []

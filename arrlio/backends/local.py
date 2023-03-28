@@ -12,6 +12,7 @@ from typing import AsyncGenerator, Callable, Dict, List, Tuple, Union
 from uuid import UUID
 
 from pydantic import Field, PositiveInt
+from rich.pretty import pretty_repr
 
 from arrlio.backends import base
 from arrlio.exc import TaskClosedError, TaskResultError
@@ -20,6 +21,7 @@ from arrlio.settings import ENV_PREFIX
 from arrlio.tp import AsyncCallableT, PriorityT
 
 logger = logging.getLogger("arrlio.backends.local")
+is_debug = logger.isEnabledFor(logging.DEBUG)
 
 BACKEND_ID: str = "arrlio"
 SERIALIZER: str = "arrlio.serializers.nop"
@@ -88,7 +90,8 @@ class Backend(base.Backend):
         if task_data.result_return and task_data.task_id not in self._results:
             self._results[task_data.task_id] = [asyncio_Event(), [], None]
 
-        logger.debug("%s: put %s", self, task_instance)
+        if is_debug:
+            logger.debug("%s: send\n%s", self, pretty_repr(task_instance.dict()))
 
         self._task_queues[task_data.queue].put_nowait(
             (
@@ -119,7 +122,8 @@ class Backend(base.Backend):
                             if ttl is not None and monotonic() >= ts + ttl:
                                 continue
                             task_instance: TaskInstance = loads_task_instance(data)
-                            logger.debug("%s: got %s", self, task_instance)
+                            if is_debug:
+                                logger.debug("%s: got\n%s", self, pretty_repr(task_instance.dict()))
                             tsk: asyncio.Task = create_task(on_task(task_instance))
                         except (BaseException, Exception) as e:
                             semaphore_release()
@@ -150,7 +154,14 @@ class Backend(base.Backend):
 
         task_id: UUID = task_data.task_id
 
-        logger.debug("%s: push result for %s(%s)", self, task_id, task_instance.task.name)
+        if is_debug:
+            logger.debug(
+                "%s: push result for %s(%s)\n%s",
+                self,
+                task_id,
+                task_instance.task.name,
+                pretty_repr(task_result.dict()),
+            )
 
         results = self._results
 
@@ -186,7 +197,7 @@ class Backend(base.Backend):
             serializer_loads_task_result = self.serializer.loads_task_result
             func = task_instance.task.func
 
-            if task_data.extra.get("graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
+            if task_data.extra.get("graph:graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
 
                 while not self.is_closed:
 
@@ -200,7 +211,14 @@ class Backend(base.Backend):
                     while results:
                         task_result: TaskResult = serializer_loads_task_result(results.pop(0))
 
-                        logger.debug("%s: pop result for %s(%s)", self, task_id, task_instance.task.name)
+                        if is_debug:
+                            logger.debug(
+                                "%s: pop result for %s(%s)\n%s",
+                                self,
+                                task_id,
+                                task_instance.task.name,
+                                pretty_repr(task_result.dict()),
+                            )
 
                         if isinstance(task_result.exc, TaskClosedError):
                             return
@@ -215,9 +233,18 @@ class Backend(base.Backend):
                 await ev.wait()
                 ev.clear()
 
-                logger.debug("%s: pop result for %s(%s)", self, task_id, task_instance.task.name)
+                task_result: TaskResult = serializer_loads_task_result(results.pop(0))
 
-                yield serializer_loads_task_result(results.pop(0))
+                if is_debug:
+                    logger.debug(
+                        "%s: pop result for %s(%s)\n%s",
+                        self,
+                        task_id,
+                        task_instance.task.name,
+                        pretty_repr(task_result.dict()),
+                    )
+
+                yield task_result
 
         gen = fn()
 
@@ -229,16 +256,19 @@ class Backend(base.Backend):
         finally:
             self._results.pop(task_id, None)
 
-    async def close_task(self, task_instance: TaskInstance):
+    async def close_task(self, task_instance: TaskInstance, idx: Tuple[str, int] = None):
+        # TODO idx pylint: disable=fixme
+
         logger.debug("%s: close task %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
 
-        await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError()))
+        await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError(), idx=idx))
 
     async def send_message(self, message: Message, **kwds):
         data: dict = dataclasses.asdict(message)
         data["data"] = self.serializer.dumps(message.data)
 
-        logger.debug("%s: put %s", self, message)
+        if is_debug:
+            logger.debug("%s: put\n%s", self, pretty_repr(message.dict()))
 
         self._message_queues[message.exchange].put_nowait(
             (
@@ -271,7 +301,8 @@ class Backend(base.Backend):
                                 continue
                             data["data"] = loads(data["data"])
                             message = Message(**data)
-                            logger.debug("%s: got %s", self, message)
+                            if is_debug:
+                                logger.debug("%s: got\n%s", self, pretty_repr(message.dict()))
                             tsk: asyncio.Task = create_task(on_message(message))
                         except (BaseException, Exception) as e:
                             semaphore_release()
@@ -295,7 +326,8 @@ class Backend(base.Backend):
                 self._cancel_backend_tasks(f"consume_messages_queue_{queue}")
 
     async def send_event(self, event: Event):
-        logger.debug("%s: put %s", self, event)
+        if is_debug:
+            logger.debug("%s: put\n%s", self, pretty_repr(event.dict()))
 
         self._events[event.event_id] = self.serializer.dumps_event(event)
 
@@ -337,7 +369,8 @@ class Backend(base.Backend):
 
                     event: Event = loads_event(events_pop(next(iter(events_keys()))))
 
-                    logger.debug("%s: got %s", self, event)
+                    if is_debug:
+                        logger.debug("%s: got\n%s", self, pretty_repr(event.dict()))
 
                     for cb, event_types in event_callbacks.values():
                         if event_types is not None and event.type not in event_types:

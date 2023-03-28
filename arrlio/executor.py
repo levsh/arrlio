@@ -13,6 +13,8 @@ from arrlio.exc import NotFoundError, TaskError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 
 logger = logging.getLogger("arrlio.executor")
+is_info = logger.isEnabledFor(logging.INFO)
+is_debug = logger.isEnabledFor(logging.DEBUG)
 
 asyncio_Event = asyncio.Event  # pylint: disable=invalid-name
 threading_Event = threading.Event  # pylint: disable=invalid-name
@@ -56,7 +58,8 @@ class Executor:
             kwdefaults = func.__kwdefaults__
             meta: bool = kwdefaults is not None and "meta" in kwdefaults
 
-            logger.info("%s[%s]: execute task %s(%s)", self, current_thread().name, task_data.task_id, task.name)
+            if is_info:
+                logger.info("%s[%s]: execute task %s(%s)", self, current_thread().name, task_data.task_id, task.name)
 
             try:
 
@@ -70,8 +73,8 @@ class Executor:
 
                 elif isgeneratorfunction(func):
 
-                    if task_data.extra.get("graph"):
-                        raise TaskError("generator not supported")
+                    if task_data.extra.get("graph:graph"):
+                        raise TaskError("generator not supported")  # ?
 
                     for res in task_instance(meta=meta):
                         if isinstance(res, TaskResult):
@@ -120,13 +123,14 @@ class Executor:
                 logger.exception("%s: task %s(%s)", self, task_data.task_id, task.name)
             yield TaskResult(res=res, exc=exc, trb=trb)
 
-        logger.info(
-            "%s: task %s(%s) done in %.2f second(s)",
-            self,
-            task_data.task_id,
-            task.name,
-            monotonic() - t0,
-        )
+        if is_info:
+            logger.info(
+                "%s: task %s(%s) done in %.2f second(s)",
+                self,
+                task_data.task_id,
+                task.name,
+                monotonic() - t0,
+            )
 
     async def execute_in_thread(self, task_instance: TaskInstance) -> TaskResult:
         root_loop = get_running_loop()

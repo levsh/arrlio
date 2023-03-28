@@ -45,7 +45,7 @@ class TestEventsPlugin:
                     mock_send_event.assert_awaited_once()
                     event = mock_send_event.call_args.args[0]
                     assert event.type == "task:received"
-                    assert event.data == {"task_id": task_instance.data.task_id}
+                    assert event.data == {"task:id": task_instance.data.task_id}
             finally:
                 await plugin.on_close()
         finally:
@@ -70,7 +70,7 @@ class TestEventsPlugin:
                     event = mock_send_event.call_args.args[0]
                     assert event.type == "task:done"
                     assert event.data == {
-                        "task_id": task_instance.data.task_id,
+                        "task:id": task_instance.data.task_id,
                         "status": TaskResult(res="Hello World!", exc=None, trb=None, routes=None),
                     }
             finally:

@@ -12,6 +12,8 @@ class Config(BaseSettings):
 
 
 class Serializer(abc.ABC):
+    __slots__ = ("config",)
+
     def __init__(self, config: Config):
         self.config = config
 

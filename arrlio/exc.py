@@ -6,6 +6,10 @@ class TaskError(ArrlioError):
     pass
 
 
+class TaskClosedError(ArrlioError):
+    pass
+
+
 class TaskTimeoutError(ArrlioError):
     pass
 
@@ -15,10 +19,6 @@ class TaskResultError(ArrlioError):
 
 
 class NotFoundError(ArrlioError):
-    pass
-
-
-class TaskClosedError(ArrlioError):
     pass
 
 

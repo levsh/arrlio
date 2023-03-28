@@ -18,6 +18,8 @@ from arrlio.settings import Config
 from arrlio.tp import AsyncCallableT
 
 logger = logging.getLogger("arrlio.core")
+is_debug = logger.isEnabledFor(logging.DEBUG)
+is_info = logger.isEnabledFor(logging.INFO)
 
 
 __tasks__ = {}
@@ -175,7 +177,8 @@ class App:
 
     async def _execute_hook(self, hook_fn, *args, **kwds):
         try:
-            logger.debug("%s: execute hook %s", self, hook_fn)
+            if is_debug:
+                logger.debug("%s: execute hook %s", self, hook_fn)
             await hook_fn(*args, **kwds)
         except Exception:
             logger.exception("%s: hook %s error", self, hook_fn)
@@ -231,11 +234,12 @@ class App:
                 **{**self._task_settings, **kwargs},
             )
 
-        logger.info(
-            "%s: send task instance\n%s",
-            self,
-            pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
-        )
+        if is_info:
+            logger.info(
+                "%s: send task instance\n%s",
+                self,
+                pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
+            )
 
         await self._execute_hooks("on_task_send", task_instance)
 
@@ -254,12 +258,15 @@ class App:
         message_settings = self.config.message.dict(exclude_unset=True)
         message = Message(data=data, **{**message_settings, **kwds})
 
-        logger.info("%s: send message\n%s", self, pretty_repr(message.dict()))
+        if is_info:
+            logger.info("%s: send message\n%s", self, pretty_repr(message.dict()))
 
         await self._backend.send_message(message, routing_key=routing_key)
 
     async def send_event(self, event: Event):
-        logger.info("%s: send event\n%s", self, pretty_repr(event.dict()))
+        if is_info:
+            logger.info("%s: send event\n%s", self, pretty_repr(event.dict()))
+
         await self._backend.send_event(event)
 
     async def pop_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
@@ -284,9 +291,8 @@ class App:
             task_data: TaskData = task_instance.data
             task_id: UUID = task_data.task_id
 
+            self._running_tasks[task_id] = current_task()
             try:
-                self._running_tasks[task_id] = current_task()
-
                 async with AsyncExitStack() as stack:
 
                     for context in self._hooks["task_context"]:
@@ -308,10 +314,11 @@ class App:
 
                         await self._execute_hooks("on_task_result", task_instance, task_result)
 
-                    if task_data.result_return and not task_data.extra.get("graph"):
+                    if task_data.result_return and not task_data.extra.get("graph:graph"):
                         func = task_instance.task.func
                         if isasyncgenfunction(func) or isgeneratorfunction(func):
-                            await self._backend.close_task(task_instance)
+                            idx_1 += 1
+                            await self._backend.close_task(task_instance, idx=(idx_0, idx_1))
 
                     await self._execute_hooks(
                         "on_task_done",
@@ -382,7 +389,7 @@ class AsyncResult:
     def __init__(self, app: App, task_instance: TaskInstance):
         self._app: App = app
         self._task_instance: TaskInstance = task_instance
-        self._gen = self._app.pop_result(self._task_instance)
+        self._gen = app.pop_result(task_instance)
         self._result = None
         self._exception: Exception = None
         self._ready: bool = False
@@ -422,10 +429,10 @@ class AsyncResult:
                 self._ready = True
                 raise e
 
-        if self._exception:
-            if isinstance(self._exception.args[0], Exception):
-                raise self._exception from self._exception.args[0]
-            raise self._exception
+        if exception := self._exception:
+            if isinstance(exception.args[0], Exception):
+                raise exception from exception.args[0]
+            raise exception
 
         raise StopAsyncIteration
 

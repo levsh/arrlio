@@ -1,7 +1,7 @@
 import logging
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, Tuple
 from uuid import uuid4
 
 from rich.pretty import pretty_repr
@@ -12,6 +12,8 @@ from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
 from arrlio.plugins import base
 
 logger = logging.getLogger("arrlio.plugins.graphs")
+is_info = logger.isEnabledFor(logging.INFO)
+is_debug = logger.isEnabledFor(logging.DEBUG)
 
 
 class Config(base.Config):
@@ -25,10 +27,10 @@ class Plugin(base.Plugin):
 
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
-        self.graphs: Dict[str, List[Graph, int]] = {}
+        self.graphs: Dict[str, Tuple[Graph, Dict[str, int]]] = {}
 
     async def on_init(self):
-        logger.info("%s initializing ...", self)
+        logger.info("%s initializing...", self)
 
         if "arrlio.events" not in self.app.plugins:
             raise ArrlioError("'arrlio.graphs' plugin requires 'arrlio.events' plugin'")
@@ -45,7 +47,7 @@ class Plugin(base.Plugin):
         await self.app.stop_consume_events("arrlio.graphs")
 
     async def on_task_result(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
-        graph: Graph = task_instance.data.extra.get("graph")
+        graph: Graph = task_instance.data.extra.get("graph:graph")
         if graph is None or task_result.exc is not None:
             return
 
@@ -69,16 +71,16 @@ class Plugin(base.Plugin):
                         ),
                         args=args,
                         meta={
-                            "graph_source_node": root,
-                            "graph_app_id": task_instance.data.extra["graph_app_id"],
-                            "graph_id": task_instance.data.extra["graph_id"],
-                            "graph_name": graph.name,
+                            "graph:source_node": root,
+                            "graph:app_id": task_instance.data.extra["graph:app_id"],
+                            "graph:id": task_instance.data.extra["graph:id"],
+                            "graph:name": graph.name,
                         },
                         root_only=True,
                     )
 
     async def on_task_done(self, task_instance: TaskInstance, status: dict) -> None:
-        graph: Graph = task_instance.data.extra.get("graph")
+        graph: Graph = task_instance.data.extra.get("graph:graph")
         if graph is None:
             return
 
@@ -89,9 +91,10 @@ class Plugin(base.Plugin):
             dt=datetime.now(tz=timezone.utc),
             ttl=task_data.event_ttl,
             data={
-                "task_id": task_data.task_id,
-                "graph_id": task_data.extra["graph_id"],
-                "graph_app_id": task_data.extra["graph_app_id"],
+                "task:id": task_data.task_id,
+                "graph:id": task_data.extra["graph:id"],
+                "graph:app_id": task_data.extra["graph:app_id"],
+                "graph:call_id": task_data.extra["graph:call_id"],
             },
         )
         await self.app.send_event(event)
@@ -121,21 +124,21 @@ class Plugin(base.Plugin):
         graph_app_id = self.app.config.app_id
 
         extra = {
-            "graph_id": graph_id,
-            "graph_app_id": graph_app_id,
-            "graph_roots": graph.roots,
+            "graph:id": graph_id,
+            "graph:app_id": graph_app_id,
+            "graph:roots": graph.roots,
         }
 
         graph: Graph = self._init_graph(graph, extra=extra)
 
         logger.info("%s: send graph '%s'(%s)", self, graph.name, graph_id)
 
-        self.graphs[graph_id] = [graph, 0]
+        self.graphs[graph_id] = (graph, {})
         try:
-            task_instances = await self._send_graph(graph, args=args, kwds=kwds, meta=meta)
+            task_instances: Dict[str, TaskInstance] = await self._send_graph(graph, args=args, kwds=kwds, meta=meta)
             return {k: AsyncResult(self.app, task_instance) for k, task_instance in task_instances.items()}
         except (BaseException, Exception):
-            self.graphs.pop(graph_id, None)
+            del self.graphs[graph_id]
             raise
 
     def _init_graph(self, graph: Graph, extra: dict = None) -> Graph:
@@ -151,7 +154,7 @@ class Plugin(base.Plugin):
 
         return Graph(graph.name, nodes=nodes, edges=edges, roots=roots)
 
-    def _get_task_instances(self, graph: Graph, root_only: bool = None) -> Dict[str, TaskInstance]:
+    def _build_task_instances(self, graph: Graph, root_only: bool = None) -> Dict[str, TaskInstance]:
         task_instances: Dict[str, TaskInstance] = {}
         task_settings = self.app.task_settings
 
@@ -169,7 +172,7 @@ class Plugin(base.Plugin):
             task_instances[node_id] = task_instance
 
         for node_id, task_instance in task_instances.items():
-            task_instance.data.extra["graph"] = Graph(
+            task_instance.data.extra["graph:graph"] = Graph(
                 graph.name,
                 nodes=graph.nodes,
                 edges=graph.edges,
@@ -187,7 +190,7 @@ class Plugin(base.Plugin):
         root_only: bool = None,
     ) -> Dict[str, TaskInstance]:
 
-        task_instances: Dict[str, TaskInstance] = self._get_task_instances(graph, root_only=root_only)
+        task_instances: Dict[str, TaskInstance] = self._build_task_instances(graph, root_only=root_only)
 
         for node_id in graph.roots:
             task_instance: TaskInstance = task_instances[node_id]
@@ -195,13 +198,16 @@ class Plugin(base.Plugin):
             task_data.args += tuple(args or ())
             task_data.kwds.update(kwds or {})
             task_data.meta.update(meta or {})
+            extra = task_data.extra
+            extra["graph:call_id"] = f"{uuid4()}"
 
-            logger.info(
-                "%s: send graph '%s' task\n%s",
-                self,
-                graph.name,
-                pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
-            )
+            if is_info:
+                logger.info(
+                    "%s: send graph '%s' task\n%s",
+                    self,
+                    graph.name,
+                    pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
+                )
 
             await self.app.backend.send_task(task_instance)
 
@@ -210,9 +216,10 @@ class Plugin(base.Plugin):
                 dt=datetime.now(tz=timezone.utc),
                 ttl=task_data.event_ttl,
                 data={
-                    "task_id": task_data.task_id,
-                    "graph_id": task_data.extra["graph_id"],
-                    "graph_app_id": task_data.extra["graph_app_id"],
+                    "task:id": task_data.task_id,
+                    "graph:id": extra["graph:id"],
+                    "graph:app_id": extra["graph:app_id"],
+                    "graph:call_id": extra["graph:call_id"],
                 },
             )
             await self.app.send_event(event)
@@ -220,12 +227,17 @@ class Plugin(base.Plugin):
         return task_instances
 
     async def _on_event(self, event: Event):
-        if (graph_id := event.data["graph_id"]) in self.graphs:
+        if (graph_id := event.data["graph:id"]) in self.graphs:
+            task_id = event.data["task:id"]
+            item = self.graphs[graph_id]
+            item[1].setdefault(task_id, 0)
             if event.type == "graph:task:send":
-                self.graphs[graph_id][1] += 1
+                item[1][task_id] += 1
             elif event.type == "graph:task:done":
-                self.graphs[graph_id][1] -= 1
-                if self.graphs[graph_id][1] == 0:
+                item[1][task_id] -= 1
+                if item[1][task_id] == 0:
+                    del item[1][task_id]
+                if not item[1]:
                     await self._on_graph_done(graph_id)
 
     async def _on_graph_done(self, graph_id: str):

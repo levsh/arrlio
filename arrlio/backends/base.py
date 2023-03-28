@@ -1,7 +1,7 @@
 import abc
 import asyncio
 import logging
-from asyncio import create_task
+from asyncio import create_task, current_task
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Set, Union
 from uuid import uuid4
@@ -56,11 +56,17 @@ class Backend(abc.ABC):
         if self._closed.done():
             raise Exception(f"Closed {self}")
 
-        task: asyncio.Task = create_task(coro_factory())
-        self._backend_tasks[key].add(task)
-        task.add_done_callback(lambda *args: self._backend_tasks[key].discard(task))
+        async def fn():
+            task = current_task()
+            self._backend_tasks[key].add(task)
+            try:
+                return await coro_factory()
+            finally:
+                self._backend_tasks[key].discard(task)
+                if not self._backend_tasks[key]:
+                    del self._backend_tasks[key]
 
-        return task
+        return create_task(fn())
 
     @property
     def is_closed(self) -> bool:

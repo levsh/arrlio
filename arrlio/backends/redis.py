@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import siderpy  # pylint: disable=import-error
 from pydantic import Field, PositiveInt
+from rich.pretty import pretty_repr
 
 from arrlio.backends import base
 from arrlio.exc import TaskClosedError, TaskResultError
@@ -19,6 +20,7 @@ from arrlio.tp import AsyncCallableT, RedisDsn, TimeoutT
 from arrlio.utils import retry
 
 logger = logging.getLogger("arrlio.backends.redis")
+is_debug = logger.isEnabledFor(logging.DEBUG)
 
 SERIALIZER: str = "arrlio.serializers.json"
 
@@ -73,7 +75,8 @@ class Backend(base.Backend):
             queue_key = self._make_task_queue_key(queue)
             data = self.serializer.dumps_task_instance(task_instance)
 
-            logger.debug("%s: send %s", self, task_instance)
+            if is_debug:
+                logger.debug("%s: send\n%s", self, pretty_repr(task_instance.dict()))
 
             task_key = f"{task_data.task_id}#{uuid4()}"
 
@@ -93,7 +96,14 @@ class Backend(base.Backend):
             result_key = self._make_result_key(task_instance.data.task_id)
 
             async with self.redis_pool.get_redis() as redis:
-                logger.debug("%s: push result for %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
+                if is_debug:
+                    logger.debug(
+                        "%s: push result for %s(%s)\n%s",
+                        self,
+                        task_instance.data.task_id,
+                        task_instance.task.name,
+                        pretty_repr(task_result.dict()),
+                    )
                 with redis.pipeline():
                     await redis.multi()
                     await redis.rpush(
@@ -110,29 +120,46 @@ class Backend(base.Backend):
             result_key = self._make_result_key(task_instance.data.task_id)
             func = task_instance.task.func
 
-            if task_instance.data.extra.get("graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
+            if task_instance.data.extra.get("graph:graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
 
                 while not self.is_closed:
                     raw_data = await self.redis_pool.blpop(result_key, 0)
-
-                    logger.debug("%s: pop result for %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
-
                     task_result: TaskResult = self.serializer.loads_task_result(raw_data[1])
+
+                    if is_debug:
+                        logger.debug(
+                            "%s: pop result for %s(%s)\n%s",
+                            self,
+                            task_instance.data.task_id,
+                            task_instance.task.name,
+                            pretty_repr(task_result.dict()),
+                        )
+
                     if isinstance(task_result.exc, TaskClosedError):
                         return
+
                     yield task_result
 
             else:
 
                 raw_data = await self.redis_pool.blpop(result_key, 0)
+                task_result: TaskResult = self.serializer.loads_task_result(raw_data[1])
 
-                logger.debug("%s: pop result for %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
+                if is_debug:
+                    logger.debug(
+                        "%s: pop result for %s(%s)\n%s",
+                        self,
+                        task_instance.data.task_id,
+                        task_instance.task.name,
+                        pretty_repr(task_result.dict()),
+                    )
 
-                yield self.serializer.loads_task_result(raw_data[1])
+                yield task_result
 
         @retry(retry_timeouts=config.push_retry_timeouts)
         async def send_message(message: Message, **kwds):
-            logger.debug("%s: send %s", self, message)
+            if is_debug:
+                logger.debug("%s: send\n%s", self, pretty_repr(message.dict()))
 
             queue = message.exchange
             queue_key = self._make_message_queue_key(queue)
@@ -150,7 +177,8 @@ class Backend(base.Backend):
 
         @retry(retry_timeouts=config.push_retry_timeouts)
         async def send_event(event: Event):
-            logger.debug("%s: send %s", self, event)
+            if is_debug:
+                logger.debug("%s: send\n%s", self, pretty_repr(event.dict()))
 
             queue_key = "arrlio.events"
             data = self.serializer.dumps_event(event)
@@ -218,7 +246,8 @@ class Backend(base.Backend):
                             if serialized_data is None:
                                 continue
                             task_instance: TaskInstance = loads_task_instance(serialized_data)
-                            logger.debug("%s: got %s", self, task_instance)
+                            if is_debug:
+                                logger.debug("%s: got\n%s", self, pretty_repr(task_instance.dict()))
                             tsk: asyncio.Task = create_task(on_task(task_instance))
                             tsk.add_done_callback(lambda *args: semaphore_release())
                         except (BaseException, Exception) as e:
@@ -260,10 +289,12 @@ class Backend(base.Backend):
         except StopAsyncIteration:
             return
 
-    async def close_task(self, task_instance: TaskInstance):
+    async def close_task(self, task_instance: TaskInstance, idx: Tuple[str, int] = None):
+        # TODO idx pylint: disable=fixme
+
         logger.debug("%s: close task %s(%s)", self, task_instance.data.task_id, task_instance.task.name)
 
-        await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError()))
+        await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError(), idx=idx))
 
     async def send_message(self, message: Message, **kwds):
         await self._create_backend_task("send_message", lambda: self._send_message(message, **kwds))
@@ -292,7 +323,8 @@ class Backend(base.Backend):
                                 continue
                             data = loads(serialized_data)
                             message = Message(**data)
-                            logger.debug("%s: got %s", self, message)
+                            if is_debug:
+                                logger.debug("%s: got\n%s", self, pretty_repr(message.dict()))
                             tsk: asyncio.Task = create_task(on_message(message))
                         except (BaseException, Exception) as e:
                             semaphore_release()
@@ -352,7 +384,8 @@ class Backend(base.Backend):
 
                     event = loads_event(serialized_data)
 
-                    logger.debug("%s: got %s", self, event)
+                    if is_debug:
+                        logger.debug("%s: got\n%s", self, pretty_repr(event.dict()))
 
                     for cb, event_types in event_callbacks.values():
                         if event_types is not None and event.type not in event_types:

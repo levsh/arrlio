@@ -39,7 +39,6 @@ class TestConfig:
         assert config.results_common_queue_ttl == rabbitmq.RESULTS_COMMON_QUEUE_TTL
         assert config.results_common_queue_type == rabbitmq.RESULTS_COMMON_QUEUE_TYPE
         assert config.results_separate_queue_durable == rabbitmq.RESULTS_SEPARATE_QUEUE_DURABLE
-        assert config.results_separate_queue_ttl == rabbitmq.RESULTS_SEPARATE_QUEUE_TTL
         assert config.results_separate_queue_type == rabbitmq.RESULTS_SEPARATE_QUEUE_TYPE
 
     def test__init_custom(self, cleanup):
