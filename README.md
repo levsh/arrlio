@@ -10,7 +10,7 @@ Asyncio distributed task/workflow system with supports generators and graphs
 
 ### Installation
 ```bash
-pip install arrlio
+pip install git+https://github.com/levsh/arrlio
 ```
 
 ### Usage
