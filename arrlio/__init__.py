@@ -10,7 +10,7 @@ log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)
 
 
-__version__ = "0.17.0.a"
+__version__ = "0.17.0"
 
 
 # pylint: disable=wrong-import-position
