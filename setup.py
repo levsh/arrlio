@@ -29,6 +29,7 @@ setup(
         "aiormq>=6.6.4",
         "pydantic>=1.9.0",
         "yarl",
+        "rich",
         "roview",
         "siderpy[hiredis]>=0.6.0",
     ],
