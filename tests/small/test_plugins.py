@@ -9,6 +9,7 @@ import arrlio
 from arrlio import App, Config, TaskResult
 from arrlio.plugins import base
 from arrlio.plugins.events import Config as EventsPluginConfig
+from arrlio.plugins.events import Config as GraphsPluginConfig
 from arrlio.plugins.events import Plugin as EventsPlugin
 from arrlio.plugins.graphs import Plugin as GraphsPlugin
 from tests import tasks
@@ -84,7 +85,7 @@ class TestGraphsPlugin:
     async def test__init(self, cleanup):
         app = App(Config())
         try:
-            plugin = GraphsPlugin(app, EventsPluginConfig())
+            plugin = GraphsPlugin(app, GraphsPluginConfig())
             try:
                 assert plugin.name == "arrlio.graphs"
 
@@ -99,6 +100,68 @@ class TestGraphsPlugin:
                         plugin._on_event,
                         event_types=["graph:task:send", "graph:task:done"],
                     )
+            finally:
+                await plugin.on_close()
+        finally:
+            await app.close()
+
+    @pytest.mark.asyncio
+    async def test_on_task_done(self, cleanup):
+        app = App(Config())
+        try:
+            plugin = GraphsPlugin(app, GraphsPluginConfig())
+            try:
+                task_instance = tasks.hello_world.instantiate()
+                task_result = await app.executor(task_instance).__anext__()
+                with mock.patch.object(app, "send_event") as mock_send_event:
+                    await plugin.on_task_done(task_instance, task_result)
+                    mock_send_event.assert_not_awaited()
+
+                graph = arrlio.Graph("Test")
+                graph_id = "id"
+                graph_app_id = "app_id"
+                graph_call_id = "call_id"
+                task_instance = tasks.xrange.instantiate(
+                    extra={
+                        "graph:graph": graph,
+                        "graph:id": graph_id,
+                        "graph:app_id": graph_app_id,
+                        "graph:call_id": graph_call_id,
+                    }
+                )
+                with mock.patch.object(app, "send_event") as mock_send_event:
+                    await plugin.on_task_done(task_instance, task_result)
+                    mock_send_event.assert_awaited_once()
+                    event = mock_send_event.call_args.args[0]
+                    assert event.type == "graph:task:done"
+                    assert event.data == {
+                        "task:id": task_instance.data.task_id,
+                        "graph:id": graph_id,
+                        "graph:app_id": graph_app_id,
+                        "graph:call_id": graph_call_id,
+                    }, event.data
+            finally:
+                await plugin.on_close()
+        finally:
+            await app.close()
+
+    @pytest.mark.asyncio
+    async def test__init_graph(self, cleanup):
+        graph = arrlio.Graph("Test")
+        graph.add_node("A", tasks.xrange, root=True)
+        graph.add_node("B", tasks.xrange)
+        graph.add_edge("A", "B")
+
+        app = App(Config())
+        try:
+            plugin = GraphsPlugin(app, GraphsPluginConfig())
+            try:
+                new_graph = plugin._init_graph(graph)
+                assert new_graph.name == graph.name
+                assert new_graph.edges == graph.edges
+                assert new_graph.roots == graph.roots
+                for _, (_, node_kwds) in new_graph.nodes.items():
+                    assert node_kwds["task_id"]
             finally:
                 await plugin.on_close()
         finally:

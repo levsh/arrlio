@@ -14,7 +14,7 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -22,7 +22,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -45,7 +45,7 @@ class TestArrlio:
 
         if isinstance(app.backend, backends.rabbitmq.Backend):
             for _ in range(2):
-                ar = await app.send_task("hello_world", extra={"rabbitmq:result_queue_mode": "separate"})
+                ar = await app.send_task("hello_world", extra={"rabbitmq:result_queue_mode": "single_use"})
                 assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
                 assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
@@ -59,23 +59,24 @@ class TestArrlio:
             assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
             assert await asyncio.wait_for(ar.get(), 5) == "Hello from sync_task!"
 
-        for _ in range(2):
-            results = []
-            ar = await app.send_task(tasks.xrange, args=(3,))
-            async for x in ar:
-                results.append(x)
-            assert results == [0, 1, 2]
-            results = []
-            async for x in ar:
-                results.append(x)
-            assert results == []
+        for task in (tasks.async_xrange, tasks.xrange):
+            for _ in range(2):
+                results = []
+                ar = await app.send_task(task, args=(3,))
+                async for x in ar:
+                    results.append(x)
+                assert results == [0, 1, 2]
+                results = []
+                async for x in ar:
+                    results.append(x)
+                assert results == []
 
     @pytest.mark.parametrize(
         "params",
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -83,7 +84,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -104,7 +105,7 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -112,7 +113,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -135,16 +136,17 @@ class TestArrlio:
             res = await asyncio.wait_for(ar.get(), 5)
             res = await asyncio.wait_for(ar.get(), 5)
 
-        for _ in range(2):
-            results = []
-            ar = await app.send_task(tasks.xrange, queue="queue2", args=(3,))
-            async for x in ar:
-                results.append(x)
-            assert results == [0, 1, 2]
-            results = []
-            async for x in ar:
-                results.append(x)
-            assert results == []
+        for task in (tasks.async_xrange, tasks.xrange):
+            for _ in range(2):
+                results = []
+                ar = await app.send_task(task, queue="queue2", args=(3,))
+                async for x in ar:
+                    results.append(x)
+                assert results == [0, 1, 2]
+                results = []
+                async for x in ar:
+                    results.append(x)
+                assert results == []
 
     @pytest.mark.parametrize(
         "params",
@@ -154,17 +156,17 @@ class TestArrlio:
             {
                 "backend": {
                     "module": "arrlio.backends.rabbitmq",
-                    "config": {"pool_size": 1, "results_queue_mode": "separate"},
+                    "config": {"pool_size": 1, "results_queue_mode": "single_use"},
                 }
             },
             # {"backend": {"module": "arrlio.backends.redis", "config": {"pool_size": 1}}},
         ],
         indirect=True,
         ids=[
-            "            local",
-            "         rabbitmq",
-            "rabbitmq:separate",
-            # "          redis",
+            "              local",
+            "           rabbitmq",
+            "rabbitmq:single_use",
+            # "            redis",
         ],
     )
     @pytest.mark.asyncio
@@ -180,6 +182,7 @@ class TestArrlio:
             done, pending = await asyncio.wait_for(asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED), 5)
             assert done == {t2}
             assert pending == {t1}
+            await t1
 
     @pytest.mark.parametrize(
         "params",
@@ -198,8 +201,8 @@ class TestArrlio:
                     "module": "arrlio.backends.rabbitmq",
                     "config": {
                         "tasks_queue_durable": True,
-                        "results_queue_mode": "separate",
-                        "results_separate_queue_durable": True,
+                        "results_queue_mode": "single_use",
+                        "results_single_use_queue_durable": True,
                     },
                 }
             },
@@ -207,9 +210,9 @@ class TestArrlio:
         ],
         indirect=True,
         ids=[
-            "         rabbitmq",
-            "rabbitmq:separate",
-            "            redis",
+            "           rabbitmq",
+            "rabbitmq:single_use",
+            "              redis",
         ],
     )
     @pytest.mark.asyncio
@@ -218,28 +221,29 @@ class TestArrlio:
 
         await app.consume_tasks()
 
-        for _ in range(3):
-            ar = await app.send_task(tasks.xrange, args=(3,), kwds={"sleep": 1})
-            await asyncio.sleep(1)
-            backend.stop()
-            await asyncio.sleep(3)
-            backend.start()
-            await asyncio.sleep(1)
+        for task in (tasks.async_xrange, tasks.xrange):
+            for _ in range(1):
+                ar = await app.send_task(task, args=(3,), kwds={"sleep": 1}, thread=True)
+                await asyncio.sleep(1)
+                backend.stop()
+                await asyncio.sleep(3)
+                backend.start()
+                await asyncio.sleep(1)
 
-            results = []
-            async for x in ar:
-                results.append(x)
-            assert results == [0, 1, 2]
+                results = []
+                async for x in ar:
+                    results.append(x)
+                assert results == [0, 1, 2]
 
-            ar = await app.send_task(tasks.hello_world)
-            assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
+                ar = await app.send_task(tasks.hello_world)
+                assert await asyncio.wait_for(ar.get(), 5) == "Hello World!"
 
     @pytest.mark.parametrize(
         "params",
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -247,7 +251,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -268,7 +272,7 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -276,7 +280,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -299,7 +303,7 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -307,7 +311,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -331,7 +335,7 @@ class TestArrlio:
         [
             {"backend": {"module": "arrlio.backends.local"}},
             {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}}},
+            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}}},
             {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
             {"backend": {"module": "arrlio.backends.redis"}},
         ],
@@ -339,7 +343,7 @@ class TestArrlio:
         ids=[
             "                   local",
             "                rabbitmq",
-            "       rabbitmq:separate",
+            "     rabbitmq:single_use",
             "rabbitmq:direct_reply_to",
             "                   redis",
         ],
@@ -461,7 +465,7 @@ class TestArrlio:
                 ],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}},
+                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
@@ -479,7 +483,7 @@ class TestArrlio:
         ids=[
             "                    local",
             "                 rabbitmq",
-            "        rabbitmq:separate",
+            "      rabbitmq:single_use",
             "                    redis",
         ],
     )
@@ -506,44 +510,46 @@ class TestArrlio:
 
         # xrange
 
-        for i in range(10):
-            graph = arrlio.Graph(f"Test {i}")
-            graph.add_node("A", tasks.xrange, root=True)
-            graph.add_node("B", tasks.xrange)
-            graph.add_node("C", tasks.xrange)
-            graph.add_node("D", tasks.xrange)
-            graph.add_node("E", tasks.xrange)
-            graph.add_edge("A", "B")
-            graph.add_edge("B", "C")
-            graph.add_edge("C", "D")
-            graph.add_edge("D", "E")
+        for task in (tasks.xrange, tasks.async_xrange):
 
-            ars = await app.send_graph(graph, args=(5,))
+            for i in range(10):
+                graph = arrlio.Graph(f"Test {i}")
+                graph.add_node("A", task, root=True)
+                graph.add_node("B", task)
+                graph.add_node("C", task)
+                graph.add_node("D", task)
+                graph.add_node("E", task)
+                graph.add_edge("A", "B")
+                graph.add_edge("B", "C")
+                graph.add_edge("C", "D")
+                graph.add_edge("D", "E")
 
-            actual = []
-            async for result in ars["A"]:
-                actual.append(result)
-            assert sorted(actual) == sorted([0, 1, 2, 3, 4])
+                ars = await app.send_graph(graph, args=(5,))
 
-            actual = []
-            async for result in ars["B"]:
-                actual.append(result)
-            assert sorted(actual) == sorted([0, 0, 1, 0, 1, 2, 0, 1, 2, 3])
+                actual = []
+                async for result in ars["A"]:
+                    actual.append(result)
+                assert sorted(actual) == sorted([0, 1, 2, 3, 4])
 
-            actual = []
-            async for result in ars["C"]:
-                actual.append(result)
-            assert sorted(actual) == sorted([0, 0, 0, 1, 0, 0, 1, 0, 1, 2])
+                actual = []
+                async for result in ars["B"]:
+                    actual.append(result)
+                assert sorted(actual) == sorted([0, 0, 1, 0, 1, 2, 0, 1, 2, 3])
 
-            actual = []
-            async for result in ars["D"]:
-                actual.append(result)
-            assert sorted(actual) == sorted([0, 0, 0, 0, 1])
+                actual = []
+                async for result in ars["C"]:
+                    actual.append(result)
+                assert sorted(actual) == sorted([0, 0, 0, 1, 0, 0, 1, 0, 1, 2])
 
-            actual = []
-            async for result in ars["E"]:
-                actual.append(result)
-            assert sorted(actual) == sorted([0])
+                actual = []
+                async for result in ars["D"]:
+                    actual.append(result)
+                assert sorted(actual) == sorted([0, 0, 0, 0, 1])
+
+                actual = []
+                async for result in ars["E"]:
+                    actual.append(result)
+                assert sorted(actual) == sorted([0])
 
     @pytest.mark.parametrize(
         "params",
@@ -563,7 +569,7 @@ class TestArrlio:
                 ],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "separate"}},
+                "backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "single_use"}},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
@@ -581,7 +587,7 @@ class TestArrlio:
         ids=[
             "                    local",
             "                 rabbitmq",
-            "        rabbitmq:separate",
+            "      rabbitmq:single_use",
             "                    redis",
         ],
     )

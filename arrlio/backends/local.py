@@ -60,7 +60,7 @@ class Backend(base.Backend):
         self._event_cond = shared["event_cond"]
         self._consumed_task_queues = set()
         self._consumed_message_queues = set()
-        self._semaphore = Semaphore(value=config.pool_size)
+        self._pool_semaphore = Semaphore(value=config.pool_size)
         self._event_callbacks: Dict[str, Tuple[AsyncCallableT, List[str]]] = {}
 
     def __del__(self):
@@ -106,11 +106,10 @@ class Backend(base.Backend):
         async def fn(queue: str):
             logger.info("%s: start consuming tasks queue '%s'", self, queue)
 
-            semaphore = self._semaphore
+            semaphore = self._pool_semaphore
             semaphore_acquire = semaphore.acquire
             semaphore_release = semaphore.release
             task_queue_get = self._task_queues[queue].get
-            loads_task_instance = self.serializer.loads_task_instance
 
             self._consumed_task_queues.add(queue)
             try:
@@ -121,14 +120,14 @@ class Backend(base.Backend):
                             _, ts, ttl, data = await task_queue_get()
                             if ttl is not None and monotonic() >= ts + ttl:
                                 continue
-                            task_instance: TaskInstance = loads_task_instance(data)
+                            task_instance: TaskInstance = self.serializer.loads_task_instance(data)
                             if is_debug:
                                 logger.debug("%s: got\n%s", self, pretty_repr(task_instance.dict()))
-                            tsk: asyncio.Task = create_task(on_task(task_instance))
+                            aio_task: asyncio.Task = create_task(on_task(task_instance))
                         except (BaseException, Exception) as e:
                             semaphore_release()
                             raise e
-                        tsk.add_done_callback(lambda *args: semaphore_release())
+                        aio_task.add_done_callback(lambda *args: semaphore_release())
                     except asyncio.CancelledError:
                         logger.info("%s: stop consuming tasks queue '%s'", self, queue)
                         return
@@ -285,7 +284,7 @@ class Backend(base.Backend):
 
             self._consumed_message_queues.add(queue)
 
-            semaphore = self._semaphore
+            semaphore = self._pool_semaphore
             semaphore_acquire = semaphore.acquire
             semaphore_release = semaphore.release
             message_queue_get = self._message_queues[queue].get
@@ -303,11 +302,11 @@ class Backend(base.Backend):
                             message = Message(**data)
                             if is_debug:
                                 logger.debug("%s: got\n%s", self, pretty_repr(message.dict()))
-                            tsk: asyncio.Task = create_task(on_message(message))
+                            aio_task: asyncio.Task = create_task(on_message(message))
                         except (BaseException, Exception) as e:
                             semaphore_release()
                             raise e
-                        tsk.add_done_callback(lambda *args: semaphore_release())
+                        aio_task.add_done_callback(lambda *args: semaphore_release())
                     except asyncio.CancelledError:
                         logger.info("%s: stop consuming messages queue '%s'", self, queue)
                         return

@@ -26,6 +26,8 @@ from arrlio.settings import (
     TASK_TTL,
 )
 
+__setattr__ = object.__setattr__
+
 
 @dataclass
 class TaskData:
@@ -54,9 +56,9 @@ class TaskData:
 
     def __post_init__(self):
         if isinstance(self.task_id, str):
-            object.__setattr__(self, "task_id", UUID(self.task_id))
+            __setattr__(self, "task_id", UUID(self.task_id))
         if isinstance(self.args, list):
-            object.__setattr__(self, "args", tuple(self.args))
+            __setattr__(self, "args", tuple(self.args))
 
     def dict(self, exclude=None):
         if exclude:
@@ -155,7 +157,7 @@ class TaskResult:
     routes: Union[str, List[str]] = None
 
     def set_idx(self, idx: Tuple[str, int]):
-        object.__setattr__(self, "idx", idx)
+        __setattr__(self, "idx", idx)
 
     def dict(self):
         return {
@@ -191,11 +193,11 @@ class Event:
 
     def __post_init__(self):
         if not isinstance(self.event_id, UUID):
-            object.__setattr__(self, "event_id", UUID(self.event_id))
+            __setattr__(self, "event_id", UUID(self.event_id))
         if self.dt is None:
-            object.__setattr__(self, "dt", datetime.datetime.now(tz=datetime.timezone.utc))
+            __setattr__(self, "dt", datetime.datetime.now(tz=datetime.timezone.utc))
         elif isinstance(self.dt, str):
-            object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
+            __setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
     def dict(self):
         return asdict(self)

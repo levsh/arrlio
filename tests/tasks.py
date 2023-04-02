@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+import time
 from dataclasses import asdict, dataclass
 
 import arrlio
@@ -90,7 +91,7 @@ def loads_dumps(x: LoadsDumps):
 
 
 @arrlio.task
-async def xrange(n, sleep=None):
+async def async_xrange(n, sleep=None):
     sleep = sleep or 0
     for x in range(n):
         yield x
@@ -98,6 +99,8 @@ async def xrange(n, sleep=None):
 
 
 @arrlio.task
-def grange(n):
+def xrange(n, sleep=None):
+    sleep = sleep or 0
     for x in range(n):
         yield x
+        time.sleep(sleep)

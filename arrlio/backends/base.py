@@ -54,17 +54,18 @@ class Backend(abc.ABC):
 
     def _create_backend_task(self, key: str, coro_factory: Callable):
         if self._closed.done():
-            raise Exception(f"Closed {self}")
+            raise Exception(f"{self} closed")
 
         async def fn():
             task = current_task()
-            self._backend_tasks[key].add(task)
+            backend_tasks = self._backend_tasks
+            backend_tasks[key].add(task)
             try:
                 return await coro_factory()
             finally:
-                self._backend_tasks[key].discard(task)
-                if not self._backend_tasks[key]:
-                    del self._backend_tasks[key]
+                backend_tasks[key].discard(task)
+                if not backend_tasks[key]:
+                    del backend_tasks[key]
 
         return create_task(fn())
 

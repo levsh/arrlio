@@ -38,8 +38,8 @@ class TestConfig:
         assert config.results_common_queue_durable == rabbitmq.RESULTS_COMMON_QUEUE_DURABLE
         assert config.results_common_queue_ttl == rabbitmq.RESULTS_COMMON_QUEUE_TTL
         assert config.results_common_queue_type == rabbitmq.RESULTS_COMMON_QUEUE_TYPE
-        assert config.results_separate_queue_durable == rabbitmq.RESULTS_SEPARATE_QUEUE_DURABLE
-        assert config.results_separate_queue_type == rabbitmq.RESULTS_SEPARATE_QUEUE_TYPE
+        assert config.results_single_use_queue_durable == rabbitmq.RESULTS_SINGLE_USE_QUEUE_DURABLE
+        assert config.results_single_use_queue_type == rabbitmq.RESULTS_SINGLE_USE_QUEUE_TYPE
 
     def test__init_custom(self, cleanup):
         config = rabbitmq.Config(
@@ -129,6 +129,60 @@ class TestRMQConnection:
         assert repr(conn) == "RMQConnection#1[example.com]"
 
     @pytest.mark.asyncio
+    async def test__init_custom(self, cleanup):
+        conn = rabbitmq.RMQConnection(["amqp://admin@rabbitmq1.com", "amqp://admin@rabbitmq2.com"])
+        try:
+            assert isinstance(conn.url, rabbitmq.AmqpDsn)
+            assert conn.url.get_secret_value() == "amqp://admin@rabbitmq1.com"
+        finally:
+            await conn.close()
+
+    @pytest.mark.asyncio
+    async def test_callbacks(self, cleanup):
+        on_open_cb_flag = False
+        on_close_cb_flag = False
+
+        def on_open_cb():
+            nonlocal on_open_cb_flag
+            on_open_cb_flag = not on_open_cb_flag
+
+        def on_close_cb():
+            nonlocal on_close_cb_flag
+            on_close_cb_flag = not on_close_cb_flag
+
+        def cb_with_exception():
+            raise Exception
+
+        conn = rabbitmq.RMQConnection("amqp://admin@example.com")
+        try:
+            conn.set_callback("on_open", "test", on_open_cb)
+            assert conn._shared[conn]["on_open"]["test"] == (on_open_cb, None)
+            conn.set_callback("on_close", "test", on_close_cb)
+            assert conn._shared[conn]["on_close"]["test"] == (on_close_cb, None)
+
+            await conn._execute_callbacks("on_open")
+            assert on_open_cb_flag is True
+            assert on_close_cb_flag is False
+
+            conn.remove_callback("on_open", "test")
+            assert conn._shared[conn]["on_open"] == {}
+            assert conn._shared[conn]["on_close"]["test"] == (on_close_cb, None)
+
+            await conn._execute_callbacks("on_close")
+            assert on_open_cb_flag is True
+            assert on_close_cb_flag is True
+
+            conn.remove_callbacks(cancel=True)
+            assert conn._shared[conn]["on_open"] == {}
+            assert conn._shared[conn]["on_close"] == {}
+            assert conn._shared[conn]["callback_tasks"] == set()
+
+            conn.set_callback("on_open", "excpetion", cb_with_exception)
+            await conn._execute_callbacks("on_open")
+        finally:
+            await conn.close()
+
+    @pytest.mark.asyncio
     async def test_connect(self, cleanup):
         conn = rabbitmq.RMQConnection("amqp://admin@example.com")
         try:
@@ -156,6 +210,22 @@ class TestRMQConnection:
                 mock_connect.return_value = mock_conn
                 await conn.open()
                 await conn.channel()
+        finally:
+            await conn.close()
+
+    @pytest.mark.asyncio
+    async def test_str(self, cleanup):
+        conn = rabbitmq.RMQConnection("amqp://admin@example.com")
+        try:
+            assert str(conn) == "RMQConnection#1[example.com]"
+        finally:
+            await conn.close()
+
+    @pytest.mark.asyncio
+    async def test_repr(self, cleanup):
+        conn = rabbitmq.RMQConnection("amqp://admin@example.com")
+        try:
+            assert repr(conn) == "RMQConnection#1[example.com]"
         finally:
             await conn.close()
 
@@ -190,5 +260,100 @@ class TestBackend:
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
             assert repr(backend) == "RMQBackend[RMQConnection#1[localhost]]"
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test__declare(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            with mock.patch.object(backend._Backend__conn, "channel"):
+                await backend._declare()
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test__consume_results(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            mock_channel = mock.AsyncMock()
+            mock_channel.is_closed = False
+            backend._conn_open_ev.set()
+            with mock.patch.object(backend._Backend__conn, "new_channel", return_value=mock_channel):
+                await backend._consume_results()
+                assert backend._common_results_consumer
+                assert backend._direct_reply_to_consumer
+                assert backend._direct_reply_to_channel
+                await backend._stop_consume_results()
+                assert backend._common_results_consumer == ()
+                assert backend._direct_reply_to_consumer == ()
+                assert backend._direct_reply_to_channel is None
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_on_connection_open(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            mock_channel = mock.AsyncMock()
+            mock_channel.is_closed = False
+            with mock.patch.object(backend._Backend__conn, "channel"), mock.patch.object(
+                backend._Backend__conn, "new_channel", return_value=mock_channel
+            ):
+                await backend._on_connection_open()
+                assert backend._conn_open_ev.is_set()
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_on_connection_lost(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            mock_channel = mock.AsyncMock()
+            mock_channel.is_closed = True
+            backend._conn_open_ev.set()
+            with mock.patch.object(backend._Backend__conn, "open"), mock.patch.object(
+                backend._Backend__conn, "channel"
+            ), mock.patch.object(backend._Backend__conn, "new_channel", return_value=mock_channel):
+                await backend._on_connection_lost()
+                assert not backend._conn_open_ev.is_set()
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test_on_connection_close(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            await backend._on_connection_close()
+            assert not backend._conn_open_ev.is_set()
+            assert not backend._declared
+            assert not backend._task_consumers
+            assert not backend._message_consumers
+            assert not backend._events_consumer
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test__declare_events(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            mock_channel = mock.AsyncMock()
+            mock_channel.is_closed = False
+            backend._conn_open_ev.set()
+            with mock.patch.object(backend._Backend__conn, "channel", return_value=mock_channel):
+                await backend._declare_events()
+        finally:
+            await backend.close()
+
+    @pytest.mark.asyncio
+    async def test__declare_tasks_queue(self, cleanup):
+        backend = rabbitmq.Backend(rabbitmq.Config())
+        try:
+            mock_channel = mock.AsyncMock()
+            mock_channel.is_closed = False
+            backend._conn_open_ev.set()
+            with mock.patch.object(backend._Backend__conn, "channel", return_value=mock_channel):
+                await backend._declare_tasks_queue("test_queue")
+                assert "test_queue" in backend._declared
         finally:
             await backend.close()

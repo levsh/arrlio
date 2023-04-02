@@ -1,5 +1,3 @@
-from unittest import mock
-
 import pytest
 
 from arrlio.executor import Config, Executor
@@ -57,14 +55,14 @@ class TestExecutor:
     async def test_call(self, cleanup):
         executor = Executor(Config())
 
-        # xrange
+        # async xrange
         actual = []
-        async for res in executor(tasks.xrange.instantiate(args=(3,))):
+        async for res in executor(tasks.async_xrange.instantiate(args=(3,))):
             actual.append(res.res)
         assert actual == [0, 1, 2]
 
-        # range
+        # xrange
         actual = []
-        async for res in executor(tasks.grange.instantiate(args=(3,))):
+        async for res in executor(tasks.xrange.instantiate(args=(3,))):
             actual.append(res.res)
         assert actual == [0, 1, 2]

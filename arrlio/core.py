@@ -162,16 +162,24 @@ class App:
                 return_exceptions=True,
             )
 
-            for task_id, aio_task in self._running_tasks.items():
-                logger.debug("%s: cancel processing task '%s'", self, task_id)
+            await self._backend.close()
+
+            for task_id, aio_task in tuple(self._running_tasks.items()):
+                logger.warning("%s: cancel processing task '%s'", self, task_id)
                 aio_task.cancel()
+                try:
+                    await aio_task
+                except asyncio.CancelledError:
+                    pass
             self._running_tasks = {}
 
-            for message_id, aio_task in self._running_messages.items():
-                logger.debug("%s: cancel processing message '%s'", self, message_id)
+            for message_id, aio_task in tuple(self._running_messages.items()):
+                logger.warning("%s: cancel processing message '%s'", self, message_id)
                 aio_task.cancel()
-
-            await self._backend.close()
+                try:
+                    await aio_task
+                except asyncio.CancelledError:
+                    pass
         finally:
             self._closed.set_result(None)
 
@@ -328,6 +336,7 @@ class App:
 
             except asyncio.CancelledError:
                 logger.error("%s: task %s(%s) cancelled", self, task_id, task_instance.task.name)
+                raise
             except Exception as e:
                 logger.exception(e)
             finally:

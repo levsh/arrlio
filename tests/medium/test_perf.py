@@ -33,11 +33,12 @@ class TestPerf:
         logger.setLevel(logging.ERROR)
 
         url = app.backend.config.url[-1].get_secret_value()
-        cmd = subprocess.run(["which", "python"], capture_output=True).stdout.decode().strip()
+        cmd = subprocess.run(["pipenv", "run", "which", "python"], capture_output=True).stdout.decode().strip()
+        cwd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
         ps = subprocess.Popen(
             [cmd, "tests/worker.py"],
-            cwd=".",
-            env={"ARRLIO_RABBITMQ_URL": url},
+            cwd=cwd,
+            env={"ARRLIO_RABBITMQ_URL": url, "PYTHONPATH": f"$PYTHONPATH:{cwd}"},
         )
         try:
 

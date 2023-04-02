@@ -68,7 +68,7 @@ class Backend(base.Backend):
         self._event_callbacks: Dict[str, Tuple[AsyncCallableT, List[str]]] = {}
         self._events_consumer: asyncio.Task = None
 
-        @retry(retry_timeouts=config.push_retry_timeouts)
+        @retry(msg=f"{self} action send_task", retry_timeouts=config.push_retry_timeouts)
         async def send_task(task_instance: TaskInstance, **kwds):
             task_data: TaskData = task_instance.data
             queue = task_data.queue
@@ -90,7 +90,7 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        @retry(retry_timeouts=config.push_retry_timeouts)
+        @retry(msg=f"{self} action push_task_result", retry_timeouts=config.push_retry_timeouts)
         async def push_task_result(task_instance: TaskInstance, task_result: TaskResult):
 
             result_key = self._make_result_key(task_instance.data.task_id)
@@ -114,7 +114,7 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        @retry(retry_timeouts=config.pull_retry_timeouts)
+        @retry(msg=f"{self} action pop_task_result", retry_timeouts=config.pull_retry_timeouts)
         async def pop_task_result(task_instance: TaskInstance) -> TaskResult:
 
             result_key = self._make_result_key(task_instance.data.task_id)
@@ -156,7 +156,7 @@ class Backend(base.Backend):
 
                 yield task_result
 
-        @retry(retry_timeouts=config.push_retry_timeouts)
+        @retry(msg=f"{self} action send_message", retry_timeouts=config.push_retry_timeouts)
         async def send_message(message: Message, **kwds):
             if is_debug:
                 logger.debug("%s: send\n%s", self, pretty_repr(message.dict()))
@@ -175,7 +175,7 @@ class Backend(base.Backend):
                     await redis.execute()
                     await redis.pipeline_execute()
 
-        @retry(retry_timeouts=config.push_retry_timeouts)
+        @retry(msg=f"{self} action send_event", retry_timeouts=config.push_retry_timeouts)
         async def send_event(event: Event):
             if is_debug:
                 logger.debug("%s: send\n%s", self, pretty_repr(event.dict()))
@@ -223,7 +223,7 @@ class Backend(base.Backend):
         await self._create_backend_task("send_task", lambda: self._send_task(task_instance, **kwds))
 
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
-        @retry()
+        @retry(msg=f"{self} action consume_tasks")
         async def fn(queue: str):
             logger.info("%s: start consuming tasks queue '%s'", self, queue)
 
@@ -300,7 +300,7 @@ class Backend(base.Backend):
         await self._create_backend_task("send_message", lambda: self._send_message(message, **kwds))
 
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        @retry()
+        @retry(msg=f"{self} action consume_messages")
         async def fn(queue):
             logger.info("%s: start consuming messages queue '%s'", self, queue)
 
@@ -364,7 +364,7 @@ class Backend(base.Backend):
             except Exception as e:
                 logger.exception(e)
 
-        @retry(retry_timeouts=self.config.pull_retry_timeouts)
+        @retry(msg=f"{self} action consume_events", retry_timeouts=self.config.pull_retry_timeouts)
         async def fn():
             logger.info("%s: start consuming events", self)
 

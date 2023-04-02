@@ -42,7 +42,7 @@ class ExtendedJSONEncoder(json.JSONEncoder):
 
 
 def retry(
-    fn_name: str = None,
+    msg: str = None,
     retry_timeouts: Iterable[int] = None,
     exc_filter: ExceptionFilterT = None,
     reraise: bool = True,
@@ -84,9 +84,9 @@ def retry(
                         try:
                             t = next(timeouts)
                             attempt += 1
-                            logger.error(
+                            logger.warning(
                                 "%s (%s %s) retry(%s) in %s second(s)",
-                                fn_name or fn,
+                                msg or fn,
                                 e.__class__,
                                 e,
                                 attempt,
@@ -114,9 +114,9 @@ def retry(
                         try:
                             t = next(timeouts)
                             attempt += 1
-                            logger.error(
+                            logger.warning(
                                 "%s (%s %s) retry(%s) in %s second(s)",
-                                fn_name or fn,
+                                msg or fn,
                                 e.__class__,
                                 e,
                                 attempt,

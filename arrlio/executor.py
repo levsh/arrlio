@@ -9,7 +9,7 @@ from time import monotonic
 
 from pydantic import BaseSettings
 
-from arrlio.exc import NotFoundError, TaskError, TaskTimeoutError
+from arrlio.exc import NotFoundError, TaskTimeoutError
 from arrlio.models import Task, TaskData, TaskInstance, TaskResult
 
 logger = logging.getLogger("arrlio.executor")
@@ -72,9 +72,6 @@ class Executor:
                         yield TaskResult(res=res, exc=exc, trb=trb)
 
                 elif isgeneratorfunction(func):
-
-                    if task_data.extra.get("graph:graph"):
-                        raise TaskError("generator not supported")  # ?
 
                     for res in task_instance(meta=meta):
                         if isinstance(res, TaskResult):

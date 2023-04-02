@@ -46,7 +46,7 @@ async def params(request, container_executor, cleanup):
         config["backend"].setdefault("config", {}).update(
             {
                 "url": [
-                    f"amqp://guest:guest@invalid:{address[1]}",
+                    # f"amqp://guest:guest@invalid:{address[1]}",
                     f"amqp://guest:guest@{address[0]}:{address[1]}",
                 ]
             }

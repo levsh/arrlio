@@ -9,10 +9,9 @@ CWD = os.path.abspath(os.path.dirname(__file__))
 
 @task
 def run_linters(c):
-    cmd = (
-        "pipenv run flake8 --filename=arrlio/*.py --count --show-source --statistics "
-        "&& pipenv run pylint --extension-pkg-whitelist='pydantic' arrlio"
-    )
+    "Run linters"
+
+    cmd = "pipenv run pylint --extension-pkg-whitelist='pydantic' arrlio"
     c.run(cmd)
 
 

@@ -45,7 +45,7 @@ class QueueType(str, Enum):
 
 class ResultQueueMode(str, Enum):
     DIRECT_REPLY_TO = "direct_reply_to"
-    SEPARATE = "separate"
+    SINGLE_USE = "single_use"
     COMMON = "common"
 
 
@@ -80,8 +80,8 @@ MESSAGES_PREFETCH_COUNT: int = 1
 
 RESULTS_QUEUE_PREFIX: str = "arrlio."
 RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.COMMON
-RESULTS_SEPARATE_QUEUE_DURABLE: bool = False
-RESULTS_SEPARATE_QUEUE_TYPE: QueueType = QueueType.CLASSIC
+RESULTS_SINGLE_USE_QUEUE_DURABLE: bool = False
+RESULTS_SINGLE_USE_QUEUE_TYPE: QueueType = QueueType.CLASSIC
 RESULTS_COMMON_QUEUE_DURABLE: bool = False
 RESULTS_COMMON_QUEUE_TYPE: QueueType = QueueType.CLASSIC
 RESULTS_COMMON_QUEUE_TTL: int = 600
@@ -114,8 +114,8 @@ class Config(base.Config):
     messages_prefetch_count: Optional[PositiveInt] = Field(default_factory=lambda: MESSAGES_PREFETCH_COUNT)
     results_queue_prefix: str = Field(default_factory=lambda: RESULTS_QUEUE_PREFIX)
     results_queue_mode: ResultQueueMode = Field(default_factory=lambda: RESULTS_QUEUE_MODE)
-    results_separate_queue_durable: bool = Field(default_factory=lambda: RESULTS_SEPARATE_QUEUE_DURABLE)
-    results_separate_queue_type: QueueType = Field(default_factory=lambda: RESULTS_SEPARATE_QUEUE_TYPE)
+    results_single_use_queue_durable: bool = Field(default_factory=lambda: RESULTS_SINGLE_USE_QUEUE_DURABLE)
+    results_single_use_queue_type: QueueType = Field(default_factory=lambda: RESULTS_SINGLE_USE_QUEUE_TYPE)
     results_common_queue_durable: bool = Field(default_factory=lambda: RESULTS_COMMON_QUEUE_DURABLE)
     results_common_queue_type: QueueType = Field(default_factory=lambda: RESULTS_COMMON_QUEUE_TYPE)
     results_common_queue_ttl: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_COMMON_QUEUE_TTL)
@@ -134,6 +134,10 @@ RETRY_EXCEPTIONS = (
 
 def _exc_filter(e) -> bool:
     return isinstance(e, RETRY_EXCEPTIONS)
+
+
+class ClosedError(Exception):
+    pass
 
 
 class RMQConnection:
@@ -228,7 +232,7 @@ class RMQConnection:
     def _refs(self, value: int):
         self._shared["refs"] = value
 
-    def add_callback(self, tp: str, name: Hashable, cb: Callable, reraise: bool = None):
+    def set_callback(self, tp: str, name: Hashable, cb: Callable, reraise: bool = None):
         if shared := self._shared.get(self):
             if tp not in shared:
                 raise ValueError("Invalid callback type")
@@ -242,10 +246,19 @@ class RMQConnection:
                 del shared[tp][name]
 
     def remove_callbacks(self, cancel: bool = None):
-        if cancel:
-            for task in self._shared[self]["callback_tasks"]:
-                task.cancel()
-        self._shared.pop(self, None)
+        if self in self._shared:
+            if cancel:
+                for task in self._shared[self]["callback_tasks"]:
+                    task.cancel()
+            self._shared[self] = {
+                "on_open_ordered": {},
+                "on_open": {},
+                "on_lost_ordered": {},
+                "on_lost": {},
+                "on_close_ordered": {},
+                "on_close": {},
+                "callback_tasks": set(),
+            }
 
     def __str__(self):
         if logger.getEffectiveLevel() <= 20:
@@ -338,13 +351,13 @@ class RMQConnection:
             return
 
         if self.is_closed:
-            raise Exception("Can't reopen closed connection")
+            raise ClosedError("Can't reopen closed connection")
 
         async with self._shared["connect_lock"]:
             if self._conn is None or self._conn.is_closed:
                 self._open_task = create_task(
                     retry(
-                        fn_name=f"{self}:connect",
+                        msg=f"{self} action connect",
                         retry_timeouts=self._retry_timeouts,
                         exc_filter=self._exc_filter,
                     )(self._connect)()
@@ -408,20 +421,20 @@ class Backend(base.Backend):
 
         self.__conn: RMQConnection = RMQConnection(config.url, retry_timeouts=config.conn_retry_timeouts)
 
-        self.__conn.add_callback("on_open_ordered", "_on_connection_open", self._on_conneciton_open, reraise=True)
-        self.__conn.add_callback("on_open", "on_connection_open", self.on_connection_open)
-        self.__conn.add_callback("on_lost_ordered", "_on_connection_lost", self._on_connection_lost)
-        self.__conn.add_callback("on_lost", "on_connection_lost", self.on_connection_lost)
-        self.__conn.add_callback("on_close_ordered", "_on_connection_close", self._on_connection_close)
-        self.__conn.add_callback("on_close", "on_connection_close", self.on_connection_close)
+        self.__conn.set_callback("on_open_ordered", "_on_connection_open", self._on_connection_open, reraise=True)
+        self.__conn.set_callback("on_open", "on_connection_open", self.on_connection_open)
+        self.__conn.set_callback("on_lost_ordered", "_on_connection_lost", self._on_connection_lost)
+        self.__conn.set_callback("on_lost", "on_connection_lost", self.on_connection_lost)
+        self.__conn.set_callback("on_close_ordered", "_on_connection_close", self._on_connection_close)
+        self.__conn.set_callback("on_close", "on_connection_close", self.on_connection_close)
 
         self._common_results_storage: Dict[UUID, Tuple[asyncio_Event, List[TaskResult]]] = {}
-        self._common_results_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = {}
+        self._common_results_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = ()
 
-        self._direct_reply_to_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = {}
+        self._direct_reply_to_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = ()
         self._direct_reply_to_channel: aiormq.Channel = None
 
-        @retry(fn_name=f"{self}:send_task", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        @retry(msg=f"{self} action send_task", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def send_task(task_instance: TaskInstance, **kwds):
             task_data: TaskData = task_instance.data
 
@@ -454,41 +467,7 @@ class Backend(base.Backend):
                 timeout=config.timeout,
             )
 
-        @retry(fn_name=f"{self}:push_task_result", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
-        async def push_task_result(task_instance: TaskInstance, task_result: TaskResult):
-            task_data: TaskData = task_instance.data
-
-            exchange, routing_key = await self._ensure_result_queue(task_data)
-
-            channel = await self._channel()
-
-            if is_debug:
-                logger.debug(
-                    "%s: channel(%s) push result for task %s(%s) into exchange:'%s' routing_key:'%s'\n%s",
-                    self,
-                    channel,
-                    task_data.task_id,
-                    task_instance.task.name,
-                    exchange,
-                    routing_key,
-                    pretty_repr(task_result.dict()),
-                )
-
-            await channel.basic_publish(
-                self.serializer.dumps_task_result(task_instance, task_result),
-                exchange=exchange,
-                routing_key=routing_key,
-                properties=BasicProperties(
-                    delivery_mode=2,
-                    message_id=f"{task_data.task_id}",
-                    timestamp=datetime.now(tz=utc),
-                    expiration=f"{int(task_data.result_ttl * 1000)}" if task_data.result_ttl is not None else None,
-                    correlation_id=f"{task_data.task_id}",
-                ),
-                timeout=config.timeout,
-            )
-
-        @retry(fn_name=f"{self}:send_mesage", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        @retry(msg=f"{self} action send_mesage", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def send_message(message: Message, *, routing_key: str, delivery_mode: int = None, **kwds):
             channel = await self._channel()
 
@@ -509,7 +488,7 @@ class Backend(base.Backend):
                 timeout=config.timeout,
             )
 
-        @retry(fn_name=f"{self}:send_event", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
+        @retry(msg=f"{self} action send_event", retry_timeouts=config.push_retry_timeouts, exc_filter=_exc_filter)
         async def send_event(event: Event):
             channel = await self._channel()
 
@@ -529,7 +508,6 @@ class Backend(base.Backend):
             )
 
         self._send_task = send_task
-        self._push_task_result = push_task_result
         self._send_message = send_message
         self._send_event = send_event
 
@@ -543,7 +521,7 @@ class Backend(base.Backend):
     @property
     def _conn(self) -> RMQConnection:
         if self.is_closed:
-            raise Exception(f"{self} is closed")
+            raise ClosedError(f"{self} closed")
         return self.__conn
 
     async def _declare(self):
@@ -598,12 +576,12 @@ class Backend(base.Backend):
                         pretty_repr(task_result.dict()),
                     )
 
+                if not no_ack:
+                    await channel.basic_ack(msg.delivery.delivery_tag)
+
                 storage = self._allocate_common_results_storage(task_id)
                 storage[1].append(task_result)
                 storage[0].set()
-
-                if not no_ack:
-                    await channel.basic_ack(msg.delivery.delivery_tag)
 
                 expiration = properties.expiration
                 if expiration:
@@ -616,8 +594,8 @@ class Backend(base.Backend):
                 logger.exception(e)
 
         channel = await self._new_channel()
-        await channel.basic_qos(prefetch_count=5, timeout=config.timeout)
         queue: str = self._results_common_queue()
+        await channel.basic_qos(prefetch_count=5, timeout=config.timeout)
         self._common_results_consumer = (
             channel,
             await channel.basic_consume(
@@ -645,23 +623,41 @@ class Backend(base.Backend):
         if is_debug:
             logger.debug("%s: channel(%s) start consuming results queue '%s'", self, channel, queue)
 
-    async def _on_conneciton_open(self):
-        async def fn():
-            await self._declare()
-            self._conn_open_ev.set()
-            await self._consume_results()
+    async def _stop_consume_results(self):
+        if self._common_results_consumer:
+            channel, consume_ok = self._common_results_consumer
+            self._common_results_consumer = ()
+            if not self.__conn.is_closed and not channel.is_closed:
+                if is_debug:
+                    logger.debug("%s: channel(%s) stop consuming results queue", self, channel)
+                await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                await channel.close()
 
-        await self._create_backend_task("_on_connection_open", fn)
+        if self._direct_reply_to_consumer:
+            channel, consume_ok = self._direct_reply_to_consumer
+            self._direct_reply_to_consumer = ()
+            self._direct_reply_to_channel = None
+            if not self.__conn.is_closed and not channel.is_closed:
+                if is_debug:
+                    logger.debug("%s: channel(%s) stop consuming results queue", self, channel)
+                await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
+                await channel.close()
+
+    async def _on_connection_open(self):
+        await self._declare()
+        self._conn_open_ev.set()
+        await self._consume_results()
 
     async def _on_connection_lost(self):
         self._conn_open_ev.clear()
         self._declared.clear()
+        await self._stop_consume_results()
 
-        @retry(exc_filter=_exc_filter)
-        async def fn():
+        @retry(msg=f"{self}: action reopen", exc_filter=_exc_filter)
+        async def reopen():
             await self._conn.open()
 
-        await self._create_backend_task("_on_connection_lost", fn)
+        await reopen()
 
     async def _on_connection_close(self):
         self._conn_open_ev.clear()
@@ -685,7 +681,7 @@ class Backend(base.Backend):
             await self._conn_open_ev.wait()
             if not channel.is_closed:
                 return channel
-        raise Exception(f"{self}: closed")
+        raise ClosedError(f"{self} closed")
 
     async def _channel(self) -> aiormq.Channel:
         while not self.is_closed:
@@ -693,9 +689,9 @@ class Backend(base.Backend):
             await self._conn_open_ev.wait()
             if not channel.is_closed:
                 return channel
-        raise Exception(f"{self}: closed")
+        raise ClosedError(f"{self} closed")
 
-    def _results_separate_queue(self, task_data: TaskData) -> str:
+    def _results_single_use_queue(self, task_data: TaskData) -> str:
         return f"{self.config.results_queue_prefix}result.{task_data.task_id}"
 
     def _results_common_queue(self) -> str:
@@ -703,8 +699,8 @@ class Backend(base.Backend):
 
     def _reply_to(self, task_data: TaskData) -> str:
         result_queue_mode = task_data.extra.get("rabbitmq:results_queue_mode") or self.config.results_queue_mode
-        if result_queue_mode == ResultQueueMode.SEPARATE:
-            return self._results_separate_queue(task_data)
+        if result_queue_mode == ResultQueueMode.SINGLE_USE:
+            return self._results_single_use_queue(task_data)
         if result_queue_mode == ResultQueueMode.COMMON:
             return self._results_common_queue()
         return "amq.rabbitmq.reply-to"
@@ -786,18 +782,18 @@ class Backend(base.Backend):
         routing_key = task_data.extra.get("rabbitmq:reply_to") or self._reply_to(task_data)
 
         result_queue_mode = task_data.extra.get("rabbitmq:results_queue_mode") or self.config.results_queue_mode
-        if result_queue_mode == ResultQueueMode.SEPARATE:
-            await self._declare_results_separate_queue(task_data)
+        if result_queue_mode == ResultQueueMode.SINGLE_USE:
+            await self._declare_results_single_use_queue(task_data)
         elif result_queue_mode == ResultQueueMode.DIRECT_REPLY_TO:
             exchange = ""
 
         return exchange, routing_key
 
-    async def _declare_results_separate_queue(self, task_data: TaskData) -> str:
+    async def _declare_results_single_use_queue(self, task_data: TaskData) -> str:
         config: Config = self.config
 
-        queue = routing_key = self._results_separate_queue(task_data)
-        durable: bool = task_data.extra.get("rabbitmq:result_queue_durable", config.results_separate_queue_durable)
+        queue = routing_key = self._results_single_use_queue(task_data)
+        durable: bool = task_data.extra.get("rabbitmq:result_queue_durable", config.results_single_use_queue_durable)
 
         channel = await self._channel()
 
@@ -817,34 +813,10 @@ class Backend(base.Backend):
 
         return queue
 
-    async def stop_consume_results(self):
-        if self.__conn.is_closed:
-            return
-
-        for aio_task in self._backend_tasks["consume_results"]:
-            aio_task.cancel()
-
-        if not self._common_results_consumer:
-            return
-
-        channel, consume_ok = self._common_results_consumer
-        if not self.__conn.is_closed and not channel.is_closed:
-            if is_debug:
-                logger.debug("%s: channel(%s) stop consuming results queue", self, channel)
-            await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-            await channel.close()
-
-        channel, consume_ok = self._direct_reply_to_consumer
-        if not self.__conn.is_closed and not channel.is_closed:
-            if is_debug:
-                logger.debug("%s: channel(%s) stop consuming results queue", self, channel)
-            await channel.basic_cancel(consume_ok.consumer_tag, timeout=self.config.timeout)
-            await channel.close()
-
     async def close(self):
         if self.is_closed:
             return
-        await self.stop_consume_results()
+        await self._stop_consume_results()
         await super().close()
         await self.__conn.close()
 
@@ -858,27 +830,36 @@ class Backend(base.Backend):
         await self._create_backend_task("send_task", lambda: self._send_task(task_instance, **kwds))
 
     async def consume_tasks(self, queues: List[str], on_task: AsyncCallableT):
-        @retry(fn_name=f"{self}:consume_tasks", exc_filter=_exc_filter)
-        async def fn(queue: str):
+        config: Config = self.config
+
+        async def _on_msg(channel: aiormq.Channel, msg: aiormq.abc.DeliveredMessage):
+            try:
+                async with self._tasks_semaphore:
+                    task_instance: TaskInstance = self.serializer.loads_task_instance(msg.body)
+                    task_instance.data.extra["rabbitmq:reply_to"] = msg.header.properties.reply_to
+
+                    if is_debug:
+                        logger.debug("%s: got\n%s", self, pretty_repr(task_instance.dict()))
+
+                    ack_late = task_instance.data.ack_late
+
+                    if not ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+
+                    await on_task(task_instance)
+
+                    if ack_late:
+                        await channel.basic_ack(msg.delivery.delivery_tag)
+
+            except Exception as e:
+                logger.exception(e)
+
+        async def on_msg(channel: aiormq.Channel, msg: aiormq.abc.DeliveredMessage):
+            create_task(_on_msg(channel, msg))
+
+        @retry(msg=f"{self} action consume_tasks", exc_filter=_exc_filter)
+        async def consume(queue: str):
             await self._declare_tasks_queue(queue)
-
-            config: Config = self.config
-
-            async def on_msg(channel: aiormq.Channel, msg: aiormq.abc.DeliveredMessage):
-                try:
-                    async with self._tasks_semaphore:
-                        task_instance: TaskInstance = self.serializer.loads_task_instance(msg.body)
-                        task_instance.data.extra["rabbitmq:reply_to"] = msg.header.properties.reply_to
-                        ack_late = task_instance.data.ack_late
-                        if not ack_late:
-                            await channel.basic_ack(msg.delivery.delivery_tag)
-                        if is_debug:
-                            logger.debug("%s: got\n%s", self, pretty_repr(task_instance.dict()))
-                        await shield(on_task(task_instance))
-                        if ack_late:
-                            await channel.basic_ack(msg.delivery.delivery_tag)
-                except Exception as e:
-                    logger.exception(e)
 
             channel = await self._new_channel()
             await channel.basic_qos(prefetch_count=config.tasks_prefetch_count, timeout=config.timeout)
@@ -890,18 +871,17 @@ class Backend(base.Backend):
             if is_debug:
                 logger.debug("%s: channel(%s) start consuming tasks queue '%s'", self, channel, queue)
 
-        coros = [
-            self._create_backend_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
+        if aio_tasks := [
+            self._create_backend_task(f"consume_tasks_queue_{queue}", partial(consume, queue))
             for queue in queues
             if queue not in self._task_consumers or self._task_consumers[queue][0].is_closed
-        ]
-        if coros:
-            await gather(*coros)
+        ]:
+            await gather(*aio_tasks)
 
         async def reconsume():
             await self.consume_tasks(list(self._task_consumers.keys()), on_task)
 
-        self.__conn.add_callback("on_lost", "consume_tasks", reconsume)
+        self.__conn.set_callback("on_lost", "consume_tasks", reconsume)
 
     async def stop_consume_tasks(self, queues: List[str] = None):
         if self.__conn.is_closed:
@@ -927,7 +907,45 @@ class Backend(base.Backend):
                 self.__conn.remove_callback("on_lost", "consume_tasks")
 
     async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
-        await self._create_backend_task("push_task_result", lambda: self._push_task_result(task_instance, task_result))
+        task_data: TaskData = task_instance.data
+
+        @retry(
+            msg=f"{self} action push_task_result",
+            retry_timeouts=self.config.push_retry_timeouts,
+            exc_filter=_exc_filter if not task_data.ack_late else lambda e: isinstance(e, asyncio_TimeoutError),
+        )
+        async def fn():
+            exchange, routing_key = await self._ensure_result_queue(task_data)
+
+            channel = await self._channel()
+
+            if is_debug:
+                logger.debug(
+                    "%s: channel(%s) push result for task %s(%s) into exchange:'%s' routing_key:'%s'\n%s",
+                    self,
+                    channel,
+                    task_data.task_id,
+                    task_instance.task.name,
+                    exchange,
+                    routing_key,
+                    pretty_repr(task_result.dict()),
+                )
+
+            await channel.basic_publish(
+                self.serializer.dumps_task_result(task_instance, task_result),
+                exchange=exchange,
+                routing_key=routing_key,
+                properties=BasicProperties(
+                    delivery_mode=2,
+                    message_id=f"{task_data.task_id}",
+                    timestamp=datetime.now(tz=utc),
+                    expiration=f"{int(task_data.result_ttl * 1000)}" if task_data.result_ttl is not None else None,
+                    correlation_id=f"{task_data.task_id}",
+                ),
+                timeout=self.config.timeout,
+            )
+
+        await self._create_backend_task("push_task_result", fn)
 
     async def pop_task_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         task_data: TaskData = task_instance.data
@@ -940,7 +958,7 @@ class Backend(base.Backend):
         if result_queue_mode in (ResultQueueMode.COMMON, ResultQueueMode.DIRECT_REPLY_TO):
             pop_fn = self._pop_task_results_from_common_queue
         else:
-            pop_fn = self._pop_task_results_from_separate_queue
+            pop_fn = self._pop_task_results_from_single_use_queue
 
         async for task_result in pop_fn(task_instance):
             yield task_result
@@ -967,6 +985,7 @@ class Backend(base.Backend):
                         task_result: TaskResult = results.pop(0)
 
                         if isinstance(task_result.exc, TaskClosedError):
+                            yield task_result
                             return
 
                         if is_debug:
@@ -998,30 +1017,32 @@ class Backend(base.Backend):
                 if idx:
                     idx_0, idx_1 = idx
                     if idx_0 not in idx_data:
-                        idx_data[idx_0] = idx_1
-                    else:
-                        idx_data[idx_0] += 1
-                    if idx_data[idx_0] != idx_1:
+                        idx_data[idx_0] = idx_1 - 1
+                    if idx_1 <= idx_data[idx_0]:
+                        continue
+                    idx_data[idx_0] += 1
+                    if idx_1 > idx_data[idx_0]:
                         raise TaskResultError(
                             f"Unexpected result index for task {task_id}. Expect {idx_data[idx_0]}, got {idx_1}"
                         )
-                yield task_result
+                if not isinstance(task_result.exc, TaskClosedError):
+                    yield task_result
         except StopAsyncIteration:
             return
         finally:
             self._cleanup_common_results_storage(task_id)
 
-    async def _pop_task_results_from_separate_queue(self, task_instance: TaskInstance) -> TaskResult:
+    async def _pop_task_results_from_single_use_queue(self, task_instance: TaskInstance) -> TaskResult:
         task_data: TaskData = task_instance.data
         task_id: UUID = task_data.task_id
 
         @retry(
-            fn_name=f"{self}:pop_task_results_from_separate_queue",
+            msg=f"{self} action pop_task_results_from_single_use_queue",
             retry_timeouts=self.config.pull_retry_timeouts,
             exc_filter=_exc_filter,
         )
         async def fn():
-            queue = await self._declare_results_separate_queue(task_data)
+            queue = await self._declare_results_single_use_queue(task_data)
 
             fut: asyncio_Future = None
             results: List[TaskResult] = []
@@ -1042,8 +1063,8 @@ class Backend(base.Backend):
                     if not fut.done():
                         fut.set_exception(e)
 
-            self._conn.add_callback("on_lost", task_id, on_conn_error)
-            self._conn.add_callback("on_close", task_id, on_conn_error)
+            self._conn.set_callback("on_lost", task_id, on_conn_error)
+            self._conn.set_callback("on_close", task_id, on_conn_error)
 
             try:
                 func = task_instance.task.func
@@ -1104,27 +1125,29 @@ class Backend(base.Backend):
 
         try:
             while not self.is_closed:
-                task_result: TaskResult = await self._create_backend_task(f"pop_task_result.{task_id}", gen.__anext__)
+                task_result: TaskResult = await self._create_backend_task("pop_task_result", gen.__anext__)
                 idx = task_result.idx
                 if idx:
                     idx_0, idx_1 = idx
                     if idx_0 not in idx_data:
-                        idx_data[idx_0] = idx_1
-                    else:
-                        idx_data[idx_0] += 1
-                    if idx_data[idx_0] != idx_1:
+                        idx_data[idx_0] = idx_1 - 1
+                    if idx_1 <= idx_data[idx_0]:
+                        continue
+                    idx_data[idx_0] += 1
+                    if idx_1 > idx_data[idx_0]:
                         raise TaskResultError(
                             f"Unexpected result index for task {task_id}. Expect {idx_data[idx_0]}, got {idx_1}"
                         )
-                yield task_result
-
+                if not isinstance(task_result.exc, TaskClosedError):
+                    yield task_result
         except StopAsyncIteration:
             return
         finally:
             try:
-                queue = self._results_separate_queue(task_data)
-                channel = await self._channel()
-                await channel.queue_delete(queue)
+                if not self._closed:
+                    queue = self._results_single_use_queue(task_data)
+                    channel = await self._channel()
+                    await channel.queue_delete(queue)
             except Exception as e:
                 logger.exception(e)
 
@@ -1135,8 +1158,8 @@ class Backend(base.Backend):
             logger.debug("%s: close task %s(%s)", self, task_data.task_id, task_instance.task.name)
 
         result_queue_mode = task_data.extra.get("rabbitmq:results_queue_mode") or self.config.results_queue_mode
-        if result_queue_mode == ResultQueueMode.SEPARATE:
-            await self._declare_results_separate_queue(task_data)
+        if result_queue_mode == ResultQueueMode.SINGLE_USE:
+            await self._declare_results_single_use_queue(task_data)
 
         await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError(), idx=idx))
 
@@ -1158,7 +1181,7 @@ class Backend(base.Backend):
         )
 
     async def consume_messages(self, queues: List[str], on_message: AsyncCallableT):
-        @retry(fn_name=f"{self}:consume_messages", exc_filter=_exc_filter)
+        @retry(msg=f"{self} action consume_messages", exc_filter=_exc_filter)
         async def fn(queue: str):
             config: Config = self.config
 
@@ -1206,7 +1229,7 @@ class Backend(base.Backend):
         async def reconsume_messages():
             await self.consume_messages(list(self._message_consumers.keys()), on_message)
 
-        self._conn.add_callback("on_lost", "consume_messages", reconsume_messages)
+        self._conn.set_callback("on_lost", "consume_messages", reconsume_messages)
 
     async def stop_consume_messages(self, queues: List[str] = None):
         if self.__conn.is_closed:
@@ -1251,7 +1274,7 @@ class Backend(base.Backend):
         event_callbacks = self._event_callbacks
         create_backend_task = self._create_backend_task
 
-        @retry(fn_name=f"{self}:consume_events", exc_filter=_exc_filter)
+        @retry(msg=f"{self} action consume_events", exc_filter=_exc_filter)
         async def fn():
             if not self.__conn.is_open:
                 await self.__conn.open()
@@ -1307,7 +1330,7 @@ class Backend(base.Backend):
             for cb_id, (cb, event_types) in self._event_callbacks.items():
                 await self.consume_events(cb_id, cb, event_types=event_types)
 
-        self._conn.add_callback("on_lost", "consume_events", reconsume_events)
+        self._conn.set_callback("on_lost", "consume_events", reconsume_events)
 
     async def stop_consume_events(self, cb_id: str = None):
         if cb_id:
