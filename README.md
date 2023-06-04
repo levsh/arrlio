@@ -1,4 +1,4 @@
-# Arrlio [Unstable, WIP]
+# Arrlio [WIP]
 
 [Documentation](https://levsh.github.io/arrlio) (WIP)
 
@@ -9,6 +9,10 @@ Asyncio distributed task/workflow system with supports generators and graphs
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ### Installation
+```bash
+pip install arrlio
+```
+Or to use latest develop version
 ```bash
 pip install git+https://github.com/levsh/arrlio
 ```
@@ -81,7 +85,6 @@ logger.setLevel("INFO")
 
 BACKEND = "arrlio.backends.local"
 # BACKEND = "arrlio.backends.rabbitmq"
-# BACKEND = "arrlio.backends.redis"
 
 async def main():
     app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
@@ -135,7 +138,6 @@ logger.setLevel("INFO")
 
 BACKEND = "arrlio.backends.local"
 # BACKEND = "arrlio.backends.rabbitmq"
-# BACKEND = "arrlio.backends.redis"
 
 
 async def main():
@@ -184,7 +186,6 @@ logger.setLevel("INFO")
 
 BACKEND = "arrlio.backends.local"
 # BACKEND = "arrlio.backends.rabbitmq"
-# BACKEND = "arrlio.backends.redis"
 
 
 async def main():
@@ -219,6 +220,6 @@ if __name__ == "__main__":
 
 #### And more examples
 ```bash
-pipenv install
-pipenv run python examples/main.py
+poetry install
+poetry run python examples/main.py
 ```

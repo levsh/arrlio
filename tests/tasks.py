@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 from dataclasses import asdict, dataclass
+from typing import List
 
 import arrlio
 from arrlio import TaskInstance
@@ -20,13 +21,19 @@ async def bind_true(task_instance: TaskInstance):
     assert isinstance(task_instance, TaskInstance)
 
 
+@arrlio.task(name="meta_true")
+async def meta_true(*, meta: dict = None):
+    assert meta
+    assert isinstance(meta, dict)
+
+
 @arrlio.task
 async def echo(*args, **kwds):
     return args, kwds
 
 
 @arrlio.task
-async def sleep(timeout):
+async def sleep(timeout: float):
     await asyncio.sleep(timeout)
 
 
@@ -91,7 +98,7 @@ def loads_dumps(x: LoadsDumps):
 
 
 @arrlio.task
-async def async_xrange(n, sleep=None):
+async def async_xrange(n: int, sleep=None):
     sleep = sleep or 0
     for x in range(n):
         yield x
@@ -99,8 +106,18 @@ async def async_xrange(n, sleep=None):
 
 
 @arrlio.task
-def xrange(n, sleep=None):
+def xrange(n: int, sleep=None):
     sleep = sleep or 0
     for x in range(n):
         yield x
         time.sleep(sleep)
+
+
+@arrlio.task
+def test_args_kwds_validation(i: int, f: float, s: str, lst: List[int] = None):
+    assert isinstance(i, int)
+    assert isinstance(f, float)
+    assert isinstance(s, str)
+    if lst is not None:
+        for item in lst:
+            assert isinstance(item, int)

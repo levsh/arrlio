@@ -1,6 +1,8 @@
 import pytest
 
+from arrlio import exc
 from arrlio.executor import Config, Executor
+from arrlio.models import Task
 from tests import tasks
 
 
@@ -28,6 +30,30 @@ class TestExecutor:
             assert result.trb is not None
             assert result.routes is None
 
+        results = []
+        async for result in executor.execute(Task(None, "invalid").instantiate()):
+            results.append(result)
+        assert len(results) == 1
+        assert results[0].res is None
+        assert results[0].exc is not None
+        assert isinstance(results[0].exc, exc.NotFoundError)
+
+        results = []
+        async for result in executor.execute(tasks.sleep.instantiate(args=(1,), timeout=0)):
+            results.append(result)
+        assert len(results) == 1
+        assert results[0].res is None
+        assert results[0].exc is not None
+        assert isinstance(results[0].exc, exc.TaskTimeoutError)
+
+        results = []
+        async for result in executor.execute(tasks.async_xrange.instantiate(args=(1,), kwds={"sleep": 1}, timeout=0)):
+            results.append(result)
+        assert len(results) == 1
+        assert results[0].res is None
+        assert results[0].exc is not None
+        assert isinstance(results[0].exc, exc.TaskTimeoutError)
+
     @pytest.mark.asyncio
     async def test_execute_in_thread(self, cleanup):
         executor = Executor(Config())
@@ -51,6 +77,16 @@ class TestExecutor:
             assert result.trb is not None
             assert result.routes is None
 
+    def test_str(self, cleanup):
+        executor = Executor(Config())
+
+        assert str(executor) == "Executor"
+
+    def test_repr(self, cleanup):
+        executor = Executor(Config())
+
+        assert repr(executor) == "Executor"
+
     @pytest.mark.asyncio
     async def test_call(self, cleanup):
         executor = Executor(Config())
@@ -64,5 +100,17 @@ class TestExecutor:
         # xrange
         actual = []
         async for res in executor(tasks.xrange.instantiate(args=(3,))):
+            actual.append(res.res)
+        assert actual == [0, 1, 2]
+
+        # thread async xrange
+        actual = []
+        async for res in executor(tasks.async_xrange.instantiate(args=(3,), thread=True)):
+            actual.append(res.res)
+        assert actual == [0, 1, 2]
+
+        # thread xrange
+        actual = []
+        async for res in executor(tasks.xrange.instantiate(args=(3,), thread=True)):
             actual.append(res.res)
         assert actual == [0, 1, 2]

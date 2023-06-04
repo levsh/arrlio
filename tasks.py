@@ -11,7 +11,7 @@ CWD = os.path.abspath(os.path.dirname(__file__))
 def run_linters(c):
     "Run linters"
 
-    cmd = "pipenv run pylint --extension-pkg-whitelist='pydantic' arrlio"
+    cmd = "pylint --extension-pkg-whitelist='pydantic' arrlio"
     c.run(cmd)
 
 
@@ -20,9 +20,9 @@ def tests_small(c):
     """Run small tests"""
 
     cmd = (
-        "pipenv run coverage run --data-file=artifacts/.coverage --source arrlio -m pytest -sv --maxfail=1 tests/small/ && "
-        "pipenv run coverage json --data-file=artifacts/.coverage -o artifacts/coverage.json && "
-        "pipenv run coverage report --data-file=artifacts/.coverage -m"
+        "coverage run --data-file=artifacts/.coverage --source arrlio -m pytest -v --maxfail=1 tests/small/ && "
+        "coverage json --data-file=artifacts/.coverage -o artifacts/coverage.json && "
+        "coverage report --data-file=artifacts/.coverage -m"
     )
     c.run(cmd)
 
@@ -31,7 +31,7 @@ def tests_small(c):
 def tests_medium(c):
     """Run medium tests"""
 
-    cmd = "pipenv run pytest -sv --maxfail=1 --timeout=120 tests/medium/"
+    cmd = "pytest -v --maxfail=1 --timeout=300 tests/medium/test_medium.py"
     c.run(cmd)
 
 
@@ -152,14 +152,3 @@ def bump_micro(c):
             f.seek(0)
             f.write(text)
             f.truncate()
-
-
-@task
-def build(c):
-    c.run("rm -rf build dist")
-    c.run("python -m build")
-
-
-@task
-def publish(c):
-    c.run("python -m twine upload --verbose --repository pypi dist/*")

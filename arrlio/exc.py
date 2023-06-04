@@ -1,5 +1,5 @@
 class ArrlioError(Exception):
-    pass
+    """Base exception."""
 
 
 class TaskError(ArrlioError):

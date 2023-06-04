@@ -18,6 +18,14 @@ class Serializer(abc.ABC):
         self.config = config
 
     @abc.abstractmethod
+    def dumps(self, data: Any, **kwds) -> Union[bytes, Any]:
+        pass
+
+    @abc.abstractmethod
+    def loads(self, data: Union[bytes, Any]) -> Any:
+        pass
+
+    @abc.abstractmethod
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> Union[bytes, TaskInstance]:
         pass
 
@@ -44,12 +52,4 @@ class Serializer(abc.ABC):
 
     @abc.abstractmethod
     def loads_event(self, data: Union[bytes, Event]) -> Event:
-        pass
-
-    @abc.abstractmethod
-    def dumps(self, data: Any, **kwds) -> Union[bytes, Any]:
-        pass
-
-    @abc.abstractmethod
-    def loads(self, data: Union[bytes, Any]) -> Any:
         pass

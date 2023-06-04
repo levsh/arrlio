@@ -7,7 +7,7 @@ import pytest
 from arrlio import serializers
 from arrlio.backends import local
 from arrlio.exc import TaskResultError
-from arrlio.models import Event, Message, Task
+from arrlio.models import Event, Task
 
 
 class TestConfig:
@@ -20,7 +20,7 @@ class TestConfig:
 class TestBackend:
     def test__init(self, cleanup):
         backend = local.Backend(local.Config())
-        assert isinstance(backend.serializer, serializers.nop.Serializer)
+        assert isinstance(backend._serializer, serializers.nop.Serializer)
 
     def test_str(self, cleanup):
         backend = local.Backend(local.Config())
@@ -120,13 +120,13 @@ class TestBackend:
         assert await backend.pop_task_result(task_instance).__anext__() == result
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(backend.pop_task_result(task_instance).__anext__(), 0.5)
-        assert task_instance.data.task_id not in backend._results
+        assert task_instance.task_id not in backend._results
 
         task_instance = Task(None, "test_push_pop_task_result", result_return=False).instantiate(queue="queue")
         result = mock.MagicMock()
 
         await backend.push_task_result(task_instance, result)
-        assert task_instance.data.task_id not in backend._results
+        assert task_instance.task_id not in backend._results
         with pytest.raises(TaskResultError):
             await backend.pop_task_result(task_instance).__anext__()
 
@@ -143,34 +143,6 @@ class TestBackend:
 
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(backend.pop_task_result(task_instance).__anext__(), 0.1)
-
-        await backend.close()
-
-    @pytest.mark.asyncio
-    async def test_send_message(self, cleanup):
-        backend = local.Backend(local.Config())
-        message = Message({}, exchange="queue")
-        await backend.send_message(message)
-        assert backend._message_queues["queue"].qsize() == 1
-        await backend.send_message(message)
-        assert backend._message_queues["queue"].qsize() == 2
-
-        await backend.close()
-
-    @pytest.mark.asyncio
-    async def test_consume_messages(self, cleanup):
-        backend = local.Backend(local.Config())
-        message = Message({}, exchange="queue")
-        fut = asyncio.Future()
-
-        async def on_message(*args):
-            assert args == (message,)
-            fut.set_result(True)
-
-        await backend.consume_messages(["queue"], on_message)
-        await backend.send_message(message)
-
-        await asyncio.wait_for(fut, 1)
 
         await backend.close()
 
@@ -204,8 +176,8 @@ class TestBackend:
     async def test__cancel_all_tasks(self, cleanup):
         backend = local.Backend(local.Config())
         task = asyncio.create_task(asyncio.sleep(10))
-        backend._backend_tasks["test"].add(task)
-        backend._cancel_all_backend_tasks()
+        backend._internal_tasks["test"].add(task)
+        backend._cancel_all_internal_tasks()
         assert task.cancelled
 
     @pytest.mark.asyncio

@@ -46,7 +46,7 @@ class TestEventsPlugin:
                     mock_send_event.assert_awaited_once()
                     event = mock_send_event.call_args.args[0]
                     assert event.type == "task:received"
-                    assert event.data == {"task:id": task_instance.data.task_id}
+                    assert event.data == {"task:id": task_instance.task_id}
             finally:
                 await plugin.on_close()
         finally:
@@ -71,7 +71,7 @@ class TestEventsPlugin:
                     event = mock_send_event.call_args.args[0]
                     assert event.type == "task:done"
                     assert event.data == {
-                        "task:id": task_instance.data.task_id,
+                        "task:id": task_instance.task_id,
                         "status": TaskResult(res="Hello World!", exc=None, trb=None, routes=None),
                     }
             finally:
@@ -135,7 +135,7 @@ class TestGraphsPlugin:
                     event = mock_send_event.call_args.args[0]
                     assert event.type == "graph:task:done"
                     assert event.data == {
-                        "task:id": task_instance.data.task_id,
+                        "task:id": task_instance.task_id,
                         "graph:id": graph_id,
                         "graph:app_id": graph_app_id,
                         "graph:call_id": graph_call_id,
@@ -170,7 +170,7 @@ class TestGraphsPlugin:
 
 class TestPlugin:
     @pytest.mark.asyncio
-    async def test_task_context(self):
+    async def test_task_context(self, cleanup):
         ev = asyncio.Event()
 
         class _Config(base.Config):

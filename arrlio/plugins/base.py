@@ -15,6 +15,8 @@ class Config(BaseSettings):
 
 
 class Plugin(abc.ABC):
+    # pylint: disable=unused-argument
+
     def __init__(self, app, config: Config):
         self.app = app
         self.config = config
@@ -35,7 +37,6 @@ class Plugin(abc.ABC):
 
     @contextlib.asynccontextmanager
     def task_context(self, task_instance: TaskInstance):
-        # pylint: disable=unused-argument
         yield
 
     async def on_task_send(self, task_instance: TaskInstance) -> None:

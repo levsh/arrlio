@@ -3,8 +3,9 @@ from typing import Any, List, Optional, Set, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, BaseSettings, Field, PositiveInt, constr, validator
+from pydantic.utils import sequence_like
 
-from arrlio.tp import BackendT, ExecutorT, PluginT, PriorityT, TimeoutT
+from arrlio.types import BackendModule, ExecutorModule, PluginModule, Priority, Timeout
 
 ENV_PREFIX = os.environ.get("ARRLIO_ENV_PREFIX", "ARRLIO_")
 
@@ -21,19 +22,33 @@ TASK_RESULT_RETURN = True
 TASK_EVENTS = False
 TASK_EVENT_TTL = 300
 
-MESSAGE_EXCHANGE = "arrlio.messages"
-MESSAGE_PRIORITY = 1
-MESSAGE_TTL = 300
-MESSAGE_ACK_LATE = False
-
 EVENT_TTL = 300
 
 TASK_QUEUES = [TASK_QUEUE]
-MESSAGE_QUEUES = [MESSAGE_EXCHANGE]
+
+
+class BaseConfig(BaseSettings):
+    class Config:
+        validate_assignment = True
+        smart_union = True
+        case_sensitive = False
+
+        @classmethod
+        def prepare_field(cls, field):
+            # pylint: disable=no-member
+            field_info_from_config = cls.get_field_info(field.name)
+            env = field_info_from_config.get("env") or field.field_info.extra.get("env")
+            if env is None and sequence_like(cls.env_prefix):
+                env_names = {env_prefix + field.name for env_prefix in cls.env_prefix}
+                if not cls.case_sensitive:
+                    env_names = env_names.__class__(n.lower() for n in env_names)
+                field.field_info.extra["env_names"] = env_names
+            else:
+                super().prepare_field(field)
 
 
 class ConfigValidatorMixIn(BaseModel):
-    @validator("config", check_fields=False)
+    @validator("config", check_fields=False, allow_reuse=True, always=True)
     def validate_config(cls, v, values):  # pylint: disable=no-self-argument
         if "module" not in values:
             return v
@@ -46,76 +61,61 @@ class ConfigValidatorMixIn(BaseModel):
         raise TypeError("Invalid config")
 
 
-class BackendConfig(BaseSettings, ConfigValidatorMixIn):
-    module: BackendT = "arrlio.backends.local"
+class BackendConfig(ConfigValidatorMixIn, BaseConfig):
+    module: BackendModule = "arrlio.backends.local"
     config: Any = Field(default_factory=dict)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}BACKEND_"
 
 
-class TaskConfig(BaseSettings):
+class TaskConfig(BaseConfig):
     bind: bool = Field(default_factory=lambda: TASK_BIND)
     queue: str = Field(default_factory=lambda: TASK_QUEUE)
-    priority: PriorityT = Field(default_factory=lambda: TASK_PRIORITY)
-    timeout: Optional[TimeoutT] = Field(default_factory=lambda: TASK_TIMEOUT)
+    priority: Priority = Field(default_factory=lambda: TASK_PRIORITY)
+    timeout: Optional[Timeout] = Field(default_factory=lambda: TASK_TIMEOUT)
     ttl: Optional[PositiveInt] = Field(default_factory=lambda: TASK_TTL)
-    ack_late: Optional[bool] = Field(default_factory=lambda: TASK_ACK_LATE)
-    result_return: Optional[bool] = Field(default_factory=lambda: TASK_RESULT_RETURN)
+    ack_late: bool = Field(default_factory=lambda: TASK_ACK_LATE)
+    result_return: bool = Field(default_factory=lambda: TASK_RESULT_RETURN)
     result_ttl: Optional[PositiveInt] = Field(default_factory=lambda: TASK_RESULT_TTL)
     events: Union[Set[str], bool] = Field(default_factory=lambda: TASK_EVENTS)
     event_ttl: Optional[PositiveInt] = Field(default_factory=lambda: TASK_EVENT_TTL)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}TASK_"
 
 
-class MessageConfig(BaseSettings):
-    exchange: str = Field(default_factory=lambda: MESSAGE_EXCHANGE)
-    priority: PriorityT = Field(default_factory=lambda: MESSAGE_PRIORITY)
-    ttl: Optional[PositiveInt] = Field(default_factory=lambda: MESSAGE_TTL)
-    ack_late: Optional[bool] = Field(default_factory=lambda: MESSAGE_ACK_LATE)
-
-    class Config:
-        validate_assignment = True
-        env_prefix = f"{ENV_PREFIX}MESSAGE_"
-
-
-class EventConfig(BaseSettings):
+class EventConfig(BaseConfig):
     ttl: Optional[PositiveInt] = Field(default_factory=lambda: EVENT_TTL)
 
+    class Config:
+        env_prefix = f"{ENV_PREFIX}EVENT_"
 
-class PluginConfig(BaseSettings, ConfigValidatorMixIn):
-    module: PluginT
+
+class PluginConfig(ConfigValidatorMixIn, BaseConfig):
+    module: PluginModule
     config: Any = Field(default_factory=dict)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}EXECUTOR_"
 
 
-class ExecutorConfig(BaseSettings, ConfigValidatorMixIn):
-    module: ExecutorT = "arrlio.executor"
+class ExecutorConfig(ConfigValidatorMixIn, BaseConfig):
+    module: ExecutorModule = "arrlio.executor"
     config: Any = Field(default_factory=dict)
 
     class Config:
-        validate_assignment = True
         env_prefix = f"{ENV_PREFIX}EXECUTOR_"
 
 
-class Config(BaseSettings):
+class Config(BaseConfig):
     app_id: constr(min_length=1) = Field(default_factory=lambda: f"{uuid4()}")
     backend: BackendConfig = Field(default_factory=BackendConfig)
     task: TaskConfig = Field(default_factory=TaskConfig)
-    message: MessageConfig = Field(default_factory=MessageConfig)
     event: EventConfig = Field(default_factory=EventConfig)
     task_queues: Set[str] = Field(default_factory=lambda: TASK_QUEUES)
-    message_queues: Set[str] = Field(default_factory=lambda: MESSAGE_QUEUES)
     plugins: List[PluginConfig] = Field(default_factory=list)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
     class Config:
-        validate_assignment = True
         env_prefix = ENV_PREFIX

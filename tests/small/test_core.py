@@ -28,7 +28,7 @@ class TestApp:
         app = App(config)
         assert app.config == config
         assert isinstance(app.backend, backends.local.Backend)
-        assert isinstance(app.backend.serializer, serializers.nop.Serializer)
+        assert isinstance(app.backend._serializer, serializers.nop.Serializer)
         await app.close()
 
     @pytest.mark.asyncio
@@ -41,28 +41,19 @@ class TestApp:
             mock_send_task.assert_awaited_once()
             task_instance = mock_send_task.call_args[0][0]
 
-            assert task_instance.task.func is None
-            assert task_instance.task.name == "foo"
-            assert task_instance.task.bind == settings.TASK_BIND
-            assert task_instance.task.queue == settings.TASK_QUEUE
-            assert task_instance.task.priority == settings.TASK_PRIORITY
-            assert task_instance.task.timeout == settings.TASK_TIMEOUT
-            assert task_instance.task.ttl == settings.TASK_TTL
-            assert task_instance.task.ack_late == settings.TASK_ACK_LATE
-            assert task_instance.task.result_ttl == settings.TASK_RESULT_TTL
-            assert task_instance.task.result_return == settings.TASK_RESULT_RETURN
-            assert task_instance.task.thread is None
-
-            assert task_instance.data.args == ()
-            assert task_instance.data.kwds == {}
-            assert task_instance.data.queue == task_instance.task.queue
-            assert task_instance.data.priority == task_instance.task.priority
-            assert task_instance.data.timeout == task_instance.task.timeout
-            assert task_instance.data.ttl == task_instance.task.ttl
-            assert task_instance.data.ack_late == task_instance.task.ack_late
-            assert task_instance.data.result_ttl == task_instance.task.result_ttl
-            assert task_instance.data.result_return == task_instance.task.result_return
-            assert task_instance.data.thread is None
+            assert task_instance.func is None
+            assert task_instance.name == "foo"
+            assert task_instance.bind == settings.TASK_BIND
+            assert task_instance.queue == settings.TASK_QUEUE
+            assert task_instance.priority == settings.TASK_PRIORITY
+            assert task_instance.timeout == settings.TASK_TIMEOUT
+            assert task_instance.ttl == settings.TASK_TTL
+            assert task_instance.ack_late == settings.TASK_ACK_LATE
+            assert task_instance.args == ()
+            assert task_instance.kwds == {}
+            assert task_instance.result_ttl == settings.TASK_RESULT_TTL
+            assert task_instance.result_return == settings.TASK_RESULT_RETURN
+            assert task_instance.thread is None
 
             assert isinstance(ar, AsyncResult)
             assert ar.task_instance == task_instance
@@ -84,28 +75,19 @@ class TestApp:
             mock_send_task.assert_awaited_once()
             task_instance = mock_send_task.call_args[0][0]
 
-            assert task_instance.task.func is None
-            assert task_instance.task.name == "bar"
-            assert task_instance.task.bind == settings.TASK_BIND
-            assert task_instance.task.queue == settings.TASK_QUEUE
-            assert task_instance.task.priority == settings.TASK_PRIORITY
-            assert task_instance.task.timeout == settings.TASK_TIMEOUT
-            assert task_instance.task.ttl == settings.TASK_TTL
-            assert task_instance.task.ack_late == settings.TASK_ACK_LATE
-            assert task_instance.task.result_ttl == settings.TASK_RESULT_TTL
-            assert task_instance.task.result_return == settings.TASK_RESULT_RETURN
-            assert task_instance.task.thread is None
-
-            assert task_instance.data.args == (1, 2)
-            assert task_instance.data.kwds == {"a": "b"}
-            assert task_instance.data.queue == "custom"
-            assert task_instance.data.priority == 5
-            assert task_instance.data.timeout == 999
-            assert task_instance.data.ttl == 333
-            assert task_instance.data.ack_late is True
-            assert task_instance.data.result_ttl == 777
-            assert task_instance.data.result_return is False
-            assert task_instance.data.thread is True
+            assert task_instance.func is None
+            assert task_instance.name == "bar"
+            assert task_instance.bind == settings.TASK_BIND
+            assert task_instance.queue == "custom"
+            assert task_instance.priority == 5
+            assert task_instance.timeout == 999
+            assert task_instance.ttl == 333
+            assert task_instance.ack_late is True
+            assert task_instance.args == (1, 2)
+            assert task_instance.kwds == {"a": "b"}
+            assert task_instance.result_ttl == 777
+            assert task_instance.result_return is False
+            assert task_instance.thread is True
 
             assert isinstance(ar, AsyncResult)
             assert ar.task_instance == task_instance

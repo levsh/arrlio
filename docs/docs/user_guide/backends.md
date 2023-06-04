@@ -1,56 +1,64 @@
-**Arrlio** provides three builtin backends:
+**Arrlio** has several builtin backends:
 
 - arrlio.backends.local
 - arrlio.backends.rabbitmq
-- arrlio.backends.redis
 
 
 ## Local
 
 ### Settings
 
-All environment varialbles should starts with `{ENV_PREFIX}LOCAL_BACKEND_`.
+All environment varialbles should starts with `${ARRLIO_ENV_PREFIX}LOCAL_BACKEND_`.
+!!! info 
+    Default value for `ARRLIO_ENV_PREFIX` is `ARRLIO_`.
 
-- `NAME` (BackendConfig.name), default: "arrlio". Backend name.
-- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.nop". Serializer module with `Serializer` class or callable(Serializer factory).
-- `POOL_SIZE` (BackendConfig.pool_size), default: 100. Consuming pool size.
+- `ID` (Config.id), default: `"arrlio"`. Backend Id.
+- `SERIALIZER` (Config.serializer), default: `"arrlio.serializers.nop"`. Serializer module with `Serializer` and `Config` classes.
 
 
 ## RabbitMQ
 
 ### Settings
 
-All environment varialbles should starts with `{ENV_PREFIX}RMQ_BACKEND_`.
+All environment varialbles should starts with `${ARRLIO_ENV_PREFIX}RMQ_BACKEND_`.
 
-- `NAME` (BackendConfig.name), default: "arrlio". Backend name.
-- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.json". Serializer module with `Serializer` class or callable(Serializer factory).
-- `URL` (BackendConfig.url), default: "amqp://guest:guest@localhost". RabbitMQ server url.
-- `TIMEOUT` (BackendConfig.timeout), default: 10. RabbitMQ operation timeout, seconds.
-- `RETRY_TIMEOUTS` (BackendConfig.retry_timeouts), default: None. Retry timeouts as sequence: [1, 2, 5].
-- `VERIFY_SSL` (BackendConfig.verify_ssl), default: True.
-- `TASKS_EXCHANGE` (BackendConfig.tasks_exchange), default: "arrlio". Tasks RabbitMQ exchange.
-- `TASKS_QUEUE_DURABLE` (BackendConfig.tasks_queue_durable), default: False.
-- `TASKS_QUEUE_TTL` (BackendConfig.tasks_queue_ttl), default: None. `x-message-ttl` RabbitMQ option, seconds.
-- `TASKS_PREFETCH_COUNT` (BackendConfig.tasks_prefetch_count), default: 1. RabbitMQ prefetch count options.
-- `EVENTS_EXCHANGE` (BackendConfig.events_exchange), default: "arrlio". Events RabbitMQ exchange.
-- `EVENTS_QUEUE_DURABLE`, (BackendConfig.events_queue_durable), default: False.
-- `EVENTS_QUEUE`, (BackendConfig.events_queue), default: "arrlio.events".
-- `EVENTS_QUEUE_TTL` (BackendConfig.events_queue_ttl), default: None. `x-message-ttl` RabbitMQ option, seconds.
-- `EVENTS_PREFETCH_COUNT` (BackendConfig.events_prefetch_count), default: 1. RabbitMQ prefetch count options.
-- `MESSAGES_PREFETCH_COUNT` (BackendConfig.messages_prefetch_count), default: 1. RabbitMQ prefetch count options.
-- `POOL_SIZE` (BackendConfig.pool_size), default: 100. Consuming pool size.
+- `ID` (Config.id), default: `uuid4()`. Backend Id.
+- `SERIALIZER` (Config.serializer), default: "arrlio.serializers.json". Serializer module with `Serializer` and `Config` classes.
+- `URL` (Config.url), default: `"amqp://guest:guest@localhost"`. RabbitMQ server url.
+- `VERIFY_SSL` (Config.verify_ssl), default: `True`.
+- `TIMEOUT` (Config.timeout), default: `10`. RabbitMQ operation timeout, seconds.
+- `PUSH_RETRY_TIMEOUTS` (Config.push_retry_timeouts), default: `[5, 5, 5, 5, 5]`. Retry timeout sequense for push operations, seconds.
+- `PULL_RETRY_TIMEOUTS` (Config.pull_retry_timeouts), default: `itertools.repeat(5)`. Retry timeout sequense for pull operations, seconds.
 
+- `TASKS_EXCHANGE` (Config.tasks_exchange), default: `"arrlio"`. Tasks RabbitMQ exchange.
+- `TASKS_EXCHANGE_DURABLE` (Config.tasks_exchange_durable), default: `False`.
+- `TASKS_QUEUE_TYPE` (Config.tasks_queue_type), default: `QueueType.CLASSIC`.
+- `TASKS_QUEUE_DURABLE` (Config.tasks_queue_durable), default: `False`.
+- `TASKS_QUEUE_AUTO_DELETE` (Config.tasks_queue_auto_delete), default: `True`.
+- `TASKS_QUEUE_TTL` (Config.tasks_queue_ttl), default: `None`. `x-message-ttl` RabbitMQ option, seconds.
+- `TASKS_PREFETCH_COUNT` (Config.tasks_prefetch_count), default: `1`. RabbitMQ prefetch count options.
 
-## Redis
+- `EVENTS_EXCHANGE` (Config.events_exchange), default: `"arrlio.events"`. Events RabbitMQ exchange.
+- `EVENTS_EXCHANGE_DURABLE` (Config.events_exchange_durable), default: `False`.
+- `EVENTS_QUEUE_TYPE` (Config.events_queue_type), default: `QueueType.CLASSIC`.
+- `EVENTS_QUEUE_DURABLE`, (Config.events_queue_durable), default: `False`.
+- `EVENTS_QUEUE_AUTO_DELETE` (Config.events_queue_auto_delete), default: `False`.
+- `EVENTS_QUEUE_PREFIX`, (Config.events_queue_prefix), default: `"arrlio."`.
+- `EVENTS_TTL` (Config.events_ttl), default: `600`. `x-message-ttl` RabbitMQ option, seconds.
+- `EVENTS_PREFETCH_COUNT` (Config.events_prefetch_count), default: `1`. RabbitMQ prefetch count options.
 
-### Settings
+- `RESULTS_QUEUE_MODE` (Config.results_queue_mode), default: `ResultQueueMode.COMMON`.
+- `RESULTS_QUEUE_PREFIX` (COnfig.results_queue_prefix), default: `"arrlio."`.
+!!! note
+    Valid only with `ResultsQueueMode.COMMON`.
+- `RESULTS_QUEUE_TYPE` (Config.results_queue_type), default: `QueueType.CLASSIC`.
+!!! note
+    Valid only with `ResultsQueueMode.COMMON`.
+- `RESULTS_QUEUE_DURABLE` (Config.results_queue_durable), default: `False`.
+!!! note
+    Valid only with `ResultsQueueMode.COMMON`.
+- `RESULTS_TTL` (Config.results_ttl), default: `600`. Result time to live, seconds.
+- `RESULTS_PREFETCH_COUNT` (Config.results_prefetch_count), default: `10`.
+!!! note
+    Valid only with `ResultsQueueMode.COMMON`.
 
-- `NAME` (BackendConfig.name), default: "arrlio". Backend name.
-- `SERIALIZER` (BackendConfig.serializer), default: "arrlio.serializers.json". Serializer module with `Serializer` class or callable(Serializer factory).
-- `URL` (BackendConfig.url), default: "redis://localhost?db=0". Redis server url.
-- `TIMEOUT` (BackendConfig.timeout), default: 10. Redis operation timeout, seconds.
-- `CONNECT_TIMEOUT` (BackendConfig.connect_timeout), default: 10. Redis connect timeout, seconds.
-- `RETRY_TIMEOUTS` (BackendConfig.retry_timeouts), default: None. Retry timeouts as sequence: [1, 2, 5].
-- `POOL_SIZE` (BackendConfig.pool_size), default: 10. Redis connection pool size.
-- `VERIFY_SSL` (BackendConfig.verify_ssl), default: True.
-- `POOL_SIZE` (BackendConfig.pool_size), default: 100. Consuming pool size.

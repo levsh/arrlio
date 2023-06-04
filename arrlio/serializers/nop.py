@@ -9,6 +9,12 @@ class Config(base.Config):
 
 
 class Serializer(base.Serializer):
+    def dumps(self, data: Any, **kwds) -> Any:
+        return data
+
+    def loads(self, data: Any) -> Any:
+        return data
+
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 
@@ -25,10 +31,4 @@ class Serializer(base.Serializer):
         return event
 
     def loads_event(self, data: Event) -> Event:
-        return data
-
-    def dumps(self, data: Any, **kwds) -> Any:
-        return data
-
-    def loads(self, data: Any) -> Any:
         return data

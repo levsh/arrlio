@@ -1,6 +1,6 @@
-Create your task:
+Define your tasks:
 
-```python
+``` python
 from arrlio import task
 
 @task
@@ -8,18 +8,19 @@ def hello_world():
     print("Hello from Arrlio")
 ```
 
-Create Arrlio application(by default `local` backend will be used):
+Create application:
 
-```python
+``` python
 from arrlio import App, Config
 
 app = App(Config())
-
 ```
+!!! info
+    By default `local` backend will be used
 
 Start consuming tasks and run `hello_world` task:
 
-```python
+``` python
 async with app:
     await app.consume_tasks()
     await app.send_task(hello_world)
@@ -27,7 +28,8 @@ async with app:
 
 Summary:
 
-```python
+``` python title="main.py" linenums="1"
+import asyncio
 from arrlio import App, Config, task
 
 @task
@@ -35,8 +37,16 @@ def hello_world():
     print("Hello from Arrlio")
 
 
-app = App(Config())
-async with app:
-    await app.consume_tasks()
-    await app.send_task(hello_world)
+async def main():
+    app = App(Config())
+    async with app:
+        await app.consume_tasks()
+        await app.send_task(hello_world)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+
+More examples can be found in the `examples` directory.
+

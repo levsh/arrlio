@@ -1,9 +1,8 @@
 *.bak
 *.drawio
 Pipfile.lock
+poetry.lock
 docs/site
-
-pyproject.toml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

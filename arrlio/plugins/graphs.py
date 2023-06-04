@@ -6,9 +6,9 @@ from uuid import uuid4
 
 from rich.pretty import pretty_repr
 
-from arrlio.core import AsyncResult, __tasks__
+from arrlio import AsyncResult, registered_tasks
 from arrlio.exc import ArrlioError, GraphError
-from arrlio.models import Event, Graph, Task, TaskData, TaskInstance, TaskResult
+from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.plugins import base
 
 logger = logging.getLogger("arrlio.plugins.graphs")
@@ -47,7 +47,8 @@ class Plugin(base.Plugin):
         await self.app.stop_consume_events("arrlio.graphs")
 
     async def on_task_result(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
-        graph: Graph = task_instance.data.extra.get("graph:graph")
+        extra = task_instance.extra
+        graph: Graph = extra.get("graph:graph")
         if graph is None or task_result.exc is not None:
             return
 
@@ -72,29 +73,28 @@ class Plugin(base.Plugin):
                         args=args,
                         meta={
                             "graph:source_node": root,
-                            "graph:app_id": task_instance.data.extra["graph:app_id"],
-                            "graph:id": task_instance.data.extra["graph:id"],
+                            "graph:app_id": extra["graph:app_id"],
+                            "graph:id": extra["graph:id"],
                             "graph:name": graph.name,
                         },
                         root_only=True,
                     )
 
     async def on_task_done(self, task_instance: TaskInstance, status: dict) -> None:
-        graph: Graph = task_instance.data.extra.get("graph:graph")
+        extra = task_instance.extra
+        graph: Graph = extra.get("graph:graph")
         if graph is None:
             return
-
-        task_data: TaskData = task_instance.data
 
         event: Event = Event(
             type="graph:task:done",
             dt=datetime.now(tz=timezone.utc),
-            ttl=task_data.event_ttl,
+            ttl=task_instance.event_ttl,
             data={
-                "task:id": task_data.task_id,
-                "graph:id": task_data.extra["graph:id"],
-                "graph:app_id": task_data.extra["graph:app_id"],
-                "graph:call_id": task_data.extra["graph:call_id"],
+                "task:id": task_instance.task_id,
+                "graph:id": extra["graph:id"],
+                "graph:app_id": extra["graph:app_id"],
+                "graph:call_id": extra["graph:call_id"],
             },
         )
         await self.app.send_event(event)
@@ -165,14 +165,14 @@ class Plugin(base.Plugin):
                 continue
             else:
                 kwds = node_kwds
-            if task_name in __tasks__:
-                task_instance = __tasks__[task_name].instantiate(**kwds)
+            if task_name in registered_tasks:
+                task_instance = registered_tasks[task_name].instantiate(**kwds)
             else:
                 task_instance = Task(None, task_name).instantiate(**kwds)
             task_instances[node_id] = task_instance
 
         for node_id, task_instance in task_instances.items():
-            task_instance.data.extra["graph:graph"] = Graph(
+            task_instance.extra["graph:graph"] = Graph(
                 graph.name,
                 nodes=graph.nodes,
                 edges=graph.edges,
@@ -189,16 +189,14 @@ class Plugin(base.Plugin):
         meta: dict = None,
         root_only: bool = None,
     ) -> Dict[str, TaskInstance]:
-
         task_instances: Dict[str, TaskInstance] = self._build_task_instances(graph, root_only=root_only)
 
         for node_id in graph.roots:
             task_instance: TaskInstance = task_instances[node_id]
-            task_data: TaskData = task_instance.data
-            task_data.args += tuple(args or ())
-            task_data.kwds.update(kwds or {})
-            task_data.meta.update(meta or {})
-            extra = task_data.extra
+            object.__setattr__(task_instance, "args", task_instance.args + tuple(args or ()))
+            task_instance.kwds.update(kwds or {})
+            task_instance.meta.update(meta or {})
+            extra = task_instance.extra
             extra["graph:call_id"] = f"{uuid4()}"
 
             if is_info:
@@ -214,9 +212,9 @@ class Plugin(base.Plugin):
             event: Event = Event(
                 type="graph:task:send",
                 dt=datetime.now(tz=timezone.utc),
-                ttl=task_data.event_ttl,
+                ttl=task_instance.event_ttl,
                 data={
-                    "task:id": task_data.task_id,
+                    "task:id": task_instance.task_id,
                     "graph:id": extra["graph:id"],
                     "graph:app_id": extra["graph:app_id"],
                     "graph:call_id": extra["graph:call_id"],
@@ -245,10 +243,10 @@ class Plugin(base.Plugin):
 
         logger.info("%s: graph %s(%s) done", self, graph.name, graph_id)
 
-        for (task_name, node_kwds) in graph.nodes.values():
-            if task_name in __tasks__:
-                task_instance = __tasks__[task_name].instantiate(**node_kwds)
+        for task_name, node_kwds in graph.nodes.values():
+            if task_name in registered_tasks:
+                task_instance = registered_tasks[task_name].instantiate(**node_kwds)
             else:
                 task_instance = Task(None, task_name).instantiate(**node_kwds)
-            if task_instance.data.result_return:
+            if task_instance.result_return:
                 await self.app.backend.close_task(task_instance)

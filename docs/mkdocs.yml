@@ -6,10 +6,20 @@ nav:
     - Basic: user_guide/basic.md
     - Task arguments: user_guide/task_args.md
     - Task result: user_guide/task_result.md
-    - General settings: user_guide/settings.md
+    - Settings: user_guide/settings.md
     - Backends: user_guide/backends.md
+    - Advanced:
+      - Backend configuration: user_guide/advanced/backend_configuration.md
+      - Task submitting: user_guide/advanced/task_submitting.md
+      - Generators: user_guide/advanced/generators.md
+  - API Reference: api_reference.md
 theme:
   name: material
+  palette:
+    primary: teal
+    accent: light blue
+  features:
+    - content.code.copy
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -17,3 +27,8 @@ markdown_extensions:
   - pymdownx.snippets
   - pymdownx.superfences
   - tables
+  - admonition
+plugins:
+  - search
+  - mkdocstrings
+repo_url: https://github.com/levsh/arrlio

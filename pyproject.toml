@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "arrlio"
+version = "0.20.0"
+description = ""
+authors = ["Roman Koshel <roma.koshel@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = ["rabbitmq"]
+packages = [{include = "arrlio"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+    "License :: OSI Approved :: MIT License",
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+aiormq = ">=6.7.6"
+pydantic = ">=1.10.1"
+rich = "*"
+roview = "*"
+yarl = "*"
+
+[tool.poetry.group.test.dependencies]
+celery = "*"
+coverage = "*"
+docker = "*"
+invoke = "*"
+pylint = "*"
+pytest = "*"
+pytest_asyncio = "*"
+pytest_timeout = "*"
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "*"
+mkdocs-material = "*"
+mkdocstrings = {extras = ["python"], version = "*"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
