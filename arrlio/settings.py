@@ -26,6 +26,9 @@ EVENT_TTL = 300
 
 TASK_QUEUES = [TASK_QUEUE]
 
+LOG_LEVEL = "ERROR"
+LOG_SANITIZE = True
+
 
 class BaseConfig(BaseSettings):
     class Config:
@@ -108,6 +111,11 @@ class ExecutorConfig(ConfigValidatorMixIn, BaseConfig):
         env_prefix = f"{ENV_PREFIX}EXECUTOR_"
 
 
+# class LoggingConfig(BaseConfig):
+#     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default_factory=lambda: LOG_LEVEL)
+#     hide_args_kwds: bool = Field(default_factory=lambda: LOG_HIDE_ARGS_KWDS)
+
+
 class Config(BaseConfig):
     app_id: constr(min_length=1) = Field(default_factory=lambda: f"{uuid4()}")
     backend: BackendConfig = Field(default_factory=BackendConfig)
@@ -116,6 +124,7 @@ class Config(BaseConfig):
     task_queues: Set[str] = Field(default_factory=lambda: TASK_QUEUES)
     plugins: List[PluginConfig] = Field(default_factory=list)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    # logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     class Config:
         env_prefix = ENV_PREFIX

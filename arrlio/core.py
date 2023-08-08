@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from rich.pretty import pretty_repr
 from roview import rodict
 
+from arrlio import settings
 from arrlio.backends.base import Backend
 from arrlio.exc import GraphError, TaskClosedError, TaskError
 from arrlio.executor import Executor
@@ -247,7 +248,7 @@ class App:
             logger.info(
                 "%s: send task instance\n%s",
                 self,
-                pretty_repr(task_instance.dict(exclude=["args", "kwds"])),
+                task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
         await self._execute_hooks("on_task_send", task_instance)
@@ -258,7 +259,7 @@ class App:
 
     async def send_event(self, event: Event):
         if is_info_level():
-            logger.info("%s: send event\n%s", self, pretty_repr(event.dict()))
+            logger.info("%s: send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         await self._backend.send_event(event)
 

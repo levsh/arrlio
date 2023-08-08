@@ -50,7 +50,7 @@ class Serializer(base.Serializer):
         extra = data["extra"]
         if graph := extra.get("graph:graph"):
             extra["graph:graph"] = graph.dict()
-        return self.dumps({k: v for k, v in data.items() if v is not None}, cls=self.config.encoder)
+        return self.dumps({k: v for k, v in data.items() if v is not None})
 
     def loads_task_instance(self, data: bytes) -> TaskInstance:
         """Loads `arrlio.models.TaskInstance` object from json encoded string."""

@@ -1,4 +1,5 @@
 import gc
+import logging
 
 # import os
 import time
@@ -9,7 +10,7 @@ import pytest_asyncio
 from arrlio import App, Config, logger
 from tests import utils
 
-logger.setLevel("DEBUG")
+logger.setLevel(logging.DEBUG)
 
 
 @pytest.fixture(scope="function")

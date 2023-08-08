@@ -23,7 +23,7 @@ RetryTimeout = Union[Sequence[Timeout], Iterable[Timeout]]
 
 TaskId = Union[str, UUID]
 Args = Union[List, Tuple]
-Kwds = Dict
+Kwds = Union[Dict]
 
 
 class SecretAnyUrl(AnyUrl):

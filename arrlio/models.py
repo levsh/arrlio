@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Set, Tuple, Union
 from uuid import UUID, uuid4
 
 from pydantic import Field, create_model
+from rich.pretty import pretty_repr
 from roview import rodict, roset
 
 from arrlio.exc import GraphError
@@ -72,7 +73,7 @@ class Task:
 
         return self.func(*args, **kwds)
 
-    def dict(self, exclude: List[str] = None):
+    def dict(self, exclude: List[str] = None, sanitize: bool = None):
         """Convert to dict.
 
         Args:
@@ -84,6 +85,9 @@ class Task:
         # exclude = (exclude or []) + ["loads", "dumps"]
         exclude = exclude or []
         return {k: v for k, v in asdict(self).items() if k not in exclude}
+
+    def pretty_repr(self, exclude: List[str] = None, sanitize: bool = None):
+        return pretty_repr(self.dict(exclude=exclude, sanitize=sanitize))
 
     def instantiate(
         self,
@@ -126,8 +130,8 @@ class TaskInstance(Task):
     """
 
     task_id: UUID = field(default_factory=uuid4)
-    args: tuple = field(default_factory=tuple)
-    kwds: dict = field(default_factory=dict)
+    args: Args = field(default_factory=tuple)
+    kwds: Kwds = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
 
     def __post_init__(self):
@@ -135,8 +139,17 @@ class TaskInstance(Task):
             object.__setattr__(self, "task_id", uuid4())
         elif isinstance(self.task_id, str):
             object.__setattr__(self, "task_id", UUID(self.task_id))
-        if isinstance(self.args, list):
+        if not isinstance(self.args, tuple):
             object.__setattr__(self, "args", tuple(self.args))
+
+    def dict(self, exclude: List[str] = None, sanitize: bool = None):
+        data = super().dict(exclude=exclude, sanitize=sanitize)
+        if sanitize:
+            if data["args"]:
+                data["args"] = "..."
+            if data["kwds"]:
+                data["kwds"] = "..."
+        return data
 
     def __call__(self, meta: bool = None):  # pylint: disable=arguments-differ
         """Call `arrlio.models.TaskInstance`.
@@ -193,7 +206,7 @@ class TaskInstance(Task):
                 kwds[k] = getattr(model, k)
 
         object.__setattr__(self, "args", tuple(args))
-        object.__setattr__(self, "kwds", kwds)
+        object.__setattr__(self, "kwds", dict(kwds))
 
 
 @dataclass(frozen=True)
@@ -209,7 +222,7 @@ class TaskResult:
     def set_idx(self, idx: Tuple[str, int]):
         object.__setattr__(self, "idx", idx)
 
-    def dict(self):
+    def dict(self, sanitize: bool = None):
         """Convert to dict.
 
         Returns:
@@ -217,12 +230,15 @@ class TaskResult:
         """
 
         return {
-            "res": self.res,
+            "res": self.res if self.res is None or not sanitize else "...",
             "exc": self.exc,
             "trb": self.trb,
             "idx": self.idx,
             "routes": self.routes,
         }
+
+    def pretty_repr(self, sanitize: bool = None):
+        return pretty_repr(self.dict(sanitize=sanitize))
 
 
 @dataclass(frozen=True)
@@ -250,14 +266,20 @@ class Event:
         elif isinstance(self.dt, str):
             object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
-    def dict(self):
+    def dict(self, sanitize: bool = None):
         """Convert to dict.
 
         Returns:
             `arrlio.models.Event` as `dict`.
         """
 
-        return asdict(self)
+        data = asdict(self)
+        if hasattr(data["data"], "sanitize"):
+            data["data"] = data["data"].sanitize()
+        return data
+
+    def pretty_repr(self, sanitize: bool = None):
+        return pretty_repr(self.dict(sanitize=sanitize))
 
 
 class Graph:
@@ -332,7 +354,7 @@ class Graph:
             routes = [routes]
         self.edges.__original__.setdefault(node_id_from, []).append([node_id_to, routes])
 
-    def dict(self):
+    def dict(self, sanitize: bool = None):
         """Convert to the dict.
 
         Returns:
@@ -362,3 +384,6 @@ class Graph:
             edges=data["edges"],
             roots=data["roots"],
         )
+
+    def pretty_repr(self, sanitize: bool = None):
+        return pretty_repr(self.dict(sanitize=sanitize))

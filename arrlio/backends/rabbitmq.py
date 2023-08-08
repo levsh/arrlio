@@ -14,8 +14,8 @@ import aiormq
 import aiormq.exceptions
 import yarl
 from pydantic import Field
-from rich.pretty import pretty_repr
 
+from arrlio import settings
 from arrlio.backends import base
 from arrlio.exc import GraphError, TaskClosedError, TaskResultError
 from arrlio.models import Event, TaskInstance, TaskResult
@@ -808,7 +808,7 @@ class Backend(base.Backend):
                     self,
                     channel,
                     task_id,
-                    pretty_repr(task_result.dict()),
+                    task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
                 )
 
             storage = self._allocate_results_storage(task_id)
@@ -851,7 +851,11 @@ class Backend(base.Backend):
             task_instance.extra["rabbitmq:reply_to"] = message.header.properties.reply_to
 
             if is_debug_level():
-                logger.debug("%s: got task\n%s", self, pretty_repr(task_instance.dict()))
+                logger.debug(
+                    "%s: got task\n%s",
+                    self,
+                    task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
+                )
 
             if not task_instance.ack_late:
                 await channel.basic_ack(message.delivery.delivery_tag)
@@ -869,6 +873,7 @@ class Backend(base.Backend):
         await self._tasks_exchange.close()
         for queue in self._task_queues.values():
             await queue.close()
+        await self._results_queue.close(delete=True)
         await self._conn.close()
 
     def _reply_to(self, task_instance: TaskInstance) -> str:
@@ -963,7 +968,7 @@ class Backend(base.Backend):
                 task_instance.name,
                 exchange.name,
                 routing_key,
-                pretty_repr(task_result.dict()),
+                task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
         await exchange.publish(
@@ -1100,7 +1105,7 @@ class Backend(base.Backend):
                 event: Event = self._serializer.loads_event(message.body)
 
                 if is_debug_level():
-                    logger.debug("%s: got event\n%s", self, pretty_repr(event.dict()))
+                    logger.debug("%s: got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                 await channel.basic_ack(message.delivery.delivery_tag)
 

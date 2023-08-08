@@ -11,8 +11,8 @@ from typing import AsyncGenerator, Callable, Dict, List, Tuple, Union
 from uuid import UUID
 
 from pydantic import Field, PositiveInt
-from rich.pretty import pretty_repr
 
+from arrlio import settings
 from arrlio.backends import base
 from arrlio.exc import TaskClosedError, TaskResultError
 from arrlio.models import Event, TaskInstance, TaskResult
@@ -98,9 +98,6 @@ class Backend(base.Backend):
         if task_instance.result_return and task_instance.task_id not in self._results:
             self._results[task_instance.task_id] = [asyncio_Event(), [], None]
 
-        if is_debug_level():
-            logger.debug("%s: send\n%s", self, pretty_repr(task_instance.dict()))
-
         self._task_queues[task_instance.queue].put_nowait(
             (
                 (Priority.le - task_instance.priority) if task_instance.priority else Priority.ge,
@@ -134,7 +131,11 @@ class Backend(base.Backend):
                             task_instance: TaskInstance = self._serializer.loads_task_instance(data)
 
                             if is_debug_level():
-                                logger.debug("%s: got\n%s", self, pretty_repr(task_instance.dict()))
+                                logger.debug(
+                                    "%s: got\n%s",
+                                    self,
+                                    task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
+                                )
 
                             aio_task: asyncio.Task = create_task(callback(task_instance))
 
@@ -174,7 +175,7 @@ class Backend(base.Backend):
                 self,
                 task_id,
                 task_instance.name,
-                pretty_repr(task_result.dict()),
+                task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
         results = self._results
@@ -227,7 +228,7 @@ class Backend(base.Backend):
                                 self,
                                 task_id,
                                 task_instance.name,
-                                pretty_repr(task_result.dict()),
+                                task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
                             )
 
                         if isinstance(task_result.exc, TaskClosedError):
@@ -250,7 +251,7 @@ class Backend(base.Backend):
                         self,
                         task_id,
                         task_instance.name,
-                        pretty_repr(task_result.dict()),
+                        task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
                     )
 
                 yield task_result
@@ -275,7 +276,7 @@ class Backend(base.Backend):
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug("%s: put\n%s", self, pretty_repr(event.dict()))
+            logger.debug("%s: put\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         self._events[event.event_id] = self._serializer.dumps_event(event)
 
@@ -323,7 +324,7 @@ class Backend(base.Backend):
                     event: Event = self._serializer.loads_event(events_pop(next(iter(events_keys()))))
 
                     if is_debug_level():
-                        logger.debug("%s: got\n%s", self, pretty_repr(event.dict()))
+                        logger.debug("%s: got\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                     for callback, event_types in event_callbacks.values():
                         if event_types is not None and event.type not in event_types:

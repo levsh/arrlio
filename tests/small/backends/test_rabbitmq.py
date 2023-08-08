@@ -97,6 +97,16 @@ class TestConfig:
         assert config.results_ttl == 10
 
 
+@pytest.fixture
+def mock_connect():
+    with mock.patch("aiormq.connect") as m:
+        mock_conn = mock.AsyncMock()
+        mock_conn.is_closed = False
+        mock_conn.closing = asyncio.Future()
+        m.return_value = mock_conn
+        yield m
+
+
 class TestConnection:
     @pytest.mark.asyncio
     async def test__init(self, cleanup):
@@ -170,33 +180,23 @@ class TestConnection:
             await conn.close()
 
     @pytest.mark.asyncio
-    async def test_connect(self, cleanup):
+    async def test_connect(self, mock_connect, cleanup):
         conn = rabbitmq.Connection(["amqp://admin@example.com"])
         try:
-            with mock.patch("aiormq.connect") as mock_connect:
-                mock_conn = mock.AsyncMock()
-                mock_conn.is_closed = False
-                mock_conn.closing = asyncio.Future()
-                mock_connect.return_value = mock_conn
-                await conn.open()
-                mock_connect.assert_awaited_once_with("amqp://admin@example.com")
-                assert conn.is_open is True
-                assert conn.is_closed is False
-                assert conn._conn is not None
+            await conn.open()
+            mock_connect.assert_awaited_once_with("amqp://admin@example.com")
+            assert conn.is_open is True
+            assert conn.is_closed is False
+            assert conn._conn is not None
         finally:
             await conn.close()
 
     @pytest.mark.asyncio
-    async def test_channel(self, cleanup):
+    async def test_channel(self, mock_connect, cleanup):
         conn = rabbitmq.Connection(["amqp://admin@example.com"])
         try:
-            with mock.patch("aiormq.connect") as mock_connect:
-                mock_conn = mock.AsyncMock()
-                mock_conn.is_closed = False
-                mock_conn.closing = asyncio.Future()
-                mock_connect.return_value = mock_conn
-                await conn.open()
-                await conn.channel()
+            await conn.open()
+            await conn.channel()
         finally:
             await conn.close()
 
@@ -219,7 +219,7 @@ class TestConnection:
 
 class TestBackend:
     @pytest.mark.asyncio
-    async def test__init(self, cleanup):
+    async def test__init(self, mock_connect, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
             assert isinstance(backend._serializer, serializers.json.Serializer)
@@ -232,7 +232,7 @@ class TestBackend:
     #     assert isinstance(backend.serializer, nop.Serializer)
 
     @pytest.mark.asyncio
-    async def test_str(self, cleanup):
+    async def test_str(self, mock_connect, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
             assert str(backend) == "Backend[Connection[localhost]]"
@@ -240,7 +240,7 @@ class TestBackend:
             await backend.close()
 
     @pytest.mark.asyncio
-    async def test_repr(self, cleanup):
+    async def test_repr(self, mock_connect, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
             assert repr(backend) == "Backend[Connection[localhost]]"
@@ -248,11 +248,9 @@ class TestBackend:
             await backend.close()
 
     @pytest.mark.asyncio
-    async def test_on_connection_open(self, cleanup):
+    async def test_on_connection_open(self, mock_connect, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
-            mock_channel = mock.AsyncMock()
-            mock_channel.is_closed = False
             with mock.patch.object(backend._conn, "channel"):
                 await backend._on_conn_open()
                 assert backend._direct_reply_to_consumer is not None

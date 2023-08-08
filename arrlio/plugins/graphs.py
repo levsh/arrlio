@@ -4,16 +4,13 @@ from datetime import datetime, timezone
 from typing import Dict, Tuple
 from uuid import uuid4
 
-from rich.pretty import pretty_repr
-
-from arrlio import AsyncResult, registered_tasks
+from arrlio import AsyncResult, registered_tasks, settings
 from arrlio.exc import ArrlioError, GraphError
 from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.plugins import base
+from arrlio.utils import is_info_level
 
 logger = logging.getLogger("arrlio.plugins.graphs")
-is_info = logger.isEnabledFor(logging.INFO)
-is_debug = logger.isEnabledFor(logging.DEBUG)
 
 
 class Config(base.Config):
@@ -199,12 +196,12 @@ class Plugin(base.Plugin):
             extra = task_instance.extra
             extra["graph:call_id"] = f"{uuid4()}"
 
-            if is_info:
+            if is_info_level():
                 logger.info(
                     "%s: send graph '%s' task\n%s",
                     self,
                     graph.name,
-                    pretty_repr(task_instance.dict(exclude=["data.args", "data.kwds"])),
+                    task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                 )
 
             await self.app.backend.send_task(task_instance)
