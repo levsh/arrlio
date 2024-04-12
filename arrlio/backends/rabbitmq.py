@@ -3,13 +3,14 @@ import itertools
 import logging
 import ssl
 from asyncio import FIRST_COMPLETED, create_task, get_event_loop, wait
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
 from functools import partial
 from inspect import isasyncgenfunction, iscoroutine, iscoroutinefunction, isgeneratorfunction
 from ssl import SSLContext
-from typing import Any, AsyncGenerator, Callable, Coroutine, Hashable, Optional
+from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
 from uuid import UUID
 
 import aiormq
