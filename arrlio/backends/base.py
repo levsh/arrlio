@@ -3,46 +3,53 @@ import asyncio
 import logging
 from asyncio import create_task, current_task
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Set, Type, Union
+from typing import Any, Callable, Coroutine, cast
 from uuid import uuid4
 
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from arrlio.configs import ModuleConfigValidatorMixIn
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.serializers.base import Serializer
-from arrlio.settings import ENV_PREFIX, BaseConfig, ConfigValidatorMixIn
-from arrlio.types import AsyncFunction, SerializerModule
+from arrlio.settings import ENV_PREFIX
+from arrlio.types import ModuleConfig, SerializerModule
 
 logger = logging.getLogger("arrlio.backends.base")
 
 
-class SerializerConfig(ConfigValidatorMixIn, BaseConfig):
-    module: SerializerModule
-    config: Any = Field(default_factory=dict)
-
-    class Config:
-        env_prefix = [f"{ENV_PREFIX}SERIALIZER_"]
+SERIALIZER = "arrlio.serializers.nop"
 
 
-class Config(BaseConfig):
+class SerializerConfig(BaseSettings, ModuleConfigValidatorMixIn):
+    """Config for backend serializer."""
+
+    model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}SERIALIZER_")
+
+    module: SerializerModule = SERIALIZER
+    config: ModuleConfig = Field(default_factory=BaseSettings)
+
+
+class Config(BaseSettings):
     """Config for backend."""
 
     id: str = Field(default_factory=lambda: f"{uuid4()}")
-    serializer: SerializerConfig = Field(default_factory=lambda: SerializerConfig(module="arrlio.serializers.nop"))
+    serializer: SerializerConfig = Field(default_factory=SerializerConfig)
 
 
 class Backend(abc.ABC):
-    __slots__ = ("config", "_serializer", "_closed", "_internal_tasks")
+    __slots__ = ("config", "serializer", "_internal_tasks", "_closed")
 
-    def __init__(self, config: Type[Config]):
+    def __init__(self, config: Config):
         """
         Args:
             config: Backend config.
         """
-        self.config: Type[Config] = config
-        self._serializer: Type[Serializer] = config.serializer.module.Serializer(config.serializer.config)
+
+        self.config: Config = config
+        self.serializer: Serializer = config.serializer.module.Serializer(config.serializer.config)
+        self._internal_tasks: dict[str, set[asyncio.Task]] = defaultdict(set)
         self._closed: asyncio.Future = asyncio.Future()
-        self._internal_tasks: Dict[str, Set[asyncio.Task]] = defaultdict(set)
 
     def __repr__(self):
         return self.__str__()
@@ -61,7 +68,7 @@ class Backend(abc.ABC):
             raise Exception(f"{self} closed")
 
         async def fn():
-            task: asyncio.Task = current_task()
+            task = cast(asyncio.Task, current_task())
             internal_tasks = self._internal_tasks[key]
             internal_tasks.add(task)
             try:
@@ -87,7 +94,9 @@ class Backend(abc.ABC):
         if self.is_closed:
             return
         try:
-            await asyncio.gather(self.stop_consume_tasks(), self.stop_consume_events())
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(self.stop_consume_tasks())
+                tg.create_task(self.stop_consume_events())
         finally:
             self._cancel_all_internal_tasks()
             self._closed.set_result(None)
@@ -101,6 +110,7 @@ class Backend(abc.ABC):
     @abc.abstractmethod
     async def send_task(self, task_instance: TaskInstance, **kwds):
         """Send task to backend."""
+
         return
 
     @abc.abstractmethod
@@ -108,41 +118,48 @@ class Backend(abc.ABC):
         return
 
     @abc.abstractmethod
-    async def consume_tasks(self, queues: List[str], callback: AsyncFunction):
+    async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
         """Consume tasks from the queues and invoke `callback` on `arrlio.models.TaskInstance` received."""
+
         return
 
     @abc.abstractmethod
-    async def stop_consume_tasks(self, queues: List[str] = None):
+    async def stop_consume_tasks(self, queues: list[str] | None = None):
         """Stop consuming tasks."""
+
         return
 
     @abc.abstractmethod
-    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
+    async def push_task_result(self, task_result: TaskResult, task_instance: TaskInstance):
         """Push task result to backend."""
+
         return
 
     @abc.abstractmethod
     async def pop_task_result(self, task_instance: TaskInstance) -> TaskResult:
         """Pop task result for `arrlio.models.TaskInstance` from backend."""
+
         return
 
     @abc.abstractmethod
     async def send_event(self, event: Event):
         """Send event to backend."""
+
         return
 
     @abc.abstractmethod
     async def consume_events(
         self,
         callback_id: str,
-        callback: Union[Callable, AsyncFunction],
-        event_types: List[str] = None,
+        callback: Callable[[Event], Any],
+        event_types: list[str] | None = None,
     ):
         """Consume event from the queues."""
+
         return
 
     @abc.abstractmethod
-    async def stop_consume_events(self, callback_id: str = None):
+    async def stop_consume_events(self, callback_id: str | None = None):
         """Stop consuming events."""
+
         return

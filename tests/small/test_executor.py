@@ -1,6 +1,6 @@
 import pytest
 
-from arrlio import exc
+from arrlio import exceptions
 from arrlio.executor import Config, Executor
 from arrlio.models import Task
 from tests import tasks
@@ -36,7 +36,7 @@ class TestExecutor:
         assert len(results) == 1
         assert results[0].res is None
         assert results[0].exc is not None
-        assert isinstance(results[0].exc, exc.NotFoundError)
+        assert isinstance(results[0].exc, exceptions.NotFoundError)
 
         results = []
         async for result in executor.execute(tasks.sleep.instantiate(args=(1,), timeout=0)):
@@ -44,7 +44,7 @@ class TestExecutor:
         assert len(results) == 1
         assert results[0].res is None
         assert results[0].exc is not None
-        assert isinstance(results[0].exc, exc.TaskTimeoutError)
+        assert isinstance(results[0].exc, exceptions.TaskTimeoutError)
 
         results = []
         async for result in executor.execute(tasks.async_xrange.instantiate(args=(1,), kwds={"sleep": 1}, timeout=0)):
@@ -52,7 +52,7 @@ class TestExecutor:
         assert len(results) == 1
         assert results[0].res is None
         assert results[0].exc is not None
-        assert isinstance(results[0].exc, exc.TaskTimeoutError)
+        assert isinstance(results[0].exc, exceptions.TaskTimeoutError)
 
     @pytest.mark.asyncio
     async def test_execute_in_thread(self, cleanup):

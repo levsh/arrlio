@@ -184,7 +184,7 @@ class TestConnection:
         conn = rabbitmq.Connection(["amqp://admin@example.com"])
         try:
             await conn.open()
-            mock_connect.assert_awaited_once_with("amqp://admin@example.com")
+            mock_connect.assert_awaited_once_with("amqp://admin@example.com", context=None)
             assert conn.is_open is True
             assert conn.is_closed is False
             assert conn._conn is not None
@@ -222,7 +222,7 @@ class TestBackend:
     async def test__init(self, mock_connect, cleanup):
         backend = rabbitmq.Backend(rabbitmq.Config())
         try:
-            assert isinstance(backend._serializer, serializers.json.Serializer)
+            assert isinstance(backend.serializer, serializers.json.Serializer)
             assert backend._conn is not None
         finally:
             await backend.close()

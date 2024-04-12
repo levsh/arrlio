@@ -1,75 +1,79 @@
 import asyncio
 import itertools
 import logging
+import ssl
 from asyncio import FIRST_COMPLETED, create_task, get_event_loop, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
+from enum import StrEnum
 from functools import partial
 from inspect import isasyncgenfunction, iscoroutine, iscoroutinefunction, isgeneratorfunction
-from typing import AsyncGenerator, Awaitable, Callable, Dict, Hashable, List, Optional, Tuple, Type, Union
+from ssl import SSLContext
+from typing import Any, AsyncGenerator, Callable, Coroutine, Hashable, Optional
 from uuid import UUID
 
 import aiormq
 import aiormq.exceptions
 import yarl
-from pydantic import Field
+from pydantic import Field, PositiveInt
+from pydantic_settings import SettingsConfigDict
 
 from arrlio import settings
 from arrlio.backends import base
-from arrlio.exc import GraphError, TaskClosedError, TaskResultError
+from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.types import AsyncFunction, PositiveInt, Priority, RetryTimeout, SecretAmqpDsn, Timeout
-from arrlio.utils import InfIter, is_debug_level, retry, wait_for
+from arrlio.types import TASK_MAX_PRIORITY, SecretAmqpDsn, SerializerModule, Timeout
+from arrlio.utils import LoopIter, is_debug_level, is_info_level, retry
 
 logger = logging.getLogger("arrlio.backends.rabbitmq")
 
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class QueueType(str, Enum):
+class QueueType(StrEnum):
     CLASSIC = "classic"
     QUORUM = "quorum"
 
 
-class ResultQueueMode(str, Enum):
+class ResultQueueMode(StrEnum):
     DIRECT_REPLY_TO = "direct_reply_to"
     COMMON = "common"
 
 
-SERIALIZER: str = "arrlio.serializers.json"
+SERIALIZER = "arrlio.serializers.json"
 
-URL: str = "amqp://guest:guest@localhost"
-VERIFY_SSL: bool = True
-TIMEOUT: Timeout = 15
+URL = "amqp://guest:guest@localhost"
+VERIFY_SSL = True
+TIMEOUT = 15
+CONNECT_TIMEOUT = 15
 
-PUSH_RETRY_TIMEOUTS: RetryTimeout = [5, 5, 5, 5]  # pylint: disable=invalid-name
-PULL_RETRY_TIMEOUTS: RetryTimeout = itertools.repeat(5)  # pylint: disable=invalid-name
+PUSH_RETRY_TIMEOUTS = [5, 5, 5, 5]  # pylint: disable=invalid-name
+PULL_RETRY_TIMEOUTS = itertools.repeat(5)  # pylint: disable=invalid-name
 
-TASKS_EXCHANGE: str = "arrlio"
-TASKS_EXCHANGE_DURABLE: bool = False
-TASKS_QUEUE_TYPE: QueueType = QueueType.CLASSIC
-TASKS_QUEUE_DURABLE: bool = False
-TASKS_QUEUE_AUTO_DELETE: bool = True
-TASKS_TTL: Timeout = 600
-TASKS_PREFETCH_COUNT: PositiveInt = 1
+TASKS_EXCHANGE = "arrlio"
+TASKS_EXCHANGE_DURABLE = False
+TASKS_QUEUE_TYPE = QueueType.CLASSIC
+TASKS_QUEUE_DURABLE = False
+TASKS_QUEUE_AUTO_DELETE = True
+TASKS_TTL = 600
+TASKS_PREFETCH_COUNT = 1
 
-EVENTS_EXCHANGE: str = "arrlio.events"
-EVENTS_EXCHANGE_DURABLE: bool = False
-EVENTS_QUEUE_TYPE: QueueType = QueueType.CLASSIC
-EVENTS_QUEUE_DURABLE: bool = False
-EVENTS_QUEUE_AUTO_DELETE: bool = False
-EVENTS_QUEUE_PREFIX: str = "arrlio."
-EVENTS_TTL: Timeout = 600
-EVENTS_PREFETCH_COUNT: PositiveInt = 10
+EVENTS_EXCHANGE = "arrlio.events"
+EVENTS_EXCHANGE_DURABLE = False
+EVENTS_QUEUE_TYPE = QueueType.CLASSIC
+EVENTS_QUEUE_DURABLE = False
+EVENTS_QUEUE_AUTO_DELETE = False
+EVENTS_QUEUE_PREFIX = "arrlio."
+EVENTS_TTL = 600
+EVENTS_PREFETCH_COUNT = 10
 
-RESULTS_QUEUE_MODE: ResultQueueMode = ResultQueueMode.COMMON
-RESULTS_QUEUE_PREFIX: str = "arrlio."
-RESULTS_QUEUE_DURABLE: bool = False
-RESULTS_QUEUE_TYPE: QueueType = QueueType.CLASSIC
-RESULTS_TTL: Timeout = 600
-RESULTS_PREFETCH_COUNT: Timeout = 10
+RESULTS_QUEUE_MODE = ResultQueueMode.COMMON
+RESULTS_QUEUE_PREFIX = "arrlio."
+RESULTS_QUEUE_DURABLE = False
+RESULTS_QUEUE_TYPE = QueueType.CLASSIC
+RESULTS_TTL = 600
+RESULTS_PREFETCH_COUNT = 10
 
 
 class Connection:
@@ -77,17 +81,19 @@ class Connection:
 
     __shared: dict = {}
 
-    def __init__(self, urls: List[str]):
-        self._urls: yarl.URL = [yarl.URL(url) for url in urls]
-        self._urls_iter = InfIter(self._urls)
+    def __init__(self, urls: list[str], ssl_context: SSLContext | None = None):
+        self._urls = urls
+        self._urls_iter = LoopIter(self._urls)
 
-        self.url: yarl.URL = next(self._urls_iter)
+        self.url = next(self._urls_iter)
 
-        self._open_task: Awaitable = asyncio.Future()
+        self._ssl_context = ssl_context
+
+        self._open_task: asyncio.Task | asyncio.Future = asyncio.Future()
         self._open_task.set_result(None)
 
         self._closed: asyncio.Future = asyncio.Future()
-        self._watcher_task: asyncio.Task = None
+        self._watcher_task: asyncio.Task | None = None
 
         self._key: tuple = (get_event_loop(), tuple(sorted(self._urls)))
 
@@ -114,7 +120,7 @@ class Connection:
     def __del__(self):
         if self._key:
             if self._conn and not self.is_closed:
-                logger.warning("%s: unclosed", self)
+                logger.warning("%s unclosed", self)
             shared = self._shared
             shared["objs"] -= 1
             if self in shared:
@@ -141,11 +147,13 @@ class Connection:
     def set_callback(self, tp: str, name: Hashable, callback: Callable):
         if shared := self._shared.get(self):
             if tp not in shared:
-                raise ValueError("Invalid callback type")
+                raise ValueError("invalid callback type")
             shared[tp][name] = callback
 
-    async def _execute_callbacks(self, tp: str, reraise: bool = None):
+    async def _execute_callbacks(self, tp: str, reraise: bool | None = None):
         async def fn(name, callback):
+            logger.debug("%s execute callback %s[%s]", self, tp, name)
+
             self._shared[self]["callback_tasks"][tp][name] = asyncio.current_task()
             try:
                 if iscoroutinefunction(callback):
@@ -155,7 +163,7 @@ class Connection:
                     if iscoroutine(res):
                         await res
             except Exception as e:
-                logger.exception("%s: callback '%s' '%s':%s error: %s %s", self, tp, name, callback, e.__class__, e)
+                logger.exception("%s callback %s[%s] %s", self, tp, name, callback)
                 if reraise:
                     raise e
             finally:
@@ -164,10 +172,10 @@ class Connection:
         for name, callback in tuple(self._shared[self][tp].items()):
             await create_task(fn(name, callback))
 
-    def remove_callback(self, tp: str, name: Hashable, cancel: bool = None):
+    def remove_callback(self, tp: str, name: Hashable, cancel: bool | None = None):
         if shared := self._shared.get(self):
             if tp not in shared:
-                raise ValueError("Invalid callback type")
+                raise ValueError("invalid callback type")
             if name in shared[tp]:
                 del shared[tp][name]
             if cancel:
@@ -175,15 +183,12 @@ class Connection:
                 if task:
                     task.cancel()
 
-    def remove_callbacks(self, cancel: bool = None):
+    def remove_callbacks(self, cancel: bool | None = None):
         if self in self._shared:
             if cancel:
-                for task in self._shared[self]["callback_tasks"]["on_open"].values():
-                    task.cancel()
-                for task in self._shared[self]["callback_tasks"]["on_lost"].values():
-                    task.cancel()
-                for task in self._shared[self]["callback_tasks"]["on_close"].values():
-                    task.cancel()
+                for tp in ("on_open", "on_lost", "on_close"):
+                    for task in self._shared[self]["callback_tasks"][tp].values():
+                        task.cancel()
             self._shared[self] = {
                 "on_open": {},
                 "on_lost": {},
@@ -192,7 +197,7 @@ class Connection:
             }
 
     def __str__(self):
-        return f"{self.__class__.__name__}[{self.url.host}]"
+        return f"{self.__class__.__name__}[{yarl.URL(self.url).host}]"
 
     def __repr__(self):
         return self.__str__()
@@ -209,26 +214,28 @@ class Connection:
         try:
             await wait([self._conn.closing, self._closed], return_when=FIRST_COMPLETED)
         except Exception as e:
-            logger.warning("%s: %s %s", self, e.__class__, e)
+            logger.warning("%s %s %s", self, e.__class__, e)
 
         self._watcher_task = None
 
         if not self._closed.done():
-            logger.warning("%s: connection lost", self)
+            logger.warning("%s connection lost", self)
             await self._channel.close()
             self._refs -= 1
             await self._execute_callbacks("on_lost")
 
     async def _connect(self):
-        connect_timeout = self.url.query.get("connection_timeout")
-        if connect_timeout is not None:
-            connect_timeout = int(connect_timeout) / 1000
-
         while not self.is_closed:
+            connect_timeout = yarl.URL(self.url).query.get("connection_timeout")
+            if connect_timeout is not None:
+                connect_timeout = int(connect_timeout) / 1000
+            else:
+                connect_timeout = CONNECT_TIMEOUT
             try:
-                logger.info("%s: connecting(timeout=%s)...", self, connect_timeout)
+                logger.info("%s connecting[timeout=%s]...", self, connect_timeout)
 
-                self._conn = await wait_for(aiormq.connect(f"{self.url}"), connect_timeout)
+                async with asyncio.timeout(connect_timeout):
+                    self._conn = await aiormq.connect(self.url, context=self._ssl_context)
                 self._urls_iter.reset()
                 break
             except (asyncio.TimeoutError, ConnectionError, aiormq.exceptions.ConnectionClosed) as e:
@@ -236,17 +243,17 @@ class Connection:
                     url = next(self._urls_iter)
                 except StopIteration:
                     raise e
-                logger.warning("%s: %s %s", self, e.__class__, e)
+                logger.warning("%s %s %s", self, e.__class__, e)
                 self.url = url
 
-        logger.info("%s: connected", self)
+        logger.info("%s connected", self)
 
     async def open(self):
         if self.is_open:
             return
 
         if self.is_closed:
-            raise Exception("Can't reopen closed connection")
+            self._closed = asyncio.Future()
 
         async with self._shared["connect_lock"]:
             if self._conn is None or self._conn.is_closed:
@@ -256,7 +263,12 @@ class Connection:
             if self._watcher_task is None:
                 self._refs += 1
                 self._watcher_task = create_task(self._watcher())
-                await self._execute_callbacks("on_open", reraise=True)
+                try:
+                    await self._execute_callbacks("on_open", reraise=True)
+                except Exception as e:
+                    logger.exception(e)
+                    await self.close()
+                    raise e
 
     async def close(self):
         if self.is_closed:
@@ -264,6 +276,7 @@ class Connection:
 
         if not self._open_task.done():
             self._open_task.cancel()
+            self._open_task = asyncio.Future()
 
         if self._conn:
             await self._execute_callbacks("on_close")
@@ -275,14 +288,15 @@ class Connection:
             if self._conn:
                 await self._conn.close()
                 self._conn = None
-                logger.info("%s: close underlying connection", self)
+                logger.info("%s close underlying connection", self)
 
         self.remove_callbacks(cancel=True)
 
         if self._watcher_task:
             await self._watcher_task
+            self._watcher_task = None
 
-        logger.info("%s: closed", self)
+        logger.info("%s closed", self)
 
     async def new_channel(self) -> aiormq.Channel:
         await self.open()
@@ -302,7 +316,7 @@ class Exchange:
     type: str = "direct"
     durable: bool = False
     auto_delete: bool = False
-    timeout: int = None
+    timeout: int | None = None
     conn: Connection = None
     conn_factory: Callable = field(default=None, repr=False)
 
@@ -314,7 +328,7 @@ class Exchange:
         if self.conn_factory:
             object.__setattr__(self, "conn", self.conn_factory())
 
-    async def close(self, delete: bool = None, timeout: int = None):
+    async def close(self, delete: bool | None = None, timeout: int | None = None):
         logger.debug("Close %s", self)
         try:
             if self.conn_factory:
@@ -331,12 +345,17 @@ class Exchange:
             if self.conn_factory:
                 await self.conn.close()
 
-    async def declare(self, timeout: int = None, restore: bool = None, force: bool = None):
+    async def declare(
+        self,
+        timeout: int | None = None,
+        restore: bool | None = None,
+        force: bool | None = None,
+    ):
         if self.name == "":
             return
 
         if is_debug_level():
-            logger.debug("Declare(force=%s, restore=%s) %s", force, restore, self)
+            logger.debug("Declare[force=%s, restore=%s] %s", force, restore, self)
 
         async def fn():
             channel = await self.conn.channel()
@@ -372,13 +391,19 @@ class Exchange:
         self,
         data: bytes,
         routing_key: str,
-        properties: dict = None,
-        timeout: int = None,
+        properties: dict | None = None,
+        timeout: int | None = None,
     ):
         channel = await self.conn.channel()
 
         if is_debug_level():
-            logger.debug("Exchange(name='%s') channel(%s) publish %s", self.name, channel, data)
+            logger.debug(
+                "Exchange[name='%s'] channel[%s] publish[routing_key='%s'] %s",
+                self.name,
+                channel,
+                routing_key,
+                data if not settings.LOG_SANITIZE else "<hiden>",
+            )
 
         await channel.basic_publish(
             data,
@@ -406,14 +431,14 @@ class Queue:
     durable: bool = False
     auto_delete: bool = False
     prefetch_count: int = 1
-    max_priority: int = Priority.le
-    expires: int = None
-    msg_ttl: int = None
-    timeout: int = None
+    max_priority: int = TASK_MAX_PRIORITY
+    expires: int | None = None
+    msg_ttl: int | None = None
+    timeout: int | None = None
     conn: Connection = None
     conn_factory: Callable = field(default=None, repr=False)
-    consumer: Consumer = None
-    bindings: List[Tuple[Exchange, str]] = field(default_factory=list, init=False)
+    consumer: Consumer | None = None
+    bindings: list[tuple[Exchange, str]] = field(default_factory=list, init=False)
 
     def __post_init__(self):
         if all((self.conn, self.conn_factory)):
@@ -433,7 +458,7 @@ class Queue:
             lambda: object.__setattr__(self, "consumer", None),
         )
 
-    async def close(self, delete: bool = None, timeout: int = None):
+    async def close(self, delete: bool | None = None, timeout: int | None = None):
         logger.debug("Close %s", self)
         try:
             if self.conn_factory:
@@ -459,9 +484,9 @@ class Queue:
             if self.conn_factory:
                 await self.conn.close()
 
-    async def declare(self, timeout: int = None, restore: bool = None, force: bool = None):
+    async def declare(self, timeout: int | None = None, restore: bool | None = None, force: bool | None = None):
         if is_debug_level():
-            logger.debug("Declare(force=%s, restore=%s) %s", force, restore, self)
+            logger.debug("Declare[force=%s, restore=%s] %s", force, restore, self)
 
         async def fn():
             channel = await self.conn.channel()
@@ -501,7 +526,13 @@ class Queue:
                 partial(self.declare, timeout=timeout),
             )
 
-    async def bind(self, exchange: Exchange, routing_key: str, timeout: int = None, restore: bool = None):
+    async def bind(
+        self,
+        exchange: Exchange,
+        routing_key: str,
+        timeout: int | None = None,
+        restore: bool | None = None,
+    ):
         if is_debug_level():
             logger.debug(
                 "Bind queue '%s' to exchange '%s' with routing_key '%s'",
@@ -518,7 +549,8 @@ class Queue:
             timeout=timeout or self.timeout,
         )
 
-        self.bindings.append((Exchange, routing_key))
+        if not (exchange, routing_key) in self.bindings:
+            self.bindings.append((exchange, routing_key))
 
         if restore:
             self.conn.set_callback(
@@ -527,7 +559,7 @@ class Queue:
                 partial(self.bind, exchange, routing_key, timeout=timeout),
             )
 
-    async def unbind(self, exchange: Exchange, routing_key: str, timeout: int = None):
+    async def unbind(self, exchange: Exchange, routing_key: str, timeout: int | None = None):
         if is_debug_level():
             logger.debug(
                 "Unbind queue '%s' from exchange '%s' for routing_key '%s'",
@@ -539,21 +571,26 @@ class Queue:
         if (exchange, routing_key) in self.bindings:
             self.bindings.remove((exchange, routing_key))
 
-        channel = await self.conn.channel()
-        await channel.queue_bind(
-            self.name,
-            exchange.name,
-            routing_key=routing_key,
-            timeout=timeout or self.timeout,
-        )
+            channel = await self.conn.channel()
+            await channel.queue_unbind(
+                self.name,
+                exchange.name,
+                routing_key=routing_key,
+                timeout=timeout or self.timeout,
+            )
 
-        self.conn.remove_callback(
-            "on_open",
-            f"on_open_queue_{self.name}_bind_{exchange.name}_{routing_key}",
-            cancel=True,
-        )
+            self.conn.remove_callback(
+                "on_open",
+                f"on_open_queue_{self.name}_bind_{exchange.name}_{routing_key}",
+                cancel=True,
+            )
 
-    async def consume(self, callback, prefetch_count: int = None, timeout: int = None):
+    async def consume(
+        self,
+        callback: Callable[[aiormq.Channel, aiormq.abc.DeliveredMessage], Coroutine],
+        prefetch_count: int | None = None,
+        timeout: int | None = None,
+    ):
         if self.consumer is None:
             channel = await self.conn.new_channel()
             await channel.basic_qos(
@@ -590,7 +627,7 @@ class Queue:
 
         return self.consumer
 
-    async def stop_consume(self, timeout: int = None):
+    async def stop_consume(self, timeout: int | None = None):
         logger.debug("Stop consume %s", self)
         self.conn.remove_callback("on_lost", f"on_lost_queue_{self.name}_consume", cancel=True)
         if self.consumer and not self.consumer.channel.is_closed:
@@ -599,16 +636,24 @@ class Queue:
             object.__setattr__(self, "consumer", None)
 
 
+class SerializerConfig(base.SerializerConfig):
+    module: SerializerModule = SERIALIZER
+
+
 class Config(base.Config):
     """RabbitMQ backend config."""
 
-    serializer: base.SerializerConfig = Field(default_factory=lambda: base.SerializerConfig(module=SERIALIZER))
-    url: Union[SecretAmqpDsn, List[SecretAmqpDsn]] = Field(default_factory=lambda: URL)
+    model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_")
+
+    serializer: SerializerConfig = Field(default_factory=SerializerConfig)
+    url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
     """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
-    push_retry_timeouts: Optional[RetryTimeout] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeouts: Optional[RetryTimeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
+    # push_retry_timeouts: Optional[RetryTimeout] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
+    # pull_retry_timeouts: Optional[RetryTimeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
+    push_retry_timeouts: Optional[Any] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
+    pull_retry_timeouts: Optional[Any] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
     tasks_exchange: str = Field(default_factory=lambda: TASKS_EXCHANGE)
     tasks_exchange_durable: bool = Field(default_factory=lambda: TASKS_EXCHANGE_DURABLE)
     tasks_queue_type: QueueType = Field(default_factory=lambda: TASKS_QUEUE_TYPE)
@@ -635,8 +680,36 @@ class Config(base.Config):
     """.. note:: Only valid for `ResultQueueMode.COMMON`."""
     results_prefetch_count: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_PREFETCH_COUNT)
 
-    class Config:
-        env_prefix = [f"{ENV_PREFIX}RABBITMQ_", f"{ENV_PREFIX}RABBITMQ_BROKER_"]
+    def get_ssl_context(self) -> ssl.SSLContext | None:
+        url = self.url[0] if isinstance(self.url, list) else self.url  # pylint: disable=unsubscriptable-object
+
+        if url.scheme != "amqps":  # pylint: disable=no-member
+            return
+
+        url = yarl.URL(url.get_secret_value())  # pylint: disable=no-member
+        query = url.query
+
+        context = ssl.create_default_context(
+            ssl.Purpose.SERVER_AUTH,
+            capath=query.get("capath"),
+            cafile=query.get("cafile"),
+        )
+
+        cert = query.get("certfile")
+        if cert:
+            keyfile = query.get("keyfile")
+            context.load_cert_chain(
+                cert,
+                keyfile=keyfile,
+                password=self.certpass.get_secret_value() if self.certpass else None,
+            )
+
+        verify = query.get("no_verify_ssl", "0") == "0"
+        if not verify:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+        return context
 
 
 def exc_filter(e) -> bool:
@@ -652,7 +725,7 @@ def exc_filter(e) -> bool:
 
 
 class Backend(base.Backend):
-    def __init__(self, config: Type[Config]):
+    def __init__(self, config: Config):
         """
         Args:
             config: backend `Config`.
@@ -661,8 +734,8 @@ class Backend(base.Backend):
         super().__init__(config)
 
         self._conn: Connection = self._connection_factory()
-        self._conn.set_callback("on_open", "op_conn_open_one_time", self._on_conn_open_one_time)
-        self._conn.set_callback("on_open", "op_conn_open", self._on_conn_open)
+        self._conn.set_callback("on_open", "on_conn_open_first_time", self._on_conn_open_first_time)
+        self._conn.set_callback("on_open", "on_conn_open", self._on_conn_open)
 
         self._default_exchange: Exchange = Exchange(conn=self._conn)
         self._tasks_exchange: Exchange = Exchange(
@@ -672,7 +745,7 @@ class Backend(base.Backend):
             auto_delete=not config.tasks_exchange_durable,
             timeout=config.timeout,
         )
-        self._task_queues: Dict[str, Queue] = {}
+        self._task_queues: dict[str, Queue] = {}
 
         # self._semaphore = asyncio.Semaphore(value=config.pool_size)
 
@@ -683,13 +756,13 @@ class Backend(base.Backend):
             durable=config.results_queue_durable,
             auto_delete=False,
             prefetch_count=config.results_prefetch_count,
-            expires=config.results_ttl,
-            msg_ttl=config.results_ttl,
+            # expires=config.results_ttl,
+            # msg_ttl=config.results_ttl,
             timeout=config.timeout,
         )
-        self._results_storage: Dict[UUID, Tuple[asyncio.Event, List[TaskResult]]] = {}
+        self._results_storage: dict[UUID, tuple[asyncio.Event, list[TaskResult]]] = {}
 
-        self._direct_reply_to_consumer: Tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = ()
+        self._direct_reply_to_consumer: tuple[aiormq.Channel, aiormq.spec.Basic.ConsumeOk] = ()
 
         self._events_exchange: Exchange = Exchange(
             config.events_exchange,
@@ -706,11 +779,11 @@ class Backend(base.Backend):
             durable=config.events_queue_durable,
             auto_delete=self.config.events_queue_auto_delete,
             prefetch_count=config.events_prefetch_count,
-            expires=config.events_ttl,
-            msg_ttl=config.events_ttl,
+            # expires=config.events_ttl,
+            # msg_ttl=config.events_ttl,
             timeout=config.timeout,
         )
-        self._event_callbacks: Dict[str, Tuple[AsyncFunction, List[str]]] = {}
+        self._event_callbacks: dict[str, tuple[Callable[[Event], Any], list[str] | None]] = {}
 
         self._send_task = retry(
             msg=f"{self} action send_task",
@@ -746,9 +819,9 @@ class Backend(base.Backend):
         urls = self.config.url
         if not isinstance(urls, list):
             urls = [urls]
-        return Connection([url.get_secret_value() for url in urls])
+        return Connection([url.get_secret_value() for url in urls], ssl_context=self.config.get_ssl_context())
 
-    async def _on_conn_open_one_time(self):
+    async def _on_conn_open_first_time(self):
         await self._tasks_exchange.declare(restore=True, force=True)
         await self._results_queue.declare(restore=True, force=True)
         await self._results_queue.bind(self._tasks_exchange, self._results_queue.name, restore=True)
@@ -760,13 +833,13 @@ class Backend(base.Backend):
             and None
         )
 
-        self._conn.remove_callback("on_open", "op_conn_open_one_time")
+        self._conn.remove_callback("on_open", "on_conn_open_first_time")
 
     async def _on_conn_open(self):
         channel = await self._tasks_exchange.conn.channel()
 
         if is_debug_level():
-            logger.debug("%s: channel(%s) start consuming results queue '%s'", self, channel, "amq.rabbitmq.reply-to")
+            logger.debug("%s channel[%s] start consuming results queue '%s'", self, channel, "amq.rabbitmq.reply-to")
 
         self._direct_reply_to_consumer = (
             channel,
@@ -791,20 +864,20 @@ class Backend(base.Backend):
         self,
         channel: aiormq.Channel,
         message: aiormq.abc.DeliveredMessage,
-        no_ack: bool = None,
+        no_ack: bool | None = None,
     ):
         try:
             properties: aiormq.spec.Basic.Properties = message.header.properties
             task_id: UUID = UUID(properties.message_id)
 
-            task_result: TaskResult = self._serializer.loads_task_result(message.body)
+            task_result: TaskResult = self.serializer.loads_task_result(message.body)
 
             if not no_ack:
                 await channel.basic_ack(message.delivery.delivery_tag)
 
             if is_debug_level():
                 logger.debug(
-                    "%s: channel(%s) got result for task %s\n%s",
+                    "%s channel[%s] got result for task %s\n%s",
                     self,
                     channel,
                     task_id,
@@ -833,26 +906,30 @@ class Backend(base.Backend):
                 durable=self.config.tasks_queue_durable,
                 auto_delete=self.config.tasks_queue_auto_delete,
                 prefetch_count=self.config.tasks_prefetch_count,
-                max_priority=Priority.le,
-                expires=self.config.tasks_ttl,
-                msg_ttl=self.config.tasks_ttl,
+                max_priority=TASK_MAX_PRIORITY,
+                # expires=self.config.tasks_ttl,
+                # msg_ttl=self.config.tasks_ttl,
                 timeout=self.config.timeout,
             )
-            self._task_queues[name] = queue
             await queue.declare(restore=True)
             await queue.bind(self._tasks_exchange, name, timeout=self.config.timeout, restore=True)
+            self._task_queues[name] = queue
 
         return self._task_queues[name]
 
     async def _on_task_message(self, callback, channel: aiormq.Channel, message: aiormq.abc.DeliveredMessage):
+        task_instance = None
         try:
-            task_instance: TaskInstance = self._serializer.loads_task_instance(message.body)
+            if is_debug_level():
+                logger.debug("%s got raw message %s", self, message.body if not settings.LOG_SANITIZE else "<hiden>")
+
+            task_instance = self.serializer.loads_task_instance(message.body)
 
             task_instance.extra["rabbitmq:reply_to"] = message.header.properties.reply_to
 
-            if is_debug_level():
-                logger.debug(
-                    "%s: got task\n%s",
+            if is_info_level():
+                logger.info(
+                    "%s got task\n%s",
                     self,
                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                 )
@@ -867,6 +944,23 @@ class Backend(base.Backend):
 
         except Exception as e:
             logger.exception(e)
+            try:
+                exchange = self._tasks_exchange
+                routing_key = message.header.properties.reply_to
+                if routing_key.startswith("amq.rabbitmq.reply-to."):
+                    exchange = self._default_exchange
+                await exchange.publish(
+                    self.serializer.dumps_task_result(TaskResult(res=None, exc=e, trb=None), task_instance),
+                    routing_key=routing_key,
+                    properties={
+                        "delivery_mode": 2,
+                        "message_id": message.header.properties.message_id,
+                        "timestamp": datetime.now(tz=timezone.utc),
+                    },
+                    timeout=self.config.timeout,
+                )
+            except Exception as ee:
+                logger.exception(ee)
 
     async def close(self):
         await super().close()
@@ -888,7 +982,7 @@ class Backend(base.Backend):
     async def _send_task(self, task_instance: TaskInstance, **kwds):  # pylint: disable=method-hidden
         reply_to = self._reply_to(task_instance)
         task_instance.extra["rabbitmq:reply_to"] = reply_to
-        data: bytes = self._serializer.dumps_task_instance(task_instance)
+        data: bytes = self.serializer.dumps_task_instance(task_instance)
 
         await self._ensure_task_queue(task_instance.queue)
 
@@ -907,26 +1001,23 @@ class Backend(base.Backend):
         )
 
     async def send_task(self, task_instance: TaskInstance, **kwds):
-        if (
-            "graph:id" in task_instance.extra
-            and (task_instance.extra.get("rabbitmq:results_queue_mode") or self.config.results_queue_mode)
-            == ResultQueueMode.DIRECT_REPLY_TO
-        ):
-            raise GraphError(f"Unsupported {ResultQueueMode.DIRECT_REPLY_TO}")
         await self._create_internal_task("send_task", lambda: self._send_task(task_instance, **kwds))
 
-    async def close_task(self, task_instance: TaskInstance, idx: Tuple[str, int] = None):
+    async def close_task(self, task_instance: TaskInstance, idx: tuple[str, int] | None = None):
         if is_debug_level():
-            logger.debug("%s: close task %s(%s)", self, task_instance.task_id, task_instance.name)
+            logger.debug("%s close task %s[%s]", self, task_instance.name, task_instance.task_id)
 
         if "rabbitmq:reply_to" not in task_instance.extra:
             task_instance.extra["rabbitmq:reply_to"] = self._reply_to(task_instance)
 
-        await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError(), idx=idx))
+        await self.push_task_result(
+            TaskResult(exc=TaskClosedError(task_instance.task_id), idx=idx),
+            task_instance,
+        )
 
-    async def consume_tasks(self, queues: List[str], callback: AsyncFunction):
-        queues: List[Queue] = [await self._ensure_task_queue(queue) for queue in queues]
-        for queue in queues:
+    async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
+        for queue_name in queues:
+            queue: Queue = await self._ensure_task_queue(queue_name)
             if not queue.consumer:
                 await queue.consume(
                     lambda *args, **kwds: self._create_internal_task(
@@ -936,16 +1027,16 @@ class Backend(base.Backend):
                     and None
                 )
 
-    async def stop_consume_tasks(self, queues: List[str] = None):
+    async def stop_consume_tasks(self, queues: list[str] | None = None):
         queues = queues if queues is not None else list(self._task_queues.keys())
-        for name in queues:
-            if not (queue := self._task_queues.get(name)):
+        for queue_name in queues:
+            if not (queue := self._task_queues.get(queue_name)):
                 continue
             if queue.consumer:
                 await queue.stop_consume()
-            self._task_queues.pop(name)
+            self._task_queues.pop(queue_name)
 
-    async def _result_routing(self, task_instance: TaskInstance) -> Tuple[str, str]:
+    async def _result_routing(self, task_instance: TaskInstance) -> tuple[Exchange, str]:
         exchange = self._tasks_exchange
         routing_key = task_instance.extra["rabbitmq:reply_to"]
         if routing_key.startswith("amq.rabbitmq.reply-to."):
@@ -955,24 +1046,24 @@ class Backend(base.Backend):
 
     async def _push_task_result(
         self,
-        task_instance: TaskInstance,
         task_result: TaskResult,
+        task_instance: TaskInstance,
     ):  # pylint: disable=method-hidden
         exchange, routing_key = await self._result_routing(task_instance)
 
         if is_debug_level():
             logger.debug(
-                "%s: push result for task %s(%s) into exchange '%s' with routing_key '%s'\n%s",
+                "%s push result for task %s[%s] into exchange '%s' with routing_key '%s'\n%s",
                 self,
-                task_instance.task_id,
                 task_instance.name,
+                task_instance.task_id,
                 exchange.name,
                 routing_key,
                 task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
         await exchange.publish(
-            self._serializer.dumps_task_result(task_instance, task_result),
+            self.serializer.dumps_task_result(task_result, task_instance),
             routing_key=routing_key,
             properties={
                 "delivery_mode": 2,
@@ -986,19 +1077,19 @@ class Backend(base.Backend):
             timeout=self.config.timeout,
         )
 
-    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
+    async def push_task_result(self, task_result: TaskResult, task_instance: TaskInstance):
         if not task_instance.result_return:
             return
 
         if task_instance.ack_late:
             await self._create_internal_task(
                 "push_task_result",
-                lambda: self._push_task_result_ack_late(task_instance, task_result),
+                lambda: self._push_task_result_ack_late(task_result, task_instance),
             )
         else:
             await self._create_internal_task(
                 "push_task_result",
-                lambda: self._push_task_result(task_instance, task_result),
+                lambda: self._push_task_result(task_result, task_instance),
             )
 
     async def _pop_task_results(self, task_instance: TaskInstance):
@@ -1007,10 +1098,10 @@ class Backend(base.Backend):
         async def fn():
             func = task_instance.func
 
-            if task_instance.extra.get("graph:graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
+            if task_instance.extra.get("arrlio:closable") or isasyncgenfunction(func) or isgeneratorfunction(func):
                 while not self.is_closed:
                     if task_id not in self._results_storage:
-                        raise TaskResultError(f"Result for {task_id}({task_instance.name}) expired")
+                        raise TaskResultError("result expired")
 
                     ev, results = self._results_storage[task_id]
                     await ev.wait()
@@ -1024,7 +1115,13 @@ class Backend(base.Backend):
                             return
 
                         if is_debug_level():
-                            logger.debug("%s: pop result for %s(%s)", self, task_id, task_instance.name)
+                            logger.debug(
+                                "%s pop result for task %s[%s]\n%s",
+                                self,
+                                task_instance.name,
+                                task_id,
+                                task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
+                            )
 
                         yield task_result
 
@@ -1034,7 +1131,13 @@ class Backend(base.Backend):
                 ev.clear()
 
                 if is_debug_level():
-                    logger.debug("%s: pop result for %s(%s)", self, task_id, task_instance.name)
+                    logger.debug(
+                        "%s pop result for task %s[%s]\n%s",
+                        self,
+                        task_instance.name,
+                        task_id,
+                        results[0].pretty_repr(sanitize=settings.LOG_SANITIZE),
+                    )
 
                 yield results.pop(0)
 
@@ -1042,7 +1145,7 @@ class Backend(base.Backend):
 
         self._allocate_results_storage(task_id)
 
-        idx_data: [str, int] = {}
+        idx_data: dict[str, int] = {}
 
         try:
             while not self.is_closed:
@@ -1056,9 +1159,7 @@ class Backend(base.Backend):
                         continue
                     idx_data[idx_0] += 1
                     if idx_1 > idx_data[idx_0]:
-                        raise TaskResultError(
-                            f"Unexpected result index for task {task_id}. Expect {idx_data[idx_0]}, got {idx_1}"
-                        )
+                        raise TaskResultError(f"unexpected result index, expect {idx_data[idx_0]}, got {idx_1}")
                 if not isinstance(task_result.exc, TaskClosedError):
                     yield task_result
 
@@ -1070,14 +1171,14 @@ class Backend(base.Backend):
 
     async def pop_task_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         if not task_instance.result_return:
-            raise TaskResultError(f"{task_instance.task_id}")
+            raise TaskResultError("try to pop result for task with result_return=False")
 
         async for task_result in self._pop_task_results(task_instance):
             yield task_result
 
     async def _send_event(self, event: Event):  # pylint: disable=method-hidden
         await self._events_exchange.publish(
-            self._serializer.dumps_event(event),
+            self.serializer.dumps_event(event),
             routing_key="events",
             properties={
                 "delivery_mode": 2,
@@ -1087,13 +1188,16 @@ class Backend(base.Backend):
         )
 
     async def send_event(self, event: Event):
+        if is_debug_level():
+            logger.debug("%s put event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+
         await self._create_internal_task("send_event", lambda: self._send_event(event))
 
     async def consume_events(
         self,
         callback_id: str,
-        callback: Union[Callable, AsyncFunction],
-        event_types: List[str] = None,
+        callback: Callable[[Event], Any],
+        event_types: list[str] | None = None,
     ):
         self._event_callbacks[callback_id] = (callback, event_types)
 
@@ -1102,10 +1206,10 @@ class Backend(base.Backend):
 
         async def on_message(channel: aiormq.Channel, message: aiormq.abc.DeliveredMessage):
             try:
-                event: Event = self._serializer.loads_event(message.body)
+                event: Event = self.serializer.loads_event(message.body)
 
                 if is_debug_level():
-                    logger.debug("%s: got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+                    logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                 await channel.basic_ack(message.delivery.delivery_tag)
 
@@ -1128,7 +1232,7 @@ class Backend(base.Backend):
         await self._events_queue.bind(self._events_exchange, routing_key="events", restore=True)
         await self._events_queue.consume(lambda *args, **kwds: create_task(on_message(*args, **kwds)) and None)
 
-    async def stop_consume_events(self, callback_id: str = None):
+    async def stop_consume_events(self, callback_id: str | None = None):
         if callback_id:
             self._event_callbacks.pop(callback_id, None)
             if self._event_callbacks:

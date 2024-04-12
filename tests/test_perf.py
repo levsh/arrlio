@@ -7,10 +7,7 @@ from time import monotonic
 
 import pytest
 
-import arrlio
 from tests import tasks
-
-arrlio.logger.setLevel("ERROR")
 
 
 # @pytest.mark.skip
@@ -20,8 +17,24 @@ class TestPerf:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "common"}}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "backend": {
+                    "module": "arrlio.backends.rabbitmq",
+                    "config": {
+                        "results_queue_mode": "common",
+                        # "serializer": {"module": "arrlio.serializers.msgpack"},
+                    },
+                }
+            },
+            {
+                "backend": {
+                    "module": "arrlio.backends.rabbitmq",
+                    "config": {
+                        "results_queue_mode": "direct_reply_to",
+                        # "serializer": {"module": "arrlio.serializers.msgpack"},
+                    },
+                }
+            },
         ],
         indirect=True,
         ids=[
@@ -33,13 +46,20 @@ class TestPerf:
     async def test_perf_arrlio(self, params):
         backend, app = params
 
+        logger = logging.getLogger("arrlio")
+        logger.setLevel(logging.ERROR)
+
         url = app.backend.config.url[-1].get_secret_value()
         cmd = subprocess.run(["poetry", "run", "which", "python"], capture_output=True).stdout.decode().strip()
         cwd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
         ps = subprocess.Popen(
-            [cmd, "tests/worker.py"],
+            [cmd, "arrlio/tests/worker.py"],
             cwd=cwd,
-            env={"ARRLIO_RABBITMQ_URL": json.dumps([url]), "PYTHONPATH": f"$PYTHONPATH:{cwd}"},
+            env={
+                "ARRLIO_RABBITMQ_URL": json.dumps([url]),
+                # "ARRLIO_SERIALIZER_MODULE": "arrlio.serializers.msgpack",
+                "PYTHONPATH": f"$PYTHONPATH:{cwd}",
+            },
         )
         try:
             hello_world = tasks.hello_world

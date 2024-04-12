@@ -6,7 +6,7 @@ from unittest import mock
 import pytest
 
 import arrlio
-from arrlio import App, Config, TaskResult
+from arrlio import App, Config, TaskResult, exceptions
 from arrlio.plugins import base
 from arrlio.plugins.events import Config as EventsPluginConfig
 from arrlio.plugins.events import Config as GraphsPluginConfig
@@ -72,7 +72,7 @@ class TestEventsPlugin:
                     assert event.type == "task:done"
                     assert event.data == {
                         "task:id": task_instance.task_id,
-                        "status": TaskResult(res="Hello World!", exc=None, trb=None, routes=None),
+                        "result": TaskResult(res="Hello World!", exc=None, trb=None, idx=None, routes=None),
                     }
             finally:
                 await plugin.on_close()
@@ -89,7 +89,7 @@ class TestGraphsPlugin:
             try:
                 assert plugin.name == "arrlio.graphs"
 
-                with pytest.raises(arrlio.exc.ArrlioError):
+                with pytest.raises(exceptions.ArrlioError):
                     await plugin.on_init()
 
                 with mock.patch("arrlio.core.App.consume_events") as mock_consume_events:
@@ -173,10 +173,10 @@ class TestPlugin:
     async def test_task_context(self, cleanup):
         ev = asyncio.Event()
 
-        class _Config(base.Config):
+        class TestConfig(base.Config):
             pass
 
-        class _Plugin(base.Plugin):
+        class TestPlugin(base.Plugin):
             @property
             def name(self) -> str:
                 return "arrlio.tests"
@@ -186,13 +186,13 @@ class TestPlugin:
                 self.app.context.set({"x": "y"})
                 yield
 
-            async def on_task_done(self, task_result, *args, **kwds):
+            async def on_task_done(self, task_instance, task_result):
                 if self.app.context.get() == {"x": "y"}:
                     ev.set()
 
         module = ModuleType("test")
-        module.Config = _Config
-        module.Plugin = _Plugin
+        module.Config = TestConfig
+        module.Plugin = TestPlugin
 
         app = App(Config(plugins=[{"module": module}]))
         try:

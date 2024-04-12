@@ -1,24 +1,28 @@
 import importlib
 import json
 import logging
-import traceback
+from json import dumps as json_dumps
+from json import loads as json_loads
+from traceback import format_tb
 from types import TracebackType
-from typing import Any, Tuple, Type
+from typing import Any, Type
 
 from pydantic import Field
+from pydantic_settings import SettingsConfigDict
 
 from arrlio import registered_tasks
+from arrlio.exceptions import TaskError
 from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.serializers import base
+from arrlio.settings import ENV_PREFIX
 from arrlio.utils import ExtendedJSONEncoder
 
 logger = logging.getLogger("arrlio.serializers.json")
 
-json_dumps = json.dumps
-json_loads = json.loads
-
 
 class Config(base.Config):
+    model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}JSON_SERIALIZER_")
+
     encoder: Type[json.JSONEncoder] = Field(default=ExtendedJSONEncoder)
 
 
@@ -68,7 +72,7 @@ class Serializer(base.Serializer):
         if task_instance.loads:
             args, kwds = task_instance.loads(*task_instance.args, **task_instance.kwds)
             if not isinstance(args, tuple) or not isinstance(kwds, dict):
-                raise TypeError(f"Task '{task_instance.name}' loads function should return Tuple[Tuple, Dict]")
+                raise TypeError(f"task '{task_instance.name}' loads function should return tuple[tuple, dict]")
             object.__setattr__(task_instance, "args", args)
             object.__setattr__(task_instance, "kwds", kwds)
 
@@ -79,33 +83,33 @@ class Serializer(base.Serializer):
 
         return (getattr(exc, "__module__", "builtins"), exc.__class__.__name__, f"{exc}")
 
-    def loads_exc(self, exc: Tuple[str, str, str]) -> Exception:
+    def loads_exc(self, exc: tuple[str, str, str]) -> Exception:
         """Loads exception from json encodes string."""
 
         try:
             module = importlib.import_module(exc[0])
             return getattr(module, exc[1])(exc[2])
         except Exception:
-            raise Exception(exc[1], exc[2])
+            return TaskError(exc[1], exc[2])
 
-    def dumps_trb(self, trb: TracebackType) -> str:
+    def dumps_trb(self, trb: TracebackType) -> str | None:
         """Dumps traceback object as json encoded string."""
 
-        return "".join(traceback.format_tb(trb, 5)) if trb else None
+        return "".join(format_tb(trb, 5)) if trb else None
 
     def loads_trb(self, trb: str) -> str:
         """Loads traceback string."""
 
         return trb
 
-    def dumps_task_result(self, task_instance: TaskInstance, task_result: TaskResult, **kwds) -> bytes:
+    def dumps_task_result(self, task_result: TaskResult, task_instance: TaskInstance | None = None, **kwds) -> bytes:
         """Dumps `arrlio.models.TaskResult` as json encoded string."""
 
         data = task_result.dict()
         if data["exc"]:
             data["exc"] = self.dumps_exc(data["exc"])
             data["trb"] = self.dumps_trb(data["trb"])
-        elif task_instance.dumps:
+        elif task_instance and task_instance.dumps:
             data["res"] = task_instance.dumps(data["res"])
         return self.dumps(data)
 
@@ -128,25 +132,21 @@ class Serializer(base.Serializer):
                 result["exc"] = self.dumps_exc(result["exc"])
                 result["trb"] = self.dumps_trb(result["trb"])
         elif event.type == "task:done":
-            status = data["data"]["status"]
-            if status.get("exc"):
-                status["exc"] = self.dumps_exc(status["exc"])
-                status["trb"] = self.dumps_trb(status["trb"])
+            result = data["data"]["result"]
+            result["res"] = None
+            if result["exc"]:
+                result["exc"] = self.dumps_exc(result["exc"])
+                result["trb"] = self.dumps_trb(result["trb"])
         return self.dumps(data)
 
     def loads_event(self, data: bytes) -> Event:
         """Loads `arrlio.models.Event` from json encoded string."""
 
         event: Event = Event(**self.loads(data))
-        if event.type == "task:result":
+        if event.type in {"task:result", "task:done"}:
             result = event.data["result"]
             if result["exc"]:
                 result["exc"] = self.loads_exc(result["exc"])
                 result["trb"] = self.loads_trb(result["trb"])
             event.data["result"] = TaskResult(**result)
-        elif event.type == "task:done":
-            status = event.data["status"]
-            if status.get("exc"):
-                status["exc"] = self.loads_exc(status["exc"])
-                status["trb"] = self.loads_trb(status["trb"])
         return event

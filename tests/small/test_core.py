@@ -10,10 +10,6 @@ def test_task():
     async def foo():
         pass
 
-    @task(bind=True)
-    async def bar():
-        pass
-
     with pytest.raises(TypeError):
 
         @task
@@ -28,7 +24,7 @@ class TestApp:
         app = App(config)
         assert app.config == config
         assert isinstance(app.backend, backends.local.Backend)
-        assert isinstance(app.backend._serializer, serializers.nop.Serializer)
+        assert isinstance(app.backend.serializer, serializers.nop.Serializer)
         await app.close()
 
     @pytest.mark.asyncio
@@ -43,7 +39,6 @@ class TestApp:
 
             assert task_instance.func is None
             assert task_instance.name == "foo"
-            assert task_instance.bind == settings.TASK_BIND
             assert task_instance.queue == settings.TASK_QUEUE
             assert task_instance.priority == settings.TASK_PRIORITY
             assert task_instance.timeout == settings.TASK_TIMEOUT
@@ -60,7 +55,7 @@ class TestApp:
 
         with mock.patch.object(app.backend, "send_task") as mock_send_task:
             ar = await app.send_task(
-                "bar",
+                "foo",
                 args=(1, 2),
                 kwds={"a": "b"},
                 queue="custom",
@@ -76,8 +71,7 @@ class TestApp:
             task_instance = mock_send_task.call_args[0][0]
 
             assert task_instance.func is None
-            assert task_instance.name == "bar"
-            assert task_instance.bind == settings.TASK_BIND
+            assert task_instance.name == "foo"
             assert task_instance.queue == "custom"
             assert task_instance.priority == 5
             assert task_instance.timeout == 999

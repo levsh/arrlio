@@ -16,11 +16,6 @@ async def hello_world():
     return "Hello World!"
 
 
-@arrlio.task(name="bind_true", bind=True)
-async def bind_true(task_instance: TaskInstance):
-    assert isinstance(task_instance, TaskInstance)
-
-
 @arrlio.task(name="meta_true")
 async def meta_true(*, meta: dict = None):
     assert meta

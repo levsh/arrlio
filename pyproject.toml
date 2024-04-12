@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "arrlio"
-version = "0.20.0"
+version = "0.21.0a0"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
@@ -17,9 +17,11 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.10"
 aiormq = ">=6.7.6"
-pydantic = ">=1.10.1"
+msgpack = "*"
+pydantic = "^2"
+pydantic_settings = "*"
 rich = "*"
 roview = "*"
 yarl = "*"

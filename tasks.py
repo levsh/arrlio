@@ -1,6 +1,5 @@
 import json
 import os
-import re
 
 from invoke import task
 
@@ -31,7 +30,7 @@ def tests_small(c):
 def tests_medium(c):
     """Run medium tests"""
 
-    cmd = "pytest -v --maxfail=1 --timeout=300 tests/medium/test_medium.py"
+    cmd = "pytest -v --maxfail=1 --timeout=300 tests/medium/test_arrlio.py"
     c.run(cmd)
 
 
@@ -80,75 +79,3 @@ def generate_coverage_gist(c):
 
     with open("artifacts/shields_io_coverage_gist_data.json", "w") as f:
         f.write(json.dumps(data))
-
-
-@task
-def bump_major(c):
-    regex = re.compile(
-        r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)\.(\d+)".*',
-        re.MULTILINE | re.DOTALL,
-    )
-    filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
-    with open(filepath, "r+") as f:
-        text = f.read()
-        match = regex.match(text)
-        if match:
-            groupdict = match.groupdict()
-            major = int(groupdict["major"])
-            text = re.sub(
-                r'(.*__version__ = ")(\d+)\.(\d+)\.(\d+)(".*)',
-                rf"\g<1>{major+1}.0.0\g<5>",
-                text,
-            )
-            f.seek(0)
-            f.write(text)
-            f.truncate()
-
-
-@task
-def bump_minor(c):
-    regex = re.compile(
-        r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)\.(\d+)".*',
-        re.MULTILINE | re.DOTALL,
-    )
-    filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
-    with open(filepath, "r+") as f:
-        text = f.read()
-        match = regex.match(text)
-        if match:
-            groupdict = match.groupdict()
-            major = int(groupdict["major"])
-            minor = int(groupdict["minor"])
-            text = re.sub(
-                r'(.*__version__ = ")(\d+)\.(\d+)\.(\d+)(".*)',
-                rf"\g<1>{major}.{minor+1}.0\g<5>",
-                text,
-            )
-            f.seek(0)
-            f.write(text)
-            f.truncate()
-
-
-@task
-def bump_micro(c):
-    regex = re.compile(
-        r'.*__version__ = "(?P<major>\d+)\.(?P<minor>\d+)\.(?P<micro>\d+)".*',
-        re.MULTILINE | re.DOTALL,
-    )
-    filepath = os.path.abspath(os.path.join(CWD, "arrlio", "__init__.py"))
-    with open(filepath, "r+") as f:
-        text = f.read()
-        match = regex.match(text)
-        if match:
-            groupdict = match.groupdict()
-            major = int(groupdict["major"])
-            minor = int(groupdict["minor"])
-            micro = int(groupdict["micro"])
-            text = re.sub(
-                r'(.*__version__ = ")(\d+)\.(\d+)\.(\d+)(".*)',
-                rf"\g<1>{major}.{minor}.{micro+1}\g<5>",
-                text,
-            )
-            f.seek(0)
-            f.write(text)
-            f.truncate()

@@ -6,7 +6,7 @@ import pytest
 
 from arrlio import serializers
 from arrlio.backends import local
-from arrlio.exc import TaskResultError
+from arrlio.exceptions import TaskResultError
 from arrlio.models import Event, Task
 
 
@@ -20,7 +20,7 @@ class TestConfig:
 class TestBackend:
     def test__init(self, cleanup):
         backend = local.Backend(local.Config())
-        assert isinstance(backend._serializer, serializers.nop.Serializer)
+        assert isinstance(backend.serializer, serializers.nop.Serializer)
 
     def test_str(self, cleanup):
         backend = local.Backend(local.Config())
@@ -116,7 +116,7 @@ class TestBackend:
         )
         result = mock.MagicMock()
 
-        await backend.push_task_result(task_instance, result)
+        await backend.push_task_result(result, task_instance)
         assert await backend.pop_task_result(task_instance).__anext__() == result
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(backend.pop_task_result(task_instance).__anext__(), 0.5)
@@ -125,7 +125,7 @@ class TestBackend:
         task_instance = Task(None, "test_push_pop_task_result", result_return=False).instantiate(queue="queue")
         result = mock.MagicMock()
 
-        await backend.push_task_result(task_instance, result)
+        await backend.push_task_result(result, task_instance)
         assert task_instance.task_id not in backend._results
         with pytest.raises(TaskResultError):
             await backend.pop_task_result(task_instance).__anext__()

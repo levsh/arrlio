@@ -15,7 +15,6 @@ class Test_Task:
         task = models.Task(foo, "foo")
         assert task.func == foo
         assert task.name == "foo"
-        assert task.bind == settings.TASK_BIND
         assert task.queue == settings.TASK_QUEUE
         assert task.priority == settings.TASK_PRIORITY
         assert task.timeout == settings.TASK_TIMEOUT
@@ -24,7 +23,7 @@ class Test_Task:
         assert task.result_ttl == settings.TASK_RESULT_TTL
         assert task.result_return == settings.TASK_RESULT_RETURN
         assert task.events == settings.TASK_EVENTS
-        assert task.event_ttl == settings.TASK_EVENT_TTL
+        assert task.event_ttl == settings.EVENT_TTL
         assert task.thread is None
 
         task_instance = task.instantiate()
@@ -49,7 +48,6 @@ class Test_Task:
         task = models.Task(
             foo,
             "foo",
-            bind=True,
             queue="Q",
             priority=777,
             timeout=555,
@@ -63,7 +61,6 @@ class Test_Task:
         )
         assert task.func == foo
         assert task.name == "foo"
-        assert task.bind is True
         assert task.queue == "Q"
         assert task.priority == 777
         assert task.timeout == 555
@@ -116,17 +113,12 @@ class Test_Task:
             return "Bar!"
 
         assert await models.Task(bar, "bar").instantiate()() == "Bar!"
-        assert await models.Task(bar, "bar", bind=True)() == "Bar!"
+        assert await models.Task(bar, "bar")() == "Bar!"
 
 
 class Test_TaskInstance:
-    def test_validate(self):
-        tasks.test_args_kwds_validation.instantiate(args=(1, 2.2, "s")).validate()
-        tasks.test_args_kwds_validation.instantiate(args=(1, 2.2, "s"), kwds={"lst": [0, "1", 2]}).validate()
-
     @pytest.mark.asyncio
     async def test_call(self):
-        await tasks.bind_true.instantiate(bind=True)()
         await tasks.meta_true.instantiate(meta={"k": "v"})(meta=True)
 
 
@@ -202,7 +194,6 @@ def test_dict():
     data.pop("dumps")
     assert data == {
         "name": "test_models.foo",
-        "bind": False,
         "queue": "arrlio.tasks",
         "priority": 1,
         "timeout": 300,
@@ -222,7 +213,6 @@ def test_dict():
     data = task_instance.dict(exclude=["task_id", "func", "args", "kwds", "loads", "dumps"])
     assert data == {
         "name": "test_models.foo",
-        "bind": False,
         "queue": "arrlio.tasks",
         "priority": 1,
         "timeout": 300,

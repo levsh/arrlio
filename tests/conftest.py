@@ -7,10 +7,11 @@ import time
 import pytest
 import pytest_asyncio
 
-from arrlio import App, Config, logger
+from arrlio import App, Config, logger, settings
 from tests import utils
 
 logger.setLevel(logging.DEBUG)
+settings.LOG_SANITIZE = False
 
 
 @pytest.fixture(scope="function")

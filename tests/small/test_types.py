@@ -1,4 +1,5 @@
 import pydantic
+import pydantic_settings
 import pytest
 
 from arrlio import backends
@@ -6,38 +7,77 @@ from arrlio.types import BackendModule, SecretAmqpDsn, SecretAnyUrl
 
 
 def test_SecretAnyUrl():
-    class M(pydantic.BaseModel):
+    url = SecretAnyUrl("http://example.org")
+    assert url.scheme == "http"
+    assert url.username is None
+    assert url.password is None
+    assert url.host == "example.org"
+    assert str(url) == "http://example.org/"
+    assert repr(url) == "SecretAnyUrl('http://example.org/')"
+
+    url = SecretAnyUrl("http://user:pass@example.org")
+    assert url.scheme == "http"
+    assert url.username == pydantic.SecretStr("user")
+    assert url.password == pydantic.SecretStr("pass")
+    assert url.host == "example.org"
+    assert str(url) == "http://***:***@example.org/"
+    assert repr(url) == "SecretAnyUrl('http://***:***@example.org/')"
+
+    class S(pydantic_settings.BaseSettings):
         url: SecretAnyUrl
 
-    m = M(url="http://user:pass@localhost")
-    assert str(m.url) == "http://***:***@localhost"
-    assert repr(m.url) == "SecretAnyUrl('http://***:***@localhost')"
-    assert m.url.get_secret_value() == "http://user:pass@localhost"
-    assert m.url.user == "user"
-    assert m.url.password == "pass"
-
-    assert M(url="http://user:pass@localhost") == M(url="http://user:pass@localhost")
-
-    assert hash(m.url) == hash(m.url.get_secret_value())
+    for T in [S]:
+        for url in [
+            "http://user:pass@example.org",
+            SecretAnyUrl("http://user:pass@example.org"),
+            pydantic.AnyUrl("http://user:pass@example.org"),
+        ]:
+            m = T(url=url)
+            assert m.url.scheme == "http"
+            assert m.url.username == pydantic.SecretStr("user")
+            assert m.url.password == pydantic.SecretStr("pass")
+            assert m.url.host == "example.org"
+            assert str(m.url) == "http://***:***@example.org/"
+            assert repr(m.url) == "SecretAnyUrl('http://***:***@example.org/')"
 
 
 def test_SecretAmqpDsn():
-    class M(pydantic.BaseModel):
+    url = SecretAmqpDsn("amqp://example.org")
+    assert url.scheme == "amqp"
+    assert url.username is None
+    assert url.password is None
+    assert url.host == "example.org"
+    assert str(url) == "amqp://example.org"
+    assert repr(url) == "SecretAnyUrl('amqp://example.org')"
+
+    url = SecretAnyUrl("amqp://user:pass@example.org")
+    assert url.scheme == "amqp"
+    assert url.username == pydantic.SecretStr("user")
+    assert url.password == pydantic.SecretStr("pass")
+    assert url.host == "example.org"
+    assert str(url) == "amqp://***:***@example.org"
+    assert repr(url) == "SecretAnyUrl('amqp://***:***@example.org')"
+
+    class S(pydantic_settings.BaseSettings):
         url: SecretAmqpDsn
 
-    M(url="amqp://guest:guest@localhost")
-
-    with pytest.raises(ValueError):
-        M(url="amqp://localhost")
-
-    with pytest.raises(ValueError):
-        M(url="http://localhost")
-
-    assert str(M(url="amqp://guest:guest@localhost")) == "url=SecretAmqpDsn('amqp://***:***@localhost')"
+    for T in [S]:
+        for url in [
+            "amqp://user:pass@example.org",
+            SecretAnyUrl("amqp://user:pass@example.org"),
+            pydantic.AnyUrl("amqp://user:pass@example.org"),
+        ]:
+            m = T(url=url)
+            assert m.url.scheme == "amqp"
+            assert m.url.username == pydantic.SecretStr("user")
+            assert m.url.password == pydantic.SecretStr("pass")
+            assert m.url.host == "example.org"
+            assert str(m.url) == "amqp://***:***@example.org"
+            assert repr(m.url) == "SecretAnyUrl('amqp://***:***@example.org')"
 
 
 def test_BackendModule():
-    class M(pydantic.BaseModel):
+    class M(pydantic_settings.BaseSettings):
         backend: BackendModule
 
     m = M(backend="arrlio.backends.local")

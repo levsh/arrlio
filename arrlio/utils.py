@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from asyncio import create_task, wait
+from asyncio import create_task, sleep, wait
 from datetime import datetime
 from functools import wraps
 from inspect import isasyncgenfunction
@@ -118,17 +118,27 @@ def retry(
                         try:
                             t = next(timeouts)
                             attempt += 1
-                            logger.warning(
-                                "%s (%s %s) retry(%s) in %s second(s)",
-                                msg or fn,
-                                e.__class__,
-                                e,
-                                attempt,
-                                t,
-                            )
+                            if is_debug_level():
+                                logger.exception(
+                                    "%s (%s %s) retry(%s) in %s second(s)",
+                                    msg or fn,
+                                    e.__class__,
+                                    e,
+                                    attempt,
+                                    t,
+                                )
+                            else:
+                                logger.warning(
+                                    "%s (%s %s) retry(%s) in %s second(s)",
+                                    msg or fn,
+                                    e.__class__,
+                                    e,
+                                    attempt,
+                                    t,
+                                )
                             if on_error:
                                 await on_error(e)
-                            await asyncio.sleep(t)
+                            await sleep(t)
                         except StopIteration:
                             raise e
 
@@ -150,17 +160,27 @@ def retry(
                         try:
                             t = next(timeouts)
                             attempt += 1
-                            logger.warning(
-                                "%s (%s %s) retry(%s) in %s second(s)",
-                                msg or fn,
-                                e.__class__,
-                                e,
-                                attempt,
-                                t,
-                            )
+                            if is_debug_level():
+                                logger.exception(
+                                    "%s (%s %s) retry(%s) in %s second(s)",
+                                    msg or fn,
+                                    e.__class__,
+                                    e,
+                                    attempt,
+                                    t,
+                                )
+                            else:
+                                logger.warning(
+                                    "%s (%s %s) retry(%s) in %s second(s)",
+                                    msg or fn,
+                                    e.__class__,
+                                    e,
+                                    attempt,
+                                    t,
+                                )
                             if on_error:
                                 await on_error(e)
-                            await asyncio.sleep(t)
+                            await sleep(t)
                         except StopIteration:
                             raise e
 
@@ -169,7 +189,7 @@ def retry(
     return decorator
 
 
-class InfIter:
+class LoopIter:
     """Infinity iterator class."""
 
     __slots__ = ("_data", "_i", "_j", "_iter")

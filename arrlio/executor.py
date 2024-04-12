@@ -8,9 +8,9 @@ from threading import Thread, current_thread
 from time import monotonic
 from typing import AsyncGenerator
 
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
-from arrlio.exc import NotFoundError, TaskTimeoutError
+from arrlio.exceptions import NotFoundError, TaskTimeoutError
 from arrlio.models import TaskInstance, TaskResult
 from arrlio.utils import is_info_level
 
@@ -22,9 +22,6 @@ threading_Event = threading.Event  # pylint: disable=invalid-name
 
 class Config(BaseSettings):
     """`arrlio.executor.Executor` config class."""
-
-    class Config:
-        validate_assignment = True
 
 
 class Executor:
@@ -73,7 +70,7 @@ class Executor:
 
         try:
             if (func := task_instance.func) is None:
-                raise NotFoundError(f"Task '{task_instance.name}' not found")
+                raise NotFoundError(f"task with name '{task_instance.name}' not found")
 
             # task_instance.validate()
 
@@ -81,11 +78,11 @@ class Executor:
 
             if is_info_level():
                 logger.info(
-                    "%s[%s]: execute task %s(%s)",
+                    "%s[%s] execute task %s[%s]",
                     self,
                     current_thread().name,
-                    task_instance.task_id,
                     task_instance.name,
+                    task_instance.task_id,
                 )
 
             try:
@@ -104,7 +101,7 @@ class Executor:
                             yield TaskResult(res=res, exc=exc, trb=trb)
 
                 elif isasyncgenfunction(func):
-                    agen = task_instance(meta=meta)
+                    __anext__ = task_instance(meta=meta).__anext__
 
                     timeout_time = (monotonic() + timeout) if (timeout := task_instance.timeout) is not None else None
 
@@ -112,7 +109,7 @@ class Executor:
                         timeout = (timeout_time - monotonic()) if timeout_time is not None else None
 
                         try:
-                            res = await wait_for(agen.__anext__(), timeout)
+                            res = await wait_for(__anext__(), timeout)
                             if isinstance(res, TaskResult):
                                 yield res
                             else:
@@ -138,29 +135,29 @@ class Executor:
             exc, trb = exc_info[1], exc_info[2]
             if isinstance(e, TaskTimeoutError):
                 logger.error(
-                    "%s[%s]: task %s(%s) timeout",
+                    "%s[%s] task %s[%s] timeout",
                     self,
                     current_thread().name,
-                    task_instance.task_id,
                     task_instance.name,
+                    task_instance.task_id,
                 )
             else:
                 logger.exception(
-                    "%s[%s]: task %s(%s)",
+                    "%s[%s] task %s[%s]",
                     self,
                     current_thread().name,
-                    task_instance.task_id,
                     task_instance.name,
+                    task_instance.task_id,
                 )
             yield TaskResult(res=res, exc=exc, trb=trb)
 
         if is_info_level():
             logger.info(
-                "%s[%s]: task %s(%s) done(%s) in %.2f second(s)",
+                "%s[%s] task %s[%s] done[%s] in %.2f second(s)",
                 self,
                 current_thread().name,
-                task_instance.task_id,
                 task_instance.name,
+                task_instance.task_id,
                 "success" if exc is None else "error",
                 monotonic() - t0,
             )
@@ -183,8 +180,8 @@ class Executor:
         def thread(root_loop, res_ev, sync_ev, done_ev):
             nonlocal task_result
             loop = new_event_loop()
+            root_loop_call_soon_threadsafe = root_loop.call_soon_threadsafe
             run_until_complete = loop.run_until_complete
-            call_soon_threadsafe = root_loop.call_soon_threadsafe
             try:
                 set_event_loop(loop)
                 __anext__ = self.execute(task_instance).__anext__
@@ -192,7 +189,7 @@ class Executor:
                     try:
                         sync_ev.clear()
                         task_result = run_until_complete(__anext__())
-                        call_soon_threadsafe(res_ev.set)
+                        root_loop_call_soon_threadsafe(res_ev.set)
                         sync_ev.wait()
                     except StopAsyncIteration:
                         break
@@ -202,8 +199,8 @@ class Executor:
                 run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
                 if not root_loop.is_closed():
-                    call_soon_threadsafe(done_ev.set)
-                    call_soon_threadsafe(res_ev.set)
+                    root_loop_call_soon_threadsafe(done_ev.set)
+                    root_loop_call_soon_threadsafe(res_ev.set)
 
         Thread(
             target=thread,

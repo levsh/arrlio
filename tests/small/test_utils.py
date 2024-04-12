@@ -142,7 +142,7 @@ def test_ExtendedJSONEncoder():
         pass
 
     assert json.dumps(foo, cls=utils.ExtendedJSONEncoder) == (
-        """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", \"bind\": false, """
+        """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", """
         """\"queue\": \"arrlio.tasks\", \"priority\": 1, \"timeout\": 300, \"ttl\": 300, """
         """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, """
         """\"thread\": null, \"events\": false, \"event_ttl\": 300, \"extra\": {}}"""
@@ -155,8 +155,8 @@ def test_ExtendedJSONEncoder():
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)
 
 
-def test_InfIter():
-    it = utils.InfIter([0, 1, 2])
+def test_LoopIter():
+    it = utils.LoopIter([0, 1, 2])
     for _ in range(3):
         assert next(it) == 0
         assert next(it) == 1

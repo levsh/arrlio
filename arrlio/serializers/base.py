@@ -1,14 +1,13 @@
 import abc
-from typing import Any, Union
+from typing import Any
 
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 from arrlio.models import Event, TaskInstance, TaskResult
 
 
 class Config(BaseSettings):
-    class Config:
-        validate_assignment = True
+    pass
 
 
 class Serializer(abc.ABC):
@@ -18,38 +17,38 @@ class Serializer(abc.ABC):
         self.config = config
 
     @abc.abstractmethod
-    def dumps(self, data: Any, **kwds) -> Union[bytes, Any]:
+    def dumps(self, data: Any, **kwds) -> bytes | Any:
         pass
 
     @abc.abstractmethod
-    def loads(self, data: Union[bytes, Any]) -> Any:
+    def loads(self, data: bytes | Any) -> Any:
         pass
 
     @abc.abstractmethod
-    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> Union[bytes, TaskInstance]:
+    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes | TaskInstance:
         pass
 
     @abc.abstractmethod
-    def loads_task_instance(self, data: Union[bytes, TaskInstance]) -> TaskInstance:
+    def loads_task_instance(self, data: bytes | TaskInstance) -> TaskInstance:
         pass
 
     @abc.abstractmethod
     def dumps_task_result(
         self,
-        task_instance: TaskInstance,
         task_result: TaskResult,
+        task_instance: TaskInstance | None = None,
         **kwds,
-    ) -> Union[bytes, TaskResult]:
+    ) -> bytes | TaskResult:
         pass
 
     @abc.abstractmethod
-    def loads_task_result(self, data: Union[bytes, TaskResult]) -> TaskResult:
+    def loads_task_result(self, data: bytes | TaskResult) -> TaskResult:
         pass
 
     @abc.abstractmethod
-    def dumps_event(self, event: Event, **kwds) -> Union[bytes, Event]:
+    def dumps_event(self, event: Event, **kwds) -> bytes | Event:
         pass
 
     @abc.abstractmethod
-    def loads_event(self, data: Union[bytes, Event]) -> Event:
+    def loads_event(self, data: bytes | Event) -> Event:
         pass

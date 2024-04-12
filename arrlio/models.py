@@ -1,20 +1,16 @@
 import datetime
 from dataclasses import asdict, dataclass, field
-from inspect import Signature, _empty, signature
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Set, Tuple, Union
+from typing import Any, Callable, Dict
 from uuid import UUID, uuid4
 
-from pydantic import Field, create_model
 from rich.pretty import pretty_repr
 from roview import rodict, roset
 
-from arrlio.exc import GraphError
+from arrlio.exceptions import GraphError
 from arrlio.settings import (
     EVENT_TTL,
     TASK_ACK_LATE,
-    TASK_BIND,
-    TASK_EVENT_TTL,
     TASK_EVENTS,
     TASK_PRIORITY,
     TASK_QUEUE,
@@ -23,7 +19,7 @@ from arrlio.settings import (
     TASK_TIMEOUT,
     TASK_TTL,
 )
-from arrlio.types import Args, AsyncFunction, Kwds, Priority, TaskId, Timeout
+from arrlio.types import Args, AsyncCallable, Kwds, TaskId, TaskPriority, Timeout
 
 
 @dataclass(frozen=True)
@@ -33,7 +29,6 @@ class Task:
     Attributes:
         func: Task function.
         name: Task name.
-        bind: Bind the Task object as the first argument.
         queue: Task queue.
         priority: Task priority. Min 1, max 10.
         timeout: Task timeout, seconds.
@@ -49,31 +44,30 @@ class Task:
         dumps: Function to dump task result
     """
 
-    func: Union[Callable, AsyncFunction]
+    func: Callable | AsyncCallable
 
     name: str
-    bind: bool = TASK_BIND
     queue: str = TASK_QUEUE
-    priority: Priority = TASK_PRIORITY
+    priority: TaskPriority = TASK_PRIORITY
     timeout: Timeout = TASK_TIMEOUT
     ttl: Timeout = TASK_TTL
     ack_late: bool = TASK_ACK_LATE
     result_ttl: Timeout = TASK_RESULT_TTL
     result_return: bool = TASK_RESULT_RETURN
-    thread: bool = None
-    events: Union[bool, Set[str]] = TASK_EVENTS
-    event_ttl: Timeout = TASK_EVENT_TTL
-    extra: dict = field(default_factory=dict)
+    thread: bool | None = None
+    events: bool | set[str] = TASK_EVENTS
+    event_ttl: Timeout = EVENT_TTL
+    extra: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
 
-    loads: Callable = None
-    dumps: Callable = None
+    loads: Callable | None = None
+    dumps: Callable | None = None
 
     def __call__(self, *args, **kwds) -> Any:
         """Call task function with args and kwds."""
 
         return self.func(*args, **kwds)
 
-    def dict(self, exclude: List[str] = None, sanitize: bool = None):
+    def dict(self, exclude: list[str] | None = None, sanitize: bool | None = None):  # pylint: disable=unused-argument
         """Convert to dict.
 
         Args:
@@ -86,16 +80,16 @@ class Task:
         exclude = exclude or []
         return {k: v for k, v in asdict(self).items() if k not in exclude}
 
-    def pretty_repr(self, exclude: List[str] = None, sanitize: bool = None):
+    def pretty_repr(self, exclude: list[str] = None, sanitize: bool = None):
         return pretty_repr(self.dict(exclude=exclude, sanitize=sanitize))
 
     def instantiate(
         self,
-        task_id: TaskId = None,
-        args: Args = None,
-        kwds: Kwds = None,
-        meta: dict = None,
-        extra: dict = None,
+        task_id: TaskId | None = None,
+        args: Args | None = None,
+        kwds: Kwds | None = None,
+        meta: Dict | None = None,
+        extra: Dict | None = None,
         **kwargs,
     ) -> "TaskInstance":
         """Instantiate new `arrlio.models.TaskInstance` object with provided arguments.
@@ -131,8 +125,8 @@ class TaskInstance(Task):
 
     task_id: UUID = field(default_factory=uuid4)
     args: Args = field(default_factory=tuple)
-    kwds: Kwds = field(default_factory=dict)
-    meta: dict = field(default_factory=dict)
+    kwds: Kwds = field(default_factory=dict)  # pylint: disable=used-before-assignment
+    meta: Dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
 
     def __post_init__(self):
         if self.task_id is None:
@@ -142,13 +136,13 @@ class TaskInstance(Task):
         if not isinstance(self.args, tuple):
             object.__setattr__(self, "args", tuple(self.args))
 
-    def dict(self, exclude: List[str] = None, sanitize: bool = None):
+    def dict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
         data = super().dict(exclude=exclude, sanitize=sanitize)
         if sanitize:
             if data["args"]:
-                data["args"] = "..."
+                data["args"] = "<hiden>"
             if data["kwds"]:
-                data["kwds"] = "..."
+                data["kwds"] = "<hiden>"
         return data
 
     def __call__(self, meta: bool = None):  # pylint: disable=arguments-differ
@@ -160,8 +154,6 @@ class TaskInstance(Task):
 
         args = self.args
         kwds = self.kwds
-        if self.bind:
-            args = (self, *args)
         if meta is True:
             kwds = {"meta": self.meta, **kwds}
         if isinstance(self.func, type):
@@ -173,56 +165,21 @@ class TaskInstance(Task):
     def instantiate(self, *args, **kwds):
         raise NotImplementedError
 
-    def validate(self):
-        """Validate `args` and `kwds` and converts values according to the function signature(type hints)."""
-
-        sig: Signature = signature(self.func)
-
-        __dict__ = {}
-        for k, v in sig.parameters.items():
-            if v.default != _empty:
-                _field = Field(default=v.default)
-            else:
-                _field = Field()
-            __dict__[k] = (v.annotation if v.annotation != _empty else Any, _field)
-
-        Model = create_model(f"{self.func}", **__dict__)  # pylint: disable=invalid-name
-
-        binded = sig.bind(*self.args, **self.kwds)
-        binded.apply_defaults()
-
-        model = Model(**binded.arguments)
-
-        args = []
-        kwds = {}
-        for k, v in sig.parameters.items():
-            if v.kind == v.VAR_POSITIONAL:
-                args.extend(getattr(model, k))
-            elif v.kind == v.VAR_KEYWORD:
-                kwds.update(getattr(model, k))
-            elif v.default == _empty:
-                args.append(getattr(model, k))
-            else:
-                kwds[k] = getattr(model, k)
-
-        object.__setattr__(self, "args", tuple(args))
-        object.__setattr__(self, "kwds", dict(kwds))
-
 
 @dataclass(frozen=True)
 class TaskResult:
     """Task result `dataclass`."""
 
     res: Any = None
-    exc: Union[Exception, Tuple[str, str, str]] = None
-    trb: Union[TracebackType, str] = None
-    idx: Tuple[str, int] = None
-    routes: Union[str, List[str]] = None
+    exc: Exception | tuple[str, str, str] | None = None
+    trb: TracebackType | str | None = None
+    idx: tuple[str, int] | None = None
+    routes: str | list[str] | None = None
 
-    def set_idx(self, idx: Tuple[str, int]):
+    def set_idx(self, idx: tuple[str, int]):
         object.__setattr__(self, "idx", idx)
 
-    def dict(self, sanitize: bool = None):
+    def dict(self, sanitize: bool | None = None):
         """Convert to dict.
 
         Returns:
@@ -230,14 +187,14 @@ class TaskResult:
         """
 
         return {
-            "res": self.res if self.res is None or not sanitize else "...",
+            "res": self.res if self.res is None or not sanitize else "<hiden>",
             "exc": self.exc,
             "trb": self.trb,
             "idx": self.idx,
             "routes": self.routes,
         }
 
-    def pretty_repr(self, sanitize: bool = None):
+    def pretty_repr(self, sanitize: bool | None = None):
         return pretty_repr(self.dict(sanitize=sanitize))
 
 
@@ -253,7 +210,7 @@ class Event:
     """
 
     type: str
-    data: dict
+    data: dict  # pylint: disable=used-before-assignment
     event_id: UUID = field(default_factory=uuid4)
     dt: datetime.datetime = None
     ttl: Timeout = EVENT_TTL
@@ -266,7 +223,7 @@ class Event:
         elif isinstance(self.dt, str):
             object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
-    def dict(self, sanitize: bool = None):
+    def dict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
         """Convert to dict.
 
         Returns:
@@ -278,7 +235,7 @@ class Event:
             data["data"] = data["data"].sanitize()
         return data
 
-    def pretty_repr(self, sanitize: bool = None):
+    def pretty_repr(self, sanitize: bool | None = None):
         return pretty_repr(self.dict(sanitize=sanitize))
 
 
@@ -288,22 +245,22 @@ class Graph:
     def __init__(
         self,
         name: str,
-        nodes: Dict = None,
-        edges: Dict = None,
-        roots: Set = None,
+        nodes: Dict | None = None,
+        edges: Dict | None = None,
+        roots: set | None = None,
     ):
         """
         Args:
             name: Graph name.
-            node: List of the graph nodes.
-            edges: List of the graph edges.
-            roots: List of the graph roots.
+            node: list of the graph nodes.
+            edges: list of the graph edges.
+            roots: list of the graph roots.
         """
 
         self.name = name
-        self.nodes: Dict[str, List[str]] = rodict({}, nested=True)
-        self.edges: Dict[str, List[str]] = rodict({}, nested=True)
-        self.roots: Set[str] = roset(set())
+        self.nodes: Dict[str, list[str]] = rodict({}, nested=True)
+        self.edges: Dict[str, list[str]] = rodict({}, nested=True)
+        self.roots: set[str] = roset(set())
         nodes = nodes or {}
         edges = edges or {}
         roots = roots or set()
@@ -319,7 +276,7 @@ class Graph:
     def __repr__(self):
         return self.__str__()
 
-    def add_node(self, node_id: str, task: Union[Task, str], root: bool = None, **kwds):
+    def add_node(self, node_id: str, task: Task | str, root: bool | None = None, **kwds):
         """Add node to the graph.
 
         Args:
@@ -336,7 +293,7 @@ class Graph:
         if root:
             self.roots.__original__.add(node_id)
 
-    def add_edge(self, node_id_from: str, node_id_to: str, routes: Union[str, List[str]] = None):
+    def add_edge(self, node_id_from: str, node_id_to: str, routes: str | list[str] = None):
         """Add edge to the graph.
         If routes are specified then only results with a matching route will be passed to the incoming node.
 
@@ -354,7 +311,7 @@ class Graph:
             routes = [routes]
         self.edges.__original__.setdefault(node_id_from, []).append([node_id_to, routes])
 
-    def dict(self, sanitize: bool = None):
+    def dict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
         """Convert to the dict.
 
         Returns:
@@ -369,7 +326,7 @@ class Graph:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "Graph":
+    def from_dict(cls, data: dict) -> "Graph":
         """Create `arrlio.models.Graph` from `dict`.
 
         Args:
@@ -385,5 +342,5 @@ class Graph:
             roots=data["roots"],
         )
 
-    def pretty_repr(self, sanitize: bool = None):
+    def pretty_repr(self, sanitize: bool | None = None):
         return pretty_repr(self.dict(sanitize=sanitize))

@@ -7,35 +7,36 @@ from datetime import datetime, timedelta, timezone
 from functools import partial
 from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from time import monotonic
-from typing import AsyncGenerator, Callable, Dict, List, Tuple, Union
+from typing import Any, AsyncGenerator, Callable, Coroutine
 from uuid import UUID
 
 from pydantic import Field, PositiveInt
+from pydantic_settings import SettingsConfigDict
 
 from arrlio import settings
 from arrlio.backends import base
-from arrlio.exc import TaskClosedError, TaskResultError
+from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
-from arrlio.types import AsyncFunction, Priority
+from arrlio.types import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY, AsyncCallable
 from arrlio.utils import is_debug_level, is_info_level
 
 logger = logging.getLogger("arrlio.backends.local")
 
-BACKEND_ID: str = "arrlio"
-SERIALIZER: str = "arrlio.serializers.nop"
-POOL_SIZE: int = 100
+
+BACKEND_ID = "arrlio"
+SERIALIZER = "arrlio.serializers.nop"
+POOL_SIZE = 100
 
 
 class Config(base.Config):
     """Local backend config."""
 
+    model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}LOCAL_")
+
     id: str = Field(default_factory=lambda: BACKEND_ID)
     pool_size: PositiveInt = Field(default_factory=lambda: POOL_SIZE)
     """.. caution:: Maybe removed in the future."""
-
-    class Config:
-        env_prefix = f"{ENV_PREFIX}LOCAL_"
 
 
 class Backend(base.Backend):
@@ -71,7 +72,7 @@ class Backend(base.Backend):
         self._consumed_task_queues = set()
         self._consumed_message_queues = set()
         self._pool_semaphore = Semaphore(value=config.pool_size)
-        self._event_callbacks: Dict[str, Tuple[AsyncFunction, List[str]]] = {}
+        self._event_callbacks: dict[str, tuple[AsyncCallable, list[str] | None]] = {}
 
     def __del__(self):
         if self.config.id in self.__shared:
@@ -100,17 +101,17 @@ class Backend(base.Backend):
 
         self._task_queues[task_instance.queue].put_nowait(
             (
-                (Priority.le - task_instance.priority) if task_instance.priority else Priority.ge,
+                (TASK_MAX_PRIORITY - task_instance.priority) if task_instance.priority else TASK_MIN_PRIORITY,
                 monotonic(),
                 task_instance.ttl,
-                self._serializer.dumps_task_instance(task_instance),
+                self.serializer.dumps_task_instance(task_instance),
             )
         )
 
-    async def consume_tasks(self, queues: List[str], callback: AsyncFunction):
+    async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
         async def fn(queue: str):
             if is_info_level():
-                logger.info("%s: start consuming tasks queue '%s'", self, queue)
+                logger.info("%s start consuming tasks queue '%s'", self, queue)
 
             semaphore = self._pool_semaphore
             semaphore_acquire = semaphore.acquire
@@ -128,11 +129,11 @@ class Backend(base.Backend):
                             if ttl is not None and monotonic() >= ts + ttl:
                                 continue
 
-                            task_instance: TaskInstance = self._serializer.loads_task_instance(data)
+                            task_instance: TaskInstance = self.serializer.loads_task_instance(data)
 
                             if is_debug_level():
                                 logger.debug(
-                                    "%s: got\n%s",
+                                    "%s got task\n%s",
                                     self,
                                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                                 )
@@ -147,7 +148,7 @@ class Backend(base.Backend):
 
                     except asyncio.CancelledError:
                         if is_info_level():
-                            logger.info("%s: stop consuming tasks queue '%s'", self, queue)
+                            logger.info("%s stop consuming tasks queue '%s'", self, queue)
                         return
                     except Exception as e:
                         logger.exception(e)
@@ -158,12 +159,12 @@ class Backend(base.Backend):
             if queue not in self._consumed_task_queues:
                 self._create_internal_task(f"consume_tasks_queue_{queue}", partial(fn, queue))
 
-    async def stop_consume_tasks(self, queues: List[str] = None):
+    async def stop_consume_tasks(self, queues: list[str] | None = None):
         for queue in self._consumed_task_queues:
             if queues is None or queue in queues:
                 self._cancel_internal_tasks(f"consume_tasks_queue_{queue}")
 
-    async def push_task_result(self, task_instance: TaskInstance, task_result: TaskResult):
+    async def push_task_result(self, task_result: TaskResult, task_instance: TaskInstance):
         if not task_instance.result_return:
             return
 
@@ -171,10 +172,10 @@ class Backend(base.Backend):
 
         if is_debug_level():
             logger.debug(
-                "%s: push result for %s(%s)\n%s",
+                "%s push result for %s[%s]\n%s",
                 self,
-                task_id,
                 task_instance.name,
+                task_id,
                 task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
@@ -185,7 +186,7 @@ class Backend(base.Backend):
 
         result = results[task_id]
 
-        result[1].append(self._serializer.dumps_task_result(task_instance, task_result))
+        result[1].append(self.serializer.dumps_task_result(task_result, task_instance))
         result[0].set()
 
         if task_instance.result_ttl is not None:
@@ -205,12 +206,12 @@ class Backend(base.Backend):
         task_id: UUID = task_instance.task_id
 
         if not task_instance.result_return:
-            raise TaskResultError(f"{task_id}({task_instance.name})")
+            raise TaskResultError("try to pop result for task with result_return=False")
 
         async def fn():
             func = task_instance.func
 
-            if task_instance.extra.get("graph:graph") or isasyncgenfunction(func) or isgeneratorfunction(func):
+            if task_instance.extra.get("arrlio:closable") or isasyncgenfunction(func) or isgeneratorfunction(func):
                 while not self.is_closed:
                     if task_id not in self._results:
                         self._results[task_id] = [asyncio_Event(), [], None]
@@ -220,14 +221,14 @@ class Backend(base.Backend):
                     ev.clear()
 
                     while results:
-                        task_result: TaskResult = self._serializer.loads_task_result(results.pop(0))
+                        task_result: TaskResult = self.serializer.loads_task_result(results.pop(0))
 
                         if is_debug_level():
                             logger.debug(
-                                "%s: pop result for %s(%s)\n%s",
+                                "%s pop result for task %s[%s]\n%s",
                                 self,
-                                task_id,
                                 task_instance.name,
+                                task_id,
                                 task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
                             )
 
@@ -243,14 +244,14 @@ class Backend(base.Backend):
                 await ev.wait()
                 ev.clear()
 
-                task_result: TaskResult = self._serializer.loads_task_result(results.pop(0))
+                task_result: TaskResult = self.serializer.loads_task_result(results.pop(0))
 
                 if is_debug_level():
                     logger.debug(
-                        "%s: pop result for %s(%s)\n%s",
+                        "%s: pop result for task %s[%s]\n%s",
                         self,
-                        task_id,
                         task_instance.name,
+                        task_id,
                         task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
                     )
 
@@ -266,19 +267,27 @@ class Backend(base.Backend):
         finally:
             self._results.pop(task_id, None)
 
-    async def close_task(self, task_instance: TaskInstance, idx: Tuple[str, int] = None):
+    async def close_task(self, task_instance: TaskInstance, idx: tuple[str, int] | None = None):
         # TODO idx pylint: disable=fixme
 
         if is_debug_level():
-            logger.debug("%s: close task %s(%s)", self, task_instance.task_id, task_instance.name)
+            logger.debug(
+                "%s close task %s[%s]",
+                self,
+                task_instance.name,
+                task_instance.task_id,
+            )
 
-        await self.push_task_result(task_instance, TaskResult(exc=TaskClosedError(), idx=idx))
+        await self.push_task_result(
+            TaskResult(exc=TaskClosedError(task_instance.task_id), idx=idx),
+            task_instance,
+        )
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug("%s: put\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.debug("%s put event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
-        self._events[event.event_id] = self._serializer.dumps_event(event)
+        self._events[event.event_id] = self.serializer.dumps_event(event)
 
         async with self._event_cond:
             self._event_cond.notify()
@@ -289,8 +298,8 @@ class Backend(base.Backend):
     async def consume_events(
         self,
         callback_id: str,
-        callback: Union[Callable, AsyncFunction],
-        event_types: List[str] = None,
+        callback: Callable[[Event], Any],
+        event_types: list[str] | None = None,
     ):
         self._event_callbacks[callback_id] = (callback, event_types)
 
@@ -305,7 +314,7 @@ class Backend(base.Backend):
 
         async def fn():
             if is_info_level():
-                logger.info("%s: start consuming events", self)
+                logger.info("%s start consuming events", self)
 
             event_cond = self._event_cond
             event_cond_wait = event_cond.wait
@@ -321,10 +330,10 @@ class Backend(base.Backend):
                         async with event_cond:
                             await event_cond_wait()
 
-                    event: Event = self._serializer.loads_event(events_pop(next(iter(events_keys()))))
+                    event: Event = self.serializer.loads_event(events_pop(next(iter(events_keys()))))
 
                     if is_debug_level():
-                        logger.debug("%s: got\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+                        logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                     for callback, event_types in event_callbacks.values():
                         if event_types is not None and event.type not in event_types:
@@ -336,14 +345,14 @@ class Backend(base.Backend):
 
                 except asyncio.CancelledError:
                     if is_info_level():
-                        logger.info("%s: stop consuming events", self)
+                        logger.info("%s stop consuming events", self)
                     return
                 except Exception as e:
                     logger.exception(e)
 
         self._create_internal_task("consume_events", fn)
 
-    async def stop_consume_events(self, callback_id: str = None):
+    async def stop_consume_events(self, callback_id: str | None = None):
         self._event_callbacks.pop(callback_id, None)
         if not self._event_callbacks:
             self._cancel_internal_tasks("consume_events")

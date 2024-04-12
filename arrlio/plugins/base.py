@@ -2,7 +2,7 @@ import abc
 import contextlib
 import logging
 
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 from arrlio.models import TaskInstance, TaskResult
 
@@ -10,8 +10,7 @@ logger = logging.getLogger("arrlio.plugins.base")
 
 
 class Config(BaseSettings):
-    class Config:
-        validate_assignment = True
+    pass
 
 
 class Plugin(abc.ABC):
@@ -48,5 +47,5 @@ class Plugin(abc.ABC):
     async def on_task_result(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
         pass
 
-    async def on_task_done(self, task_instance: TaskInstance, status: dict) -> None:
+    async def on_task_done(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
         pass
