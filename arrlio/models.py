@@ -145,9 +145,9 @@ class TaskInstance(Task):
                 data = self.sanitizer(data)  # pylint: disable=not-callable
             else:
                 if data["args"]:
-                    data["args"] = "<hiden>"
+                    data["args"] = "<hidden>"
                 if data["kwds"]:
-                    data["kwds"] = "<hiden>"
+                    data["kwds"] = "<hidden>"
         return data
 
     def __call__(self, meta: bool = None):  # pylint: disable=arguments-differ
@@ -192,7 +192,7 @@ class TaskResult:
         """
 
         return {
-            "res": self.res if self.res is None or not sanitize else "<hiden>",
+            "res": self.res if self.res is None or not sanitize else "<hidden>",
             "exc": self.exc,
             "trb": self.trb,
             "idx": self.idx,
