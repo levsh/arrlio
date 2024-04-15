@@ -280,8 +280,6 @@ class App:
                 )
             if task_result.exc:
                 if isinstance(task_result.exc, TaskError):
-                    if task_result.exc.task_id is None:
-                        task_result.exc.task_id = task_instance.task_id
                     raise task_result.exc
                 raise TaskError(task_instance.task_id, task_result.exc, task_result.trb)
 
