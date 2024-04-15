@@ -111,7 +111,7 @@ class Plugin(base.Plugin):
     async def on_task_done(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
         events = task_instance.events
         if events is True or isinstance(events, (list, set, tuple)) and "task:ping" in events:
-            ping_task = self._ping_tasks.get(task_instance.task_id)
+            ping_task = self._ping_tasks.pop(task_instance.task_id, None)
             if ping_task:
                 ping_task.cancel()
         if events is True or isinstance(events, (list, set, tuple)) and "task:done" in events:
