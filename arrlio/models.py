@@ -1,7 +1,7 @@
 import datetime
 from dataclasses import asdict, dataclass, field
 from types import TracebackType
-from typing import Any, Callable, Dict
+from typing import Any, Callable, ClassVar, Dict
 from uuid import UUID, uuid4
 
 from rich.pretty import pretty_repr
@@ -128,6 +128,8 @@ class TaskInstance(Task):
     kwds: Kwds = field(default_factory=dict)  # pylint: disable=used-before-assignment
     meta: Dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
 
+    sanitizer: ClassVar[Callable | None] = None
+
     def __post_init__(self):
         if self.task_id is None:
             object.__setattr__(self, "task_id", uuid4())
@@ -139,10 +141,13 @@ class TaskInstance(Task):
     def dict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
         data = super().dict(exclude=exclude, sanitize=sanitize)
         if sanitize:
-            if data["args"]:
-                data["args"] = "<hiden>"
-            if data["kwds"]:
-                data["kwds"] = "<hiden>"
+            if self.sanitizer:
+                data = self.sanitizer(data)  # pylint: disable=not-callable
+            else:
+                if data["args"]:
+                    data["args"] = "<hiden>"
+                if data["kwds"]:
+                    data["kwds"] = "<hiden>"
         return data
 
     def __call__(self, meta: bool = None):  # pylint: disable=arguments-differ

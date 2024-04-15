@@ -64,13 +64,14 @@ EVENTS_EXCHANGE = "arrlio.events"
 EVENTS_EXCHANGE_DURABLE = False
 EVENTS_QUEUE_TYPE = QueueType.CLASSIC
 EVENTS_QUEUE_DURABLE = False
-EVENTS_QUEUE_AUTO_DELETE = False
-EVENTS_QUEUE_PREFIX = "arrlio."
+EVENTS_QUEUE_AUTO_DELETE = True
+EVENTS_QUEUE = "arrlio.events"
 EVENTS_TTL = 600
 EVENTS_PREFETCH_COUNT = 10
 
 RESULTS_QUEUE_MODE = ResultQueueMode.COMMON
 RESULTS_QUEUE_PREFIX = "arrlio."
+RESULTS_QUEUE_AUTO_DELETE = True
 RESULTS_QUEUE_DURABLE = False
 RESULTS_QUEUE_TYPE = QueueType.CLASSIC
 RESULTS_TTL = 600
@@ -667,13 +668,15 @@ class Config(base.Config):
     events_queue_type: QueueType = Field(default_factory=lambda: EVENTS_QUEUE_TYPE)
     events_queue_durable: bool = Field(default_factory=lambda: EVENTS_QUEUE_DURABLE)
     events_queue_auto_delete: bool = Field(default_factory=lambda: EVENTS_QUEUE_AUTO_DELETE)
-    events_queue_prefix: str = Field(default_factory=lambda: EVENTS_QUEUE_PREFIX)
+    events_queue: str = Field(default_factory=lambda: EVENTS_QUEUE)
     events_ttl: Optional[Timeout] = Field(default_factory=lambda: EVENTS_TTL)
     events_prefetch_count: Optional[PositiveInt] = Field(default_factory=lambda: EVENTS_PREFETCH_COUNT)
     results_queue_mode: ResultQueueMode = Field(default_factory=lambda: RESULTS_QUEUE_MODE)
     results_queue_prefix: str = Field(default_factory=lambda: RESULTS_QUEUE_PREFIX)
     """.. note:: Only valid for `ResultQueueMode.COMMON`."""
     results_queue_durable: bool = Field(default_factory=lambda: RESULTS_QUEUE_DURABLE)
+    """.. note:: Only valid for `ResultQueueMode.COMMON`."""
+    results_queue_auto_delete: bool = Field(default_factory=lambda: RESULTS_QUEUE_AUTO_DELETE)
     """.. note:: Only valid for `ResultQueueMode.COMMON`."""
     results_queue_type: QueueType = Field(default_factory=lambda: RESULTS_QUEUE_TYPE)
     """.. note:: Only valid for `ResultQueueMode.COMMON`."""
@@ -755,7 +758,7 @@ class Backend(base.Backend):
             conn=self._conn,
             type=config.results_queue_type,
             durable=config.results_queue_durable,
-            auto_delete=False,
+            auto_delete=config.results_queue_auto_delete,
             prefetch_count=config.results_prefetch_count,
             # expires=config.results_ttl,
             # msg_ttl=config.results_ttl,
@@ -774,7 +777,7 @@ class Backend(base.Backend):
             timeout=config.timeout,
         )
         self._events_queue: Queue = Queue(
-            f"{config.events_queue_prefix}events.{config.id}",
+            config.events_queue,
             conn=self._conn,
             type=config.events_queue_type,
             durable=config.events_queue_durable,

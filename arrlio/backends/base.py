@@ -33,6 +33,8 @@ class SerializerConfig(BaseSettings, ModuleConfigValidatorMixIn):
 class Config(BaseSettings):
     """Config for backend."""
 
+    model_config = SettingsConfigDict()
+
     id: str = Field(default_factory=lambda: f"{uuid4()}")
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
 

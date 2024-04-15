@@ -1,5 +1,8 @@
+import importlib.metadata
 import logging
 import sys
+
+__version__ = importlib.metadata.version("arrlio")
 
 logger = logging.getLogger("arrlio")
 

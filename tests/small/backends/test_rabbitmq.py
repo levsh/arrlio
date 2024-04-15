@@ -29,7 +29,7 @@ class TestConfig:
         assert config.events_queue_type == rabbitmq.EVENTS_QUEUE_TYPE
         assert config.events_queue_durable == rabbitmq.EVENTS_QUEUE_DURABLE
         assert config.events_queue_auto_delete == rabbitmq.EVENTS_QUEUE_AUTO_DELETE
-        assert config.events_queue_prefix == rabbitmq.EVENTS_QUEUE_PREFIX
+        assert config.events_queue == rabbitmq.EVENTS_QUEUE
         assert config.events_ttl == rabbitmq.EVENTS_TTL
         assert config.events_prefetch_count == rabbitmq.EVENTS_PREFETCH_COUNT
         assert config.results_queue_mode == rabbitmq.RESULTS_QUEUE_MODE
@@ -59,7 +59,7 @@ class TestConfig:
             events_queue_type="quorum",
             events_queue_durable=False,
             events_queue_auto_delete=False,
-            events_queue_prefix="events_queue_prefix",
+            events_queue="events_queue",
             events_ttl=789,
             events_prefetch_count=20,
             results_queue_mode="common",
@@ -87,7 +87,7 @@ class TestConfig:
         assert config.events_queue_type == "quorum"
         assert config.events_queue_durable is False
         assert config.events_queue_auto_delete is False
-        assert config.events_queue_prefix == "events_queue_prefix"
+        assert config.events_queue == "events_queue"
         assert config.events_ttl == 789
         assert config.events_prefetch_count == 20
         assert config.results_queue_mode == "common"

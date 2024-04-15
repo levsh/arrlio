@@ -269,6 +269,15 @@ class App:
 
     async def pop_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         async for task_result in self._backend.pop_task_result(task_instance):
+            if is_info_level():
+                logger.info(
+                    "%s got result[idx=%s, exc=%s] for task %s[%s]",
+                    self,
+                    task_result.idx,
+                    task_result.exc is not None,
+                    task_instance.name,
+                    task_instance.task_id,
+                )
             if task_result.exc:
                 if isinstance(task_result.exc, TaskError):
                     if task_result.exc.task_id is None:

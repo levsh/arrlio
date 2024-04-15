@@ -2,7 +2,7 @@ import abc
 import contextlib
 import logging
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from arrlio.models import TaskInstance, TaskResult
 
@@ -10,7 +10,7 @@ logger = logging.getLogger("arrlio.plugins.base")
 
 
 class Config(BaseSettings):
-    pass
+    model_config = SettingsConfigDict()
 
 
 class Plugin(abc.ABC):

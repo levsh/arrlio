@@ -1,13 +1,13 @@
 import abc
 from typing import Any
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from arrlio.models import Event, TaskInstance, TaskResult
 
 
 class Config(BaseSettings):
-    pass
+    model_config = SettingsConfigDict()
 
 
 class Serializer(abc.ABC):
