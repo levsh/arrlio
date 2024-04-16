@@ -48,7 +48,7 @@ class ModuleConstraints:
 
 class Module(ModuleType):
     @classmethod
-    def __get_pydantic_core_schema__(cls, source_type, handler):
+    def __get_pydantic_core_schema__(cls, source_type, handler):  # pylint: disable=unused-argument
         def validate_from_str(v):
             if isinstance(v, str):
                 try:
