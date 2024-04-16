@@ -37,12 +37,6 @@ async def hello_world():
 async def foo():
     arrlio.logger.info("Hello from task 'foo'!")
 
-# access to task object as self argument
-@arrlio.task(bind=True)
-async def bind(self):
-    arrlio.logger.info(self.data.task_id)
-    arrlio.logger.info(self)
-
 # exception example
 @arrlio.task
 async def exception():
