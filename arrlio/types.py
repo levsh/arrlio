@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
@@ -19,12 +20,7 @@ ExceptionFilter = Callable[[Exception], bool]
 
 Timeout = Annotated[int, Ge(0)]
 
-RetryTimeout = list[Timeout]
-# GetPydanticSchema(
-#     lambda source_type, handler: core_schema.no_info_after_validator_function(
-#         lambda v: v, core_schema.union_schema([core_schema.generator_schema(), core_schema.list_schema()])
-#     )
-# ),
+RetryTimeout = list[Timeout] | Generator[Timeout]
 
 Ttl = Annotated[int, Ge(1)]
 
@@ -35,11 +31,25 @@ Args = Union[list, tuple]
 Kwds = dict
 
 
-@dataclass(slots=True)
-class ModuleValidator:
+@dataclass
+class ModuleConstraints:
+    has_attrs: Optional[list[str]]
+
+    def __hash__(self):
+        return hash(";".join(self.has_attrs or []))
+
+    def __call__(self, v):
+        if self.has_attrs:
+            for name in self.has_attrs:
+                if not hasattr(v, name):
+                    raise ValueError(f"module doesn't provide required attribute '{name}'")
+        return v
+
+
+class Module(ModuleType):
     @classmethod
-    def make_before(cls):
-        def validator(v):
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        def validate_from_str(v):
             if isinstance(v, str):
                 try:
                     v = import_module(v)
@@ -47,103 +57,36 @@ class ModuleValidator:
                     raise ValueError("module not found") from e
             return v
 
-        return validator
-
-    @classmethod
-    def make_after(cls, required_classes: list[str] = None):
-        def validator(v):
-            if required_classes:
-                for name in required_classes:
-                    if not hasattr(v, name):
-                        raise ValueError(f"module doesn't provide required class '{name}'")
-            return v
-
-        return validator
-
-
-Module = Annotated[
-    ModuleType,
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_after_validator_function(
-            ModuleValidator.make_after(),
-            core_schema.is_instance_schema(source_type),
+        from_str_schema = core_schema.chain_schema(
+            [
+                core_schema.str_schema(),
+                core_schema.no_info_plain_validator_function(validate_from_str),
+            ]
         )
-    ),
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_before_validator_function(
-            ModuleValidator.make_before(),
-            core_schema.chain_schema([core_schema.is_instance_schema((str, source_type)), handler(source_type)]),
+
+        return core_schema.union_schema(
+            [
+                core_schema.is_instance_schema(ModuleType),
+                from_str_schema,
+            ],
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                function=lambda x: x.__spec__ and x.__spec__.name or f"{x}",
+                when_used="json",
+            ),
         )
-    ),
-]
+
+    # @classmethod
+    # def __get_pydantic_json_schema__(cls, core_schema, handler):
+    #     return handler(core_schema.str_schema())
 
 
-BackendModule = Annotated[
-    ModuleType,
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_after_validator_function(
-            ModuleValidator.make_after(required_classes=["Backend", "Config"]),
-            core_schema.is_instance_schema(source_type),
-        )
-    ),
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_before_validator_function(
-            ModuleValidator.make_before(),
-            core_schema.chain_schema([core_schema.is_instance_schema((str, source_type)), handler(source_type)]),
-        )
-    ),
-]
+BackendModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Backend", "Config"]))]
 
+SerializerModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Serializer", "Config"]))]
 
-ExecutorModule = Annotated[
-    ModuleType,
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_after_validator_function(
-            ModuleValidator.make_after(required_classes=["Executor", "Config"]),
-            core_schema.is_instance_schema(source_type),
-        )
-    ),
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_before_validator_function(
-            ModuleValidator.make_before(),
-            core_schema.chain_schema([core_schema.is_instance_schema((str, source_type)), handler(source_type)]),
-        )
-    ),
-]
+ExecutorModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Executor", "Config"]))]
 
-
-SerializerModule = Annotated[
-    ModuleType,
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_after_validator_function(
-            ModuleValidator.make_after(required_classes=["Serializer", "Config"]),
-            core_schema.is_instance_schema(source_type),
-        )
-    ),
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_before_validator_function(
-            ModuleValidator.make_before(),
-            core_schema.chain_schema([core_schema.is_instance_schema((str, source_type)), handler(source_type)]),
-        )
-    ),
-]
-
-
-PluginModule = Annotated[
-    ModuleType,
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_after_validator_function(
-            ModuleValidator.make_after(required_classes=["Plugin", "Config"]),
-            core_schema.is_instance_schema(source_type),
-        )
-    ),
-    GetPydanticSchema(
-        lambda source_type, handler: core_schema.no_info_before_validator_function(
-            ModuleValidator.make_before(),
-            core_schema.chain_schema([core_schema.is_instance_schema((str, source_type)), handler(source_type)]),
-        )
-    ),
-]
+PluginModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Plugin", "Config"]))]
 
 
 ModuleConfig = Annotated[

@@ -14,6 +14,11 @@ def test_backend_config():
     assert config.module.__name__ == "arrlio.backends.local"
     assert isinstance(config.config, config.module.Config)
     assert config.config.id == "arrlio"
+    assert isinstance(config.model_dump()["module"], ModuleType)
+    assert (
+        config.model_dump_json()
+        == '{"module":"arrlio.backends.local","config":{"id":"arrlio","serializer":{"module":"arrlio.serializers.nop","config":{}},"pool_size":100}}'
+    )
 
     config = configs.BackendConfig(module="arrlio.backends.rabbitmq")
     assert isinstance(config.module, ModuleType)
@@ -24,7 +29,7 @@ def test_backend_config():
     with pytest.raises(ValidationError):
         config = configs.BackendConfig(module="arrlio.backends.invalid")
 
-    with pytest.raises(ValidationError, match=r".*Value error, module doesn't provide required class 'Backend'.*"):
+    with pytest.raises(ValidationError, match=r".*Value error, module doesn't provide required attribute 'Backend'.*"):
         config = configs.BackendConfig(module="sys")
 
     env = {
@@ -64,7 +69,7 @@ def test_executor_config():
     with pytest.raises(ValidationError):
         config = configs.ExecutorConfig(module="invalid")
 
-    with pytest.raises(ValidationError, match=r".*Value error, module doesn't provide required class 'Executor'.*"):
+    with pytest.raises(ValidationError, match=r".*Value error, module doesn't provide required attribute 'Executor'.*"):
         config = configs.ExecutorConfig(module="sys")
 
     env = {"ARRLIO_EXECUTOR_MODULE": "arrlio.executor"}
