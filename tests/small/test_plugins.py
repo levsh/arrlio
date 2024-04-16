@@ -183,11 +183,11 @@ class TestPlugin:
 
             @asynccontextmanager
             async def task_context(self, task_instance):
-                self.app.context.set({"x": "y"})
+                self.app.context["x"] = "y"
                 yield
 
             async def on_task_done(self, task_instance, task_result):
-                if self.app.context.get() == {"x": "y"}:
+                if "task_instance" in self.app.context and self.app.context["x"] == "y":
                     ev.set()
 
         module = ModuleType("test")

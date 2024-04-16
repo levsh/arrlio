@@ -139,7 +139,7 @@ class App:
 
     @property
     def context(self):
-        return self._context
+        return self._context.get()
 
     @property
     def is_closed(self) -> bool:
@@ -305,8 +305,9 @@ class App:
             self._running_tasks[task_id] = current_task()
             try:
                 async with AsyncExitStack() as stack:
-                    for context in self._hooks["task_context"]:
-                        await stack.enter_async_context(context(task_instance))
+                    self.context["task_instance"] = task_instance
+                    for context_hook in self._hooks["task_context"]:
+                        await stack.enter_async_context(context_hook(task_instance))
 
                     await self._execute_hooks("on_task_received", task_instance)
 
