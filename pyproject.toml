@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "arrlio"
-version = "0.23.0"
+version = "0.24.a0"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
