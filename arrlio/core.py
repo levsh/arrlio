@@ -15,7 +15,7 @@ from roview import rodict
 from arrlio import settings
 from arrlio.backends.base import Backend
 from arrlio.configs import Config
-from arrlio.exceptions import GraphError, TaskClosedError, TaskError
+from arrlio.exceptions import GraphError, NotFoundError, TaskClosedError, TaskError
 from arrlio.executor import Executor
 from arrlio.models import Event, Task, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
@@ -284,6 +284,13 @@ class App:
                 raise TaskError(task_instance.task_id, task_result.exc, task_result.trb)
 
             yield task_result.res
+
+    def cancel_local_task(self, task_id: UUID | str):
+        if isinstance(task_id, str):
+            task_id = UUID(f"{task_id}")
+        if task_id not in self._running_tasks:
+            raise NotFoundError(task_id)
+        self._running_tasks[task_id].cancel()
 
     async def consume_tasks(self, queues: list[str] | None = None):
         """Consume tasks from the queues."""
