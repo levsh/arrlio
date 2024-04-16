@@ -1,4 +1,3 @@
-from collections.abc import Generator
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
@@ -19,8 +18,6 @@ ExceptionFilter = Callable[[Exception], bool]
 
 
 Timeout = Annotated[int, Ge(0)]
-
-RetryTimeout = list[Timeout] | Generator[Timeout]
 
 Ttl = Annotated[int, Ge(1)]
 

@@ -16,7 +16,7 @@ class TestConfig:
         assert config.timeout == rabbitmq.TIMEOUT
         assert config.verify_ssl is True
         assert config.push_retry_timeouts
-        assert config.pull_retry_timeouts
+        assert config.pull_retry_timeout
         assert config.tasks_exchange == rabbitmq.TASKS_EXCHANGE
         assert config.tasks_exchange_durable == rabbitmq.TASKS_EXCHANGE_DURABLE
         assert config.tasks_queue_type == rabbitmq.TASKS_QUEUE_TYPE
@@ -46,7 +46,7 @@ class TestConfig:
             timeout=123,
             verify_ssl=False,
             push_retry_timeouts=[2],
-            pull_retry_timeouts=[3],
+            pull_retry_timeout=3,
             tasks_exchange="tasks_exchange",
             tasks_exchange_durable=True,
             tasks_queue_type="quorum",
@@ -74,7 +74,7 @@ class TestConfig:
         assert config.timeout == 123
         assert config.verify_ssl is False
         assert next(iter(config.push_retry_timeouts)) == 2
-        assert next(iter(config.pull_retry_timeouts)) == 3
+        assert config.pull_retry_timeout == 3
         assert config.tasks_exchange == "tasks_exchange"
         assert config.tasks_exchange_durable is True
         assert config.tasks_queue_type == "quorum"

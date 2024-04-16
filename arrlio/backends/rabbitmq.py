@@ -50,7 +50,7 @@ TIMEOUT = 15
 CONNECT_TIMEOUT = 15
 
 PUSH_RETRY_TIMEOUTS = [5, 5, 5, 5]  # pylint: disable=invalid-name
-PULL_RETRY_TIMEOUTS = itertools.repeat(5)  # pylint: disable=invalid-name
+PULL_RETRY_TIMEOUT = 5  # pylint: disable=invalid-name
 
 TASKS_EXCHANGE = "arrlio"
 TASKS_EXCHANGE_DURABLE = False
@@ -592,6 +592,7 @@ class Queue:
         callback: Callable[[aiormq.Channel, aiormq.abc.DeliveredMessage], Coroutine],
         prefetch_count: int | None = None,
         timeout: int | None = None,
+        retry_timeout: int = 5,
     ):
         if self.consumer is None:
             channel = await self.conn.new_channel()
@@ -620,7 +621,7 @@ class Queue:
                 "on_lost",
                 f"on_lost_queue_{self.name}_consume",
                 partial(
-                    retry(retry_timeouts=itertools.repeat(5), exc_filter=lambda e: True)(self.consume),
+                    retry(retry_timeouts=itertools.repeat(retry_timeout), exc_filter=lambda e: True)(self.consume),
                     callback,
                     prefetch_count=prefetch_count,
                     timeout=timeout,
@@ -652,10 +653,8 @@ class Config(base.Config):
     """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     verify_ssl: Optional[bool] = Field(default_factory=lambda: True)
-    # push_retry_timeouts: Optional[RetryTimeout] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    # pull_retry_timeouts: Optional[RetryTimeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
-    push_retry_timeouts: Optional[Any] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeouts: Optional[Any] = Field(default_factory=lambda: PULL_RETRY_TIMEOUTS)
+    push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
+    pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
     tasks_exchange: str = Field(default_factory=lambda: TASKS_EXCHANGE)
     tasks_exchange_durable: bool = Field(default_factory=lambda: TASKS_EXCHANGE_DURABLE)
     tasks_queue_type: QueueType = Field(default_factory=lambda: TASKS_QUEUE_TYPE)
@@ -834,7 +833,8 @@ class Backend(base.Backend):
                 "on_result_message",
                 lambda: self._on_result_message(*args, **kwds),
             )
-            and None
+            and None,
+            retry_timeout=self.config.pull_retry_timeout,
         )
 
         self._conn.remove_callback("on_open", "on_conn_open_first_time")
@@ -1028,7 +1028,8 @@ class Backend(base.Backend):
                         "on_task_message",
                         lambda: self._on_task_message(callback, *args, **kwds),
                     )
-                    and None
+                    and None,
+                    retry_timeout=self.config.pull_retry_timeout,
                 )
 
     async def stop_consume_tasks(self, queues: list[str] | None = None):
@@ -1234,7 +1235,10 @@ class Backend(base.Backend):
         await self._events_exchange.declare(restore=True, force=True)
         await self._events_queue.declare(restore=True, force=True)
         await self._events_queue.bind(self._events_exchange, routing_key="events", restore=True)
-        await self._events_queue.consume(lambda *args, **kwds: create_task(on_message(*args, **kwds)) and None)
+        await self._events_queue.consume(
+            lambda *args, **kwds: create_task(on_message(*args, **kwds)) and None,
+            retry_timeout=self.config.pull_retry_timeout,
+        )
 
     async def stop_consume_events(self, callback_id: str | None = None):
         if callback_id:

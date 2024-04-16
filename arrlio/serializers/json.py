@@ -5,9 +5,9 @@ from json import dumps as json_dumps
 from json import loads as json_loads
 from traceback import format_tb
 from types import TracebackType
-from typing import Any, Type
+from typing import Annotated, Any, Type
 
-from pydantic import Field
+from pydantic import Field, PlainSerializer
 from pydantic_settings import SettingsConfigDict
 
 from arrlio import registered_tasks
@@ -20,10 +20,16 @@ from arrlio.utils import ExtendedJSONEncoder
 logger = logging.getLogger("arrlio.serializers.json")
 
 
+Encoder = Annotated[
+    Type[json.JSONEncoder],
+    PlainSerializer(lambda x: f"{x}", return_type=str, when_used="json"),
+]
+
+
 class Config(base.Config):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}JSON_SERIALIZER_")
 
-    encoder: Type[json.JSONEncoder] = Field(default=ExtendedJSONEncoder)
+    encoder: Encoder = Field(default=ExtendedJSONEncoder)
 
 
 class Serializer(base.Serializer):

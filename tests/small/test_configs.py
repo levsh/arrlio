@@ -24,7 +24,10 @@ def test_backend_config():
     assert isinstance(config.module, ModuleType)
     assert config.module.__name__ == "arrlio.backends.rabbitmq"
     assert isinstance(config.config, config.module.Config)
-    # assert config.config.push_retry_timeouts == [5, 5, 5, 5]
+    assert config.config.push_retry_timeouts == [5, 5, 5, 5]
+    assert isinstance(config.model_dump()["module"], ModuleType)
+    assert isinstance(config.model_dump()["config"]["serializer"]["module"], ModuleType)
+    assert config.model_dump_json()
 
     with pytest.raises(ValidationError):
         config = configs.BackendConfig(module="arrlio.backends.invalid")
