@@ -1029,7 +1029,7 @@ class Backend(base.Backend):
         headers = {}
         data: bytes = self.serializer.dumps_task_instance(task_instance, headers=headers)
 
-        await self._ensure_task_queue(task_instance.queue)
+        # await self._ensure_task_queue(task_instance.queue)
 
         properties = {
             "delivery_mode": 2,

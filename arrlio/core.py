@@ -1,7 +1,7 @@
 import asyncio
 import dataclasses
 import logging
-from asyncio import current_task, gather
+from asyncio import TaskGroup, current_task, gather
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
 from inspect import isasyncgenfunction, isgeneratorfunction
@@ -15,7 +15,15 @@ from roview import rodict
 from arrlio import settings
 from arrlio.backends.base import Backend
 from arrlio.configs import Config
-from arrlio.exceptions import GraphError, NotFoundError, TaskClosedError, TaskError
+from arrlio.exceptions import (
+    GraphError,
+    HooksError,
+    InternalError,
+    NotFoundError,
+    TaskCancelledError,
+    TaskClosedError,
+    TaskError,
+)
 from arrlio.executor import Executor
 from arrlio.models import Event, Task, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
@@ -155,11 +163,11 @@ class App:
         if self.is_closed:
             return
 
-        logger.info("%s: initializing with config\n%s", self, pretty_repr(self.config.model_dump()))
+        logger.info("%s initializing with config\n%s", self, pretty_repr(self.config.model_dump()))
 
         await self._execute_hooks("on_init")
 
-        logger.info("%s: initialization done", self)
+        logger.info("%s initialization done", self)
 
     async def close(self):
         """Close application."""
@@ -181,7 +189,7 @@ class App:
             await self._backend.close()
 
             for task_id, aio_task in tuple(self._running_tasks.items()):
-                logger.warning("%s: cancel processing task '%s'", self, task_id)
+                logger.warning("%s cancel processing task '%s'", self, task_id)
                 aio_task.cancel()
                 try:
                     await aio_task
@@ -195,13 +203,19 @@ class App:
     async def _execute_hook(self, hook_fn, *args, **kwds):
         try:
             if is_debug_level():
-                logger.debug("%s: execute hook %s", self, hook_fn)
+                logger.debug("%s execute hook %s", self, hook_fn)
             await hook_fn(*args, **kwds)
-        except Exception:
-            logger.exception("%s: hook %s error", self, hook_fn)
+        except Exception as e:
+            logger.exception("%s hook %s error", self, hook_fn)
+            raise e
 
     async def _execute_hooks(self, hook: str, *args, **kwds):
-        await gather(*(self._execute_hook(hook_fn, *args, **kwds) for hook_fn in self._hooks[hook]))
+        try:
+            async with TaskGroup() as tg:
+                for hook_fn in self._hooks[hook]:
+                    tg.create_task(self._execute_hook(hook_fn, *args, **kwds))
+        except ExceptionGroup as eg:
+            raise HooksError(exceptions=eg.exceptions)
 
     async def send_task(
         self,
@@ -250,7 +264,7 @@ class App:
 
         if is_info_level():
             logger.info(
-                "%s: send task instance\n%s",
+                "%s send task instance\n%s",
                 self,
                 task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
@@ -263,7 +277,7 @@ class App:
 
     async def send_event(self, event: Event):
         if is_info_level():
-            logger.info("%s: send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.info("%s send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         await self._backend.send_event(event)
 
@@ -301,57 +315,78 @@ class App:
 
         async def cb(task_instance: TaskInstance):
             task_id: UUID = task_instance.task_id
-
             self._running_tasks[task_id] = current_task()
+
+            idx_0 = uuid4().hex
+            idx_1 = 0
+
             try:
+                task_result: TaskResult = TaskResult()
+
                 async with AsyncExitStack() as stack:
-                    self.context["task_instance"] = task_instance
-                    for context_hook in self._hooks["task_context"]:
-                        await stack.enter_async_context(context_hook(task_instance))
+                    try:
+                        self.context["task_instance"] = task_instance
 
-                    await self._execute_hooks("on_task_received", task_instance)
+                        for context_hook in self._hooks["task_context"]:
+                            await stack.enter_async_context(context_hook(task_instance))
 
-                    task_result: TaskResult = TaskResult()
+                        await self._execute_hooks("on_task_received", task_instance)
 
-                    idx_0 = uuid4().hex
-                    idx_1 = 0
+                        async for task_result in self.execute_task(task_instance):
+                            task_result.set_idx((idx_0, idx_1 + 1))
 
-                    async for task_result in self.execute_task(task_instance):
-                        idx_1 += 1
-                        task_result.set_idx([idx_0, idx_1])
+                            if task_instance.result_return:
+                                await self._backend.push_task_result(task_result, task_instance)
 
+                            await self._execute_hooks("on_task_result", task_instance, task_result)
+                            idx_1 += 1
+
+                    except (asyncio.CancelledError, Exception) as e:
+                        if isinstance(e, asyncio.CancelledError):
+                            logger.error("%s task %s[%s] cancelled", self, task_instance.name, task_id)
+                            task_result = TaskResult(exc=TaskCancelledError(task_id))
+                            raise e
+                        if isinstance(e, HooksError):
+                            # pylint: disable=no-member
+                            if len(e.exceptions) == 1:
+                                e = e.exceptions[0]
+                            else:
+                                e = TaskError(exceptions=e.exceptions)
+                            logger.error("%s task %s[%s] %s: %s", self, task_instance.name, task_id, e.__class__, e)
+                            task_result = TaskResult(exc=e)
+                        else:
+                            logger.exception(e)
+                            task_result = TaskResult(exc=InternalError())
+                        task_result.set_idx((idx_0, idx_1 + 1))
                         if task_instance.result_return:
                             await self._backend.push_task_result(task_result, task_instance)
+                        idx_1 += 1
+                    finally:
+                        try:
+                            if task_instance.result_return and not task_instance.extra.get("graph:graph"):
+                                func = task_instance.func
+                                if isasyncgenfunction(func) or isgeneratorfunction(func):
+                                    await self._backend.close_task(task_instance, idx=(idx_0, idx_1 + 1))
+                                    idx_1 += 1
+                        finally:
+                            await self._execute_hooks("on_task_done", task_instance, task_result)
 
-                        await self._execute_hooks("on_task_result", task_instance, task_result)
-
-                    if task_instance.result_return and not task_instance.extra.get("graph:graph"):
-                        func = task_instance.func
-                        if isasyncgenfunction(func) or isgeneratorfunction(func):
-                            idx_1 += 1
-                            await self._backend.close_task(task_instance, idx=(idx_0, idx_1))
-
-                    await self._execute_hooks("on_task_done", task_instance, task_result)
-
-            except asyncio.CancelledError:
-                logger.error("%s: task %s(%s) cancelled", self, task_id, task_instance.name)
-                raise
             except Exception as e:
                 logger.exception(e)
             finally:
                 self._running_tasks.pop(task_id, None)
 
         await self._backend.consume_tasks(queues, cb)
-        logger.info("%s: consuming task queues %s", self, queues)
+        logger.info("%s consuming task queues %s", self, queues)
 
     async def stop_consume_tasks(self, queues: list[str] | None = None):
         """Stop consuming tasks."""
 
         await self._backend.stop_consume_tasks(queues=queues)
         if queues is not None:
-            logger.info("%s: stop consuming task queues %s", self, queues)
+            logger.info("%s stop consuming task queues %s", self, queues)
         else:
-            logger.info("%s: stop consuming task queues", self)
+            logger.info("%s stop consuming task queues", self)
 
     async def execute_task(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """Execute the task instance locally by the application executor."""
