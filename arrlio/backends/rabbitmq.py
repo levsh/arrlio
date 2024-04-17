@@ -906,7 +906,7 @@ class Backend(base.Backend):
             properties: aiormq.spec.Basic.Properties = message.header.properties
             task_id: UUID = UUID(properties.message_id)
 
-            task_result: TaskResult = self.serializer.loads_task_result(message.body)
+            task_result: TaskResult = self.serializer.loads_task_result(message.body, headers=properties.headers)
 
             if not no_ack:
                 await channel.basic_ack(message.delivery.delivery_tag)
