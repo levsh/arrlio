@@ -40,6 +40,7 @@ class Serializer(abc.ABC):
     def dumps_task_result(
         self,
         task_result: TaskResult,
+        *,
         task_instance: TaskInstance | None = None,
         **kwds,
     ) -> bytes | TaskResult:

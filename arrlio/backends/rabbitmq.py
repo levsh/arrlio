@@ -985,11 +985,18 @@ class Backend(base.Backend):
                 routing_key = message.header.properties.reply_to
                 if routing_key.startswith("amq.rabbitmq.reply-to."):
                     exchange = self._default_exchange
+                headers = {}
+                data = self.serializer.dumps_task_result(
+                    TaskResult(res=None, exc=e, trb=None),
+                    task_instance=task_instance,
+                    headers=headers,
+                )
                 await exchange.publish(
-                    self.serializer.dumps_task_result(TaskResult(res=None, exc=e, trb=None), task_instance),
+                    data,
                     routing_key=routing_key,
                     properties={
                         "delivery_mode": 2,
+                        "headers": headers,
                         "message_id": message.header.properties.message_id,
                         "timestamp": datetime.now(tz=timezone.utc),
                     },
@@ -1114,18 +1121,28 @@ class Backend(base.Backend):
                 task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
+        headers = {}
+        data = self.serializer.dumps_task_result(task_result, task_instance=task_instance, headers=headers)
+
+        properties = {
+            "delivery_mode": 2,
+            "message_type": "arrlio:result",
+            "headers": headers,
+            "message_id": f"{task_instance.task_id}",
+            "correlation_id": f"{task_instance.task_id}",
+            "timestamp": datetime.now(tz=timezone.utc),
+        }
+        if self.serializer.content_type is not None:
+            properties["content_type"] = self.serializer.content_type
+        if task_instance.result_ttl is not None:
+            properties["expiration"] = f"{int(task_instance.result_ttl * 1000)}"
+        # if task_instance.extra.get("app_id"):
+        #     properties["app_id"] = task_instance.extra["app_id"]
+
         await exchange.publish(
-            self.serializer.dumps_task_result(task_result, task_instance),
+            data,
             routing_key=routing_key,
-            properties={
-                "delivery_mode": 2,
-                "message_id": f"{task_instance.task_id}",
-                "timestamp": datetime.now(tz=timezone.utc),
-                "expiration": f"{int(task_instance.result_ttl * 1000)}"
-                if task_instance.result_ttl is not None
-                else None,
-                "correlation_id": f"{task_instance.task_id}",
-            },
+            properties=properties,
             timeout=self.config.timeout,
         )
 

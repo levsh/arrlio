@@ -187,7 +187,7 @@ class Backend(base.Backend):
 
         result = results[task_id]
 
-        result[1].append(self.serializer.dumps_task_result(task_result, task_instance))
+        result[1].append(self.serializer.dumps_task_result(task_result, task_instance=task_instance))
         result[0].set()
 
         if task_instance.result_ttl is not None:
