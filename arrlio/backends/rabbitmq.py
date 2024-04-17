@@ -11,13 +11,13 @@ from enum import StrEnum
 from functools import partial
 from inspect import isasyncgenfunction, iscoroutine, iscoroutinefunction, isgeneratorfunction
 from ssl import SSLContext
-from typing import Annotated, Any, AsyncGenerator, Callable, Coroutine, Optional
+from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
 from uuid import UUID
 
 import aiormq
 import aiormq.exceptions
 import yarl
-from pydantic import Field, PlainSerializer, PositiveInt
+from pydantic import Field, PositiveInt
 from pydantic_settings import SettingsConfigDict
 
 from arrlio import settings
@@ -313,7 +313,40 @@ class Connection:
         return self._channel
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
+class SimpleExchange:
+    conn: Connection
+    name: str = ""
+    timeout: int | None = None
+
+    async def publish(
+        self,
+        data: bytes,
+        routing_key: str,
+        properties: dict | None = None,
+        timeout: int | None = None,
+    ):
+        channel = await self.conn.channel()
+
+        if is_debug_level():
+            logger.debug(
+                "Exchange[name='%s'] channel[%s] publish[routing_key='%s'] %s",
+                self.name,
+                channel,
+                routing_key,
+                data if not settings.LOG_SANITIZE else "<hiden>",
+            )
+
+        await channel.basic_publish(
+            data,
+            exchange=self.name,
+            routing_key=routing_key,
+            properties=BasicProperties(**(properties or {})),
+            timeout=timeout or self.timeout,
+        )
+
+
+@dataclass(slots=True, frozen=True)
 class Exchange:
     name: str = ""
     type: str = "direct"
@@ -417,7 +450,7 @@ class Exchange:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class Consumer:
     channel: aiormq.Channel
     consumer_tag: int
@@ -427,7 +460,7 @@ class Consumer:
         await self.channel.close()
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class Queue:
     name: str
     type: QueueType = QueueType.CLASSIC
@@ -644,19 +677,11 @@ class SerializerConfig(base.SerializerConfig):
     module: SerializerModule = SERIALIZER
 
 
-HeadersExtender = Annotated[
-    Callable[[TaskInstance], dict],
-    PlainSerializer(lambda x: f"{x}", return_type=str, when_used="json"),
-    # PlainSerializer(lambda x: "<HeadersExtender>", return_type=str, when_used="json"),
-]
-
-
 class Config(base.Config):
     """RabbitMQ backend config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_")
 
-    headers_extenders: list[HeadersExtender] = Field(default_factory=list)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
     """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
@@ -758,8 +783,6 @@ class Backend(base.Backend):
             timeout=config.timeout,
         )
         self._task_queues: dict[str, Queue] = {}
-
-        # self._semaphore = asyncio.Semaphore(value=config.pool_size)
 
         self._results_queue: Queue = Queue(
             f"{config.results_queue_prefix}results.{config.id}",
@@ -936,7 +959,7 @@ class Backend(base.Backend):
             if is_debug_level():
                 logger.debug("%s got raw message %s", self, message.body if not settings.LOG_SANITIZE else "<hiden>")
 
-            task_instance = self.serializer.loads_task_instance(message.body)
+            task_instance = self.serializer.loads_task_instance(message.body, headers=message.header.properties.headers)
 
             task_instance.extra["rabbitmq:reply_to"] = message.header.properties.reply_to
 
@@ -995,14 +1018,16 @@ class Backend(base.Backend):
     async def _send_task(self, task_instance: TaskInstance, **kwds):  # pylint: disable=method-hidden
         reply_to = self._reply_to(task_instance)
         task_instance.extra["rabbitmq:reply_to"] = reply_to
-        data: bytes = self.serializer.dumps_task_instance(task_instance)
+
+        headers = {}
+        data: bytes = self.serializer.dumps_task_instance(task_instance, headers=headers)
 
         await self._ensure_task_queue(task_instance.queue)
 
         properties = {
             "delivery_mode": 2,
             "message_type": "arrlio:task",
-            "headers": {k: v for extender in self.config.headers_extenders for k, v in extender(task_instance).items()},
+            "headers": headers,
             "message_id": f"{task_instance.task_id}",
             "correlation_id": f"{task_instance.task_id}",
             "reply_to": reply_to,
@@ -1060,7 +1085,11 @@ class Backend(base.Backend):
             self._task_queues.pop(queue_name)
 
     async def _result_routing(self, task_instance: TaskInstance) -> tuple[Exchange, str]:
-        exchange = self._tasks_exchange
+        exchange_name = task_instance.extra.get("rabbitmq:reply_to.exchange", self._tasks_exchange.name)
+        if exchange_name == self._tasks_exchange.name:
+            exchange = self._tasks_exchange
+        else:
+            exchange = SimpleExchange(self._conn, exchange_name)
         routing_key = task_instance.extra["rabbitmq:reply_to"]
         if routing_key.startswith("amq.rabbitmq.reply-to."):
             exchange = self._default_exchange

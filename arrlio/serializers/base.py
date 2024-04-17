@@ -33,7 +33,7 @@ class Serializer(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def loads_task_instance(self, data: bytes | TaskInstance) -> TaskInstance:
+    def loads_task_instance(self, data: bytes | TaskInstance, **kwds) -> TaskInstance:
         pass
 
     @abc.abstractmethod
@@ -46,7 +46,7 @@ class Serializer(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def loads_task_result(self, data: bytes | TaskResult) -> TaskResult:
+    def loads_task_result(self, data: bytes | TaskResult, **kwds) -> TaskResult:
         pass
 
     @abc.abstractmethod
@@ -54,5 +54,5 @@ class Serializer(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def loads_event(self, data: bytes | Event) -> Event:
+    def loads_event(self, data: bytes | Event, **kwds) -> Event:
         pass

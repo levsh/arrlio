@@ -22,7 +22,7 @@ from arrlio.settings import (
 from arrlio.types import Args, AsyncCallable, Kwds, TaskId, TaskPriority, Timeout
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class Task:
     """Task `dataclass`.
 
@@ -112,7 +112,7 @@ class Task:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class TaskInstance(Task):
     """Task instance `dataclass`.
 
@@ -139,7 +139,8 @@ class TaskInstance(Task):
             object.__setattr__(self, "args", tuple(self.args))
 
     def dict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
-        data = super().dict(exclude=exclude, sanitize=sanitize)
+        # pylint: disable=super-with-arguments
+        data = super(TaskInstance, self).dict(exclude=exclude, sanitize=sanitize)
         if sanitize:
             if self.sanitizer:
                 data = self.sanitizer(data)  # pylint: disable=not-callable
@@ -171,7 +172,7 @@ class TaskInstance(Task):
         raise NotImplementedError
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class TaskResult:
     """Task result `dataclass`."""
 
@@ -203,7 +204,7 @@ class TaskResult:
         return pretty_repr(self.dict(sanitize=sanitize))
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class Event:
     """Event `dataclass`.
 

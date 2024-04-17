@@ -66,7 +66,7 @@ class Serializer(base.Serializer):
             extra["graph:graph"] = graph.dict()
         return self.dumps({k: v for k, v in data.items() if v is not None})
 
-    def loads_task_instance(self, data: bytes) -> TaskInstance:
+    def loads_task_instance(self, data: bytes, **kwds) -> TaskInstance:
         """Loads `arrlio.models.TaskInstance` object from json encoded string."""
 
         data: dict = self.loads(data)
@@ -123,7 +123,7 @@ class Serializer(base.Serializer):
             data["res"] = task_instance.dumps(data["res"])
         return self.dumps(data)
 
-    def loads_task_result(self, data: bytes) -> TaskResult:
+    def loads_task_result(self, data: bytes, **kwds) -> TaskResult:
         """Loads `arrlio.models.TaskResult` from json encoded string."""
 
         data = self.loads(data)
@@ -149,7 +149,7 @@ class Serializer(base.Serializer):
                 result["trb"] = self.dumps_trb(result["trb"])
         return self.dumps(data)
 
-    def loads_event(self, data: bytes) -> Event:
+    def loads_event(self, data: bytes, **kwds) -> Event:
         """Loads `arrlio.models.Event` from json encoded string."""
 
         event: Event = Event(**self.loads(data))

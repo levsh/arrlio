@@ -65,7 +65,7 @@ class Backend(abc.ABC):
         for task in self._internal_tasks[key]:
             task.cancel()
 
-    def _create_internal_task(self, key: str, coro_factory: Callable) -> asyncio.Task:
+    def _create_internal_task(self, key: str, coro_factory: Callable[[], Coroutine]) -> asyncio.Task:
         if self._closed.done():
             raise Exception(f"{self} closed")
 
