@@ -21,7 +21,12 @@ class Serializer(base.Serializer):
     def loads_task_instance(self, data: TaskInstance) -> TaskInstance:
         return data
 
-    def dumps_task_result(self, task_result: TaskResult, task_instance: TaskInstance = None, **kwds) -> TaskResult:
+    def dumps_task_result(
+        self,
+        task_result: TaskResult,
+        task_instance: TaskInstance | None = None,
+        **kwds,
+    ) -> TaskResult:
         return task_result
 
     def loads_task_result(self, data: TaskResult) -> TaskResult:

@@ -45,7 +45,7 @@ class TestEventsPlugin:
                     await plugin.on_task_received(task_instance)
                     mock_send_event.assert_awaited_once()
                     event = mock_send_event.call_args.args[0]
-                    assert event.type == "task:received"
+                    assert event.type == "task.received"
                     assert event.data == {"task:id": task_instance.task_id}
             finally:
                 await plugin.on_close()
@@ -69,7 +69,7 @@ class TestEventsPlugin:
                     await plugin.on_task_done(task_instance, task_result)
                     mock_send_event.assert_awaited_once()
                     event = mock_send_event.call_args.args[0]
-                    assert event.type == "task:done"
+                    assert event.type == "task.done"
                     assert event.data == {
                         "task:id": task_instance.task_id,
                         "result": TaskResult(res="Hello World!", exc=None, trb=None, idx=None, routes=None),
@@ -98,7 +98,7 @@ class TestGraphsPlugin:
                     mock_consume_events.assert_awaited_once_with(
                         "arrlio.graphs",
                         plugin._on_event,
-                        event_types=["graph:task:send", "graph:task:done"],
+                        event_types=["graph.task.send", "graph.task.done"],
                     )
             finally:
                 await plugin.on_close()
@@ -133,7 +133,7 @@ class TestGraphsPlugin:
                     await plugin.on_task_done(task_instance, task_result)
                     mock_send_event.assert_awaited_once()
                     event = mock_send_event.call_args.args[0]
-                    assert event.type == "graph:task:done"
+                    assert event.type == "graph.task.done"
                     assert event.data == {
                         "task:id": task_instance.task_id,
                         "graph:id": graph_id,

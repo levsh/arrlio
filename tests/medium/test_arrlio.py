@@ -340,7 +340,7 @@ class TestArrlio:
         ev.clear()
 
         async def on_event(event):
-            if event.type == "task:done" and event.data["result"].exc is None:
+            if event.type == "task.done" and event.data["result"].exc is None:
                 ev.set()
 
         await app.consume_tasks()

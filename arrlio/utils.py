@@ -210,3 +210,7 @@ class LoopIter:
 
     def reset(self):
         self._j = 1
+
+
+def event_type_to_regex(routing_key):
+    return routing_key.replace(".", "\\.").replace("*", "([^.]+)").replace("#", "([^.]+(\\.[^.]+)*)")

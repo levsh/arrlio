@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import logging
+import re
 import ssl
 from asyncio import FIRST_COMPLETED, create_task, get_event_loop, wait
 from collections.abc import Hashable
@@ -10,13 +11,13 @@ from enum import StrEnum
 from functools import partial
 from inspect import isasyncgenfunction, iscoroutine, iscoroutinefunction, isgeneratorfunction
 from ssl import SSLContext
-from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
+from typing import Annotated, Any, AsyncGenerator, Callable, Coroutine, Optional
 from uuid import UUID
 
 import aiormq
 import aiormq.exceptions
 import yarl
-from pydantic import Field, PositiveInt
+from pydantic import Field, PlainSerializer, PositiveInt
 from pydantic_settings import SettingsConfigDict
 
 from arrlio import settings
@@ -25,7 +26,7 @@ from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, SecretAmqpDsn, SerializerModule, Timeout
-from arrlio.utils import LoopIter, is_debug_level, is_info_level, retry
+from arrlio.utils import LoopIter, event_type_to_regex, is_debug_level, is_info_level, retry
 
 logger = logging.getLogger("arrlio.backends.rabbitmq")
 
@@ -643,11 +644,19 @@ class SerializerConfig(base.SerializerConfig):
     module: SerializerModule = SERIALIZER
 
 
+HeadersExtender = Annotated[
+    Callable[[TaskInstance], dict],
+    PlainSerializer(lambda x: f"{x}", return_type=str, when_used="json"),
+    # PlainSerializer(lambda x: "<HeadersExtender>", return_type=str, when_used="json"),
+]
+
+
 class Config(base.Config):
     """RabbitMQ backend config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_")
 
+    headers_extenders: list[HeadersExtender] = Field(default_factory=list)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
     """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
@@ -990,18 +999,27 @@ class Backend(base.Backend):
 
         await self._ensure_task_queue(task_instance.queue)
 
+        properties = {
+            "delivery_mode": 2,
+            "message_type": "arrlio:task",
+            "headers": {k: v for extender in self.config.headers_extenders for k, v in extender(task_instance).items()},
+            "message_id": f"{task_instance.task_id}",
+            "correlation_id": f"{task_instance.task_id}",
+            "reply_to": reply_to,
+            "timestamp": datetime.now(tz=timezone.utc),
+            "priority": task_instance.priority,
+        }
+        if self.serializer.content_type is not None:
+            properties["content_type"] = self.serializer.content_type
+        if task_instance.ttl is not None:
+            properties["expiration"] = f"{int(task_instance.ttl * 1000)}"
+        if task_instance.extra.get("app_id"):
+            properties["app_id"] = task_instance.extra["app_id"]
+
         await self._tasks_exchange.publish(
             data,
             routing_key=task_instance.queue,
-            properties={
-                "delivery_mode": 2,
-                "message_id": f"{task_instance.task_id}",
-                "timestamp": datetime.now(tz=timezone.utc),
-                "expiration": f"{int(task_instance.ttl * 1000)}" if task_instance.ttl is not None else None,
-                "priority": task_instance.priority,
-                "reply_to": reply_to,
-                "correlation_id": f"{task_instance.task_id}",
-            },
+            properties=properties,
         )
 
     async def send_task(self, task_instance: TaskInstance, **kwds):
@@ -1184,7 +1202,7 @@ class Backend(base.Backend):
     async def _send_event(self, event: Event):  # pylint: disable=method-hidden
         await self._events_exchange.publish(
             self.serializer.dumps_event(event),
-            routing_key="events",
+            routing_key=event.type,
             properties={
                 "delivery_mode": 2,
                 "timestamp": datetime.now(tz=timezone.utc),
@@ -1204,10 +1222,11 @@ class Backend(base.Backend):
         callback: Callable[[Event], Any],
         event_types: list[str] | None = None,
     ):
-        self._event_callbacks[callback_id] = (callback, event_types)
-
-        if self._events_queue.consumer:
-            return
+        self._event_callbacks[callback_id] = (
+            callback,
+            event_types,
+            [re.compile(event_type_to_regex(event_type)) for event_type in event_types or []],
+        )
 
         async def on_message(channel: aiormq.Channel, message: aiormq.abc.DeliveredMessage):
             try:
@@ -1218,8 +1237,8 @@ class Backend(base.Backend):
 
                 await channel.basic_ack(message.delivery.delivery_tag)
 
-                for callback, event_types in self._event_callbacks.values():
-                    if event_types is not None and event.type not in event_types:
+                for callback, event_types, patterns in self._event_callbacks.values():
+                    if event_types is not None and not any(pattern.match(event.type) for pattern in patterns):
                         continue
                     if iscoroutinefunction(callback):
                         self._create_internal_task("event_callback", partial(callback, event))
@@ -1232,9 +1251,16 @@ class Backend(base.Backend):
             except Exception as e:
                 logger.exception(e)
 
-        await self._events_exchange.declare(restore=True, force=True)
-        await self._events_queue.declare(restore=True, force=True)
-        await self._events_queue.bind(self._events_exchange, routing_key="events", restore=True)
+        if not self._events_queue.consumer:
+            await self._events_exchange.declare(restore=True, force=True)
+            await self._events_queue.declare(restore=True, force=True)
+
+        if event_types is None:
+            await self._events_queue.bind(self._events_exchange, "#", restore=True)
+        else:
+            for event_type in event_types:
+                await self._events_queue.bind(self._events_exchange, event_type, restore=True)
+
         await self._events_queue.consume(
             lambda *args, **kwds: create_task(on_message(*args, **kwds)) and None,
             retry_timeout=self.config.pull_retry_timeout,
@@ -1242,9 +1268,18 @@ class Backend(base.Backend):
 
     async def stop_consume_events(self, callback_id: str | None = None):
         if callback_id:
-            self._event_callbacks.pop(callback_id, None)
-            if self._event_callbacks:
+            if callback_id not in self._event_callbacks:
                 return
-
-        self._event_callbacks = {}
-        await self._events_queue.stop_consume()
+            _, event_types, _ = self._event_callbacks.pop(callback_id)
+            for event_type in set(event_types) - {x for v in self._event_callbacks.values() for x in v[1]}:
+                await self._events_queue.unbind(self._events_exchange, event_type)
+            if not self._event_callbacks:
+                await self._events_queue.stop_consume()
+        else:
+            for _, event_types, _ in self._event_callbacks.values():
+                if not event_types:
+                    continue
+                for event_type in event_types:
+                    await self._events_queue.unbind(self._events_exchange, event_type)
+            self._event_callbacks = {}
+            await self._events_queue.stop_consume()

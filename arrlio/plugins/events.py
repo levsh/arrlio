@@ -3,8 +3,10 @@ import logging
 from asyncio import create_task, sleep
 from datetime import datetime, timezone
 from time import monotonic
-from typing import Callable
+from typing import Annotated, Callable
 from uuid import UUID
+
+from pydantic import Field, PlainSerializer
 
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.plugins import base
@@ -12,15 +14,21 @@ from arrlio.plugins import base
 logger = logging.getLogger("arrlio.plugins.events")
 
 
+EventDataExtender = Annotated[
+    Callable[[TaskInstance], dict],
+    PlainSerializer(lambda x: f"{x}", return_type=str, when_used="json"),
+    # PlainSerializer(lambda x: "<EventDataExtender>", return_type=str, when_used="json"),
+]
+
+
 class Config(base.Config):
-    pass
+    event_data_extenders: dict[str, EventDataExtender] = Field(default_factory=dict)
 
 
 class Plugin(base.Plugin):
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
         self._ping_tasks: dict[UUID, asyncio.Task] = {}
-        self.event_data_extenders: dict[str, Callable[[TaskInstance], None]] = {}
 
     @property
     def name(self) -> str:
@@ -29,11 +37,11 @@ class Plugin(base.Plugin):
     @property
     def event_types(self) -> list[str]:
         return [
-            "task:send",
-            "task:ping",
-            "task:reveived",
-            "task:result",
-            "task:done",
+            "task.send",
+            "task.ping",
+            "task.reveived",
+            "task.result",
+            "task.done",
         ]
 
     async def _ping(self, task_instance: TaskInstance):
@@ -44,11 +52,11 @@ class Plugin(base.Plugin):
                 await sleep(timeout)
                 timeout_time = monotonic() + 60
                 event: Event = Event(
-                    type="task:ping",
+                    type="task.ping",
                     dt=datetime.now(tz=timezone.utc),
                     ttl=task_instance.event_ttl,
                     data={
-                        **self.event_data_extenders.get("task:ping", lambda *args: {})(task_instance),
+                        **self.config.event_data_extenders.get("task.ping", lambda *args: {})(task_instance),
                         **{"task:id": task_instance.task_id},
                     },
                 )
@@ -66,13 +74,13 @@ class Plugin(base.Plugin):
 
     async def on_task_send(self, task_instance: TaskInstance) -> None:
         events = task_instance.events
-        if events is True or isinstance(events, (list, set, tuple)) and "task:send" in events:
+        if events is True or isinstance(events, (list, set, tuple)) and "task.send" in events:
             event: Event = Event(
-                type="task:send",
+                type="task.send",
                 dt=datetime.now(tz=timezone.utc),
                 ttl=task_instance.event_ttl,
                 data={
-                    **self.event_data_extenders.get("task:send", lambda *args: {})(task_instance),
+                    **self.config.event_data_extenders.get("task.send", lambda *args: {})(task_instance),
                     **{"task:id": task_instance.task_id},
                 },
             )
@@ -80,29 +88,29 @@ class Plugin(base.Plugin):
 
     async def on_task_received(self, task_instance: TaskInstance) -> None:
         events = task_instance.events
-        if events is True or isinstance(events, (list, set, tuple)) and "task:received" in events:
+        if events is True or isinstance(events, (list, set, tuple)) and "task.received" in events:
             event: Event = Event(
-                type="task:received",
+                type="task.received",
                 dt=datetime.now(tz=timezone.utc),
                 ttl=task_instance.event_ttl,
                 data={
-                    **self.event_data_extenders.get("task:received", lambda *args: {})(task_instance),
+                    **self.config.event_data_extenders.get("task.received", lambda *args: {})(task_instance),
                     **{"task:id": task_instance.task_id},
                 },
             )
             await self.app.send_event(event)
-        if events is True or isinstance(events, (list, set, tuple)) and "task:ping" in events:
+        if events is True or isinstance(events, (list, set, tuple)) and "task.ping" in events:
             self._ping_tasks[task_instance.task_id] = create_task(self._ping(task_instance))
 
     async def on_task_result(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
         events = task_instance.events
-        if events is True or isinstance(events, (list, set, tuple)) and "task:result" in events:
+        if events is True or isinstance(events, (list, set, tuple)) and "task.result" in events:
             event: Event = Event(
-                type="task:result",
+                type="task.result",
                 dt=datetime.now(tz=timezone.utc),
                 ttl=task_instance.event_ttl,
                 data={
-                    **self.event_data_extenders.get("task:result", lambda *args: {})(task_instance),
+                    **self.config.event_data_extenders.get("task.result", lambda *args: {})(task_instance),
                     **{"task:id": task_instance.task_id, "result": task_result},
                 },
             )
@@ -110,17 +118,17 @@ class Plugin(base.Plugin):
 
     async def on_task_done(self, task_instance: TaskInstance, task_result: TaskResult) -> None:
         events = task_instance.events
-        if events is True or isinstance(events, (list, set, tuple)) and "task:ping" in events:
+        if events is True or isinstance(events, (list, set, tuple)) and "task.ping" in events:
             ping_task = self._ping_tasks.pop(task_instance.task_id, None)
             if ping_task:
                 ping_task.cancel()
-        if events is True or isinstance(events, (list, set, tuple)) and "task:done" in events:
+        if events is True or isinstance(events, (list, set, tuple)) and "task.done" in events:
             event: Event = Event(
-                type="task:done",
+                type="task.done",
                 dt=datetime.now(tz=timezone.utc),
                 ttl=task_instance.event_ttl,
                 data={
-                    **self.event_data_extenders.get("task:done", lambda *args: {})(task_instance),
+                    **self.config.event_data_extenders.get("task.done", lambda *args: {})(task_instance),
                     **{"task:id": task_instance.task_id, "result": task_result},
                 },
             )

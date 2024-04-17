@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from asyncio import Event as asyncio_Event
 from asyncio import Semaphore, create_task, get_event_loop
 from collections import defaultdict
@@ -19,7 +20,7 @@ from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY, AsyncCallable
-from arrlio.utils import is_debug_level, is_info_level
+from arrlio.utils import event_type_to_regex, is_debug_level, is_info_level
 
 logger = logging.getLogger("arrlio.backends.local")
 
@@ -301,7 +302,11 @@ class Backend(base.Backend):
         callback: Callable[[Event], Any],
         event_types: list[str] | None = None,
     ):
-        self._event_callbacks[callback_id] = (callback, event_types)
+        self._event_callbacks[callback_id] = [
+            callback,
+            event_types,
+            [re.compile(event_type_to_regex(event_type)) for event_type in event_types or []],
+        ]
 
         if "consume_events" in self._internal_tasks:
             return
@@ -335,8 +340,8 @@ class Backend(base.Backend):
                     if is_debug_level():
                         logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
-                    for callback, event_types in event_callbacks.values():
-                        if event_types is not None and event.type not in event_types:
+                    for callback, event_types, patterns in event_callbacks.values():
+                        if event_types is not None and not any(pattern.match(event.type) for pattern in patterns):
                             continue
                         if iscoroutinefunction(callback):
                             create_internal_task("event_cb", partial(cb_task, event))

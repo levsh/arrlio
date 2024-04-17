@@ -31,8 +31,8 @@ class Plugin(base.Plugin):
     @property
     def event_types(self) -> list[str]:
         return [
-            "graph:task:send",
-            "graph:task:done",
+            "graph.task.send",
+            "graph.task.done",
         ]
 
     async def on_init(self):
@@ -44,7 +44,7 @@ class Plugin(base.Plugin):
         await self.app.consume_events(
             "arrlio.graphs",
             self._on_event,
-            event_types=["graph:task:send", "graph:task:done"],
+            event_types=["graph.task.send", "graph.task.done"],
         )
 
         logger.info("%s initialization done", self)
@@ -93,7 +93,7 @@ class Plugin(base.Plugin):
             return
 
         event: Event = Event(
-            type="graph:task:done",
+            type="graph.task.done",
             dt=datetime.now(tz=timezone.utc),
             ttl=task_instance.event_ttl,
             data={
@@ -221,7 +221,7 @@ class Plugin(base.Plugin):
             await self.app.backend.send_task(task_instance)
 
             event: Event = Event(
-                type="graph:task:send",
+                type="graph.task.send",
                 dt=datetime.now(tz=timezone.utc),
                 ttl=task_instance.event_ttl,
                 data={
@@ -240,9 +240,9 @@ class Plugin(base.Plugin):
             task_id = event.data["task:id"]
             item = self.graphs[graph_id]
             item[1].setdefault(task_id, 0)
-            if event.type == "graph:task:send":
+            if event.type == "graph.task.send":
                 item[1][task_id] += 1
-            elif event.type == "graph:task:done":
+            elif event.type == "graph.task.done":
                 item[1][task_id] -= 1
                 if item[1][task_id] == 0:
                     del item[1][task_id]

@@ -35,6 +35,10 @@ class Config(base.Config):
 class Serializer(base.Serializer):
     """Json serializer class."""
 
+    @property
+    def content_type(self) -> str | None:
+        return "application/json"
+
     def dumps(self, data: Any, **kwds) -> bytes:
         """Dumps data as json encoded string.
 
@@ -132,12 +136,12 @@ class Serializer(base.Serializer):
         """Dumps `arrlio.models.Event` as json encoded string."""
 
         data = event.dict()
-        if event.type == "task:result":
+        if event.type == "task.result":
             result = data["data"]["result"]
             if result["exc"]:
                 result["exc"] = self.dumps_exc(result["exc"])
                 result["trb"] = self.dumps_trb(result["trb"])
-        elif event.type == "task:done":
+        elif event.type == "task.done":
             result = data["data"]["result"]
             result["res"] = None
             if result["exc"]:
@@ -149,7 +153,7 @@ class Serializer(base.Serializer):
         """Loads `arrlio.models.Event` from json encoded string."""
 
         event: Event = Event(**self.loads(data))
-        if event.type in {"task:result", "task:done"}:
+        if event.type in {"task.result", "task.done"}:
             result = event.data["result"]
             if result["exc"]:
                 result["exc"] = self.loads_exc(result["exc"])

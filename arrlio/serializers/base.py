@@ -16,6 +16,10 @@ class Serializer(abc.ABC):
     def __init__(self, config: Config):
         self.config = config
 
+    @property
+    def content_type(self) -> str | None:
+        return
+
     @abc.abstractmethod
     def dumps(self, data: Any, **kwds) -> bytes | Any:
         pass
