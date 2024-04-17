@@ -14,7 +14,7 @@ logger.addHandler(log_hndl)
 # pylint: disable=wrong-import-position
 from arrlio.configs import Config, TaskConfig  # noqa
 from arrlio.core import App, AsyncResult, registered_tasks, task  # noqa
-from arrlio.models import Graph, Task, TaskInstance, TaskResult  # noqa
+from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult  # noqa
 from arrlio.settings import LOG_LEVEL
 
 logger.setLevel(LOG_LEVEL)
