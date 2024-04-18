@@ -120,13 +120,17 @@ class Connection:
 
     __shared: dict = {}
 
-    def __init__(self, urls: list[str]):
-        self._urls = urls
+    def __init__(self, url: str | list[str]):
+        if not isinstance(url, (list, tuple, set)):
+            self._urls = [url]
+        else:
+            self._urls = list(url)
+
         self._urls_iter = LoopIter(self._urls)
 
         self.url = next(self._urls_iter)
 
-        self._ssl_contexts = {url: get_ssl_context(url, cwd=os.path.abspath("~")) for url in urls}
+        self._ssl_contexts = {url: get_ssl_context(url, cwd=os.path.abspath("~")) for url in self._urls}
 
         self._open_task: asyncio.Task | asyncio.Future = asyncio.Future()
         self._open_task.set_result(None)
