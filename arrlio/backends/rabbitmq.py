@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import logging
+import os
 import re
 import ssl
 from asyncio import FIRST_COMPLETED, create_task, get_event_loop, wait
@@ -79,18 +80,53 @@ RESULTS_TTL = 600
 RESULTS_PREFETCH_COUNT = 10
 
 
+def get_ssl_context(url: str, password: str | None = None, cwd: str | None = None) -> SSLContext | None:
+    if not url.startswith("amqps://"):
+        return
+
+    cwd = cwd or os.path.abspath(os.path.dirname(__file__))
+
+    query = yarl.URL(url).query  # pylint: disable=no-member
+
+    capath = query.get("capath")
+    if capath and not capath.startswith("/"):
+        capath = os.path.join(cwd, capath)
+
+    cafile = query.get("cafile")
+    if cafile and not cafile.startswith("/"):
+        cafile = os.path.join(cwd, cafile)
+
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, capath=capath, cafile=cafile)
+
+    cert = query.get("certfile")
+    if cert:
+        if not cert.startswith("/"):
+            cert = os.path.join(cwd, cert)
+        keyfile = query.get("keyfile")
+        if keyfile and not keyfile.startswith("/"):
+            keyfile = os.path.join(cwd, keyfile)
+        context.load_cert_chain(cert, keyfile=keyfile, password=password)
+
+    verify = query.get("no_verify_ssl", "0") == "0"
+    if not verify:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+    return context
+
+
 class Connection:
     """RabbitMQ connection."""
 
     __shared: dict = {}
 
-    def __init__(self, urls: list[str], ssl_context: SSLContext | None = None):
+    def __init__(self, urls: list[str]):
         self._urls = urls
         self._urls_iter = LoopIter(self._urls)
 
         self.url = next(self._urls_iter)
 
-        self._ssl_context = ssl_context
+        self._ssl_contexts = {url: get_ssl_context(url, cwd=os.path.abspath("~")) for url in urls}
 
         self._open_task: asyncio.Task | asyncio.Future = asyncio.Future()
         self._open_task.set_result(None)
@@ -238,7 +274,7 @@ class Connection:
                 logger.info("%s connecting[timeout=%s]...", self, connect_timeout)
 
                 async with asyncio.timeout(connect_timeout):
-                    self._conn = await aiormq.connect(self.url, context=self._ssl_context)
+                    self._conn = await aiormq.connect(self.url, context=self._ssl_contexts[self.url])
                 self._urls_iter.reset()
                 break
             except (asyncio.TimeoutError, ConnectionError, aiormq.exceptions.ConnectionClosed) as e:
@@ -717,37 +753,6 @@ class Config(base.Config):
     """.. note:: Only valid for `ResultQueueMode.COMMON`."""
     results_prefetch_count: Optional[PositiveInt] = Field(default_factory=lambda: RESULTS_PREFETCH_COUNT)
 
-    def get_ssl_context(self) -> ssl.SSLContext | None:
-        url = self.url[0] if isinstance(self.url, list) else self.url  # pylint: disable=unsubscriptable-object
-
-        if url.scheme != "amqps":  # pylint: disable=no-member
-            return
-
-        url = yarl.URL(url.get_secret_value())  # pylint: disable=no-member
-        query = url.query
-
-        context = ssl.create_default_context(
-            ssl.Purpose.SERVER_AUTH,
-            capath=query.get("capath"),
-            cafile=query.get("cafile"),
-        )
-
-        cert = query.get("certfile")
-        if cert:
-            keyfile = query.get("keyfile")
-            context.load_cert_chain(
-                cert,
-                keyfile=keyfile,
-                password=self.certpass.get_secret_value() if self.certpass else None,
-            )
-
-        verify = query.get("no_verify_ssl", "0") == "0"
-        if not verify:
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-
-        return context
-
 
 def exc_filter(e) -> bool:
     return isinstance(
@@ -854,7 +859,7 @@ class Backend(base.Backend):
         urls = self.config.url
         if not isinstance(urls, list):
             urls = [urls]
-        return Connection([url.get_secret_value() for url in urls], ssl_context=self.config.get_ssl_context())
+        return Connection([url.get_secret_value() for url in urls])
 
     async def _on_conn_open_first_time(self):
         await self._tasks_exchange.declare(restore=True, force=True)
