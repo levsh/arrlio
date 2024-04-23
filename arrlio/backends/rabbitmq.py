@@ -513,7 +513,7 @@ class Queue:
     timeout: int | None = None
     conn: Connection = None
     conn_factory: Callable = field(default=None, repr=False)
-    consumer: Consumer | None = None
+    consumer: Consumer | None = field(default=None, init=False)
     bindings: list[tuple[Exchange, str]] = field(default_factory=list, init=False)
 
     def __post_init__(self):
@@ -537,19 +537,13 @@ class Queue:
     async def close(self, delete: bool | None = None, timeout: int | None = None):
         logger.debug("Close %s", self)
         try:
+            await self.stop_consume()
+            for exchange, routing_key in self.bindings:
+                await self.unbind(exchange, routing_key)
             if self.conn_factory:
                 self.conn.remove_callbacks(cancel=True)
             else:
                 self.conn.remove_callback("on_open", f"on_open_queue_{self.name}_declare", cancel=True)
-                self.conn.remove_callback("on_lost", f"on_lost_queue_{self.name}_consume", cancel=True)
-                self.conn.remove_callback("on_lost", f"on_lost_queue_{self.name}_cleanup_consumer", cancel=True)
-                self.conn.remove_callback("on_close", f"on_close_queue_{self.name}_cleanup_consumer", cancel=True)
-                for exchange, routing_key in self.bindings:
-                    self.conn.remove_callback(
-                        "on_open",
-                        f"on_open_queue_{self.name}_bind_{exchange.name}_{routing_key}",
-                        cancel=True,
-                    )
             if delete:
                 channel = await self.conn.channel()
                 try:
