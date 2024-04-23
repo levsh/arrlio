@@ -31,6 +31,12 @@ class FuncProxy:
             return getattr(object.__getattribute__(self, "_original"), name)
         return object.__getattribute__(self, name)
 
+    def __str__(self):
+        return self._original.__str__()
+
+    def __repr__(self):
+        return self._original.__repr__()
+
     def __call__(self, *args, **kwds):
         return self._original(*args, **kwds)
 

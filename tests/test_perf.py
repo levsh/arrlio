@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -6,6 +7,10 @@ from asyncio import wait_for
 from time import monotonic
 
 import pytest
+
+logger = logging.getLogger("arrlio")
+logger.setLevel(logging.ERROR)
+
 
 from tests import tasks
 
@@ -46,9 +51,6 @@ class TestPerf:
     async def test_perf_arrlio(self, params):
         backend, app = params
 
-        logger = logging.getLogger("arrlio")
-        logger.setLevel(logging.ERROR)
-
         url = app.backend.config.url[-1].get_secret_value()
         cmd = subprocess.run(["poetry", "run", "which", "python"], capture_output=True).stdout.decode().strip()
         cwd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
@@ -61,6 +63,7 @@ class TestPerf:
                 "PYTHONPATH": f"$PYTHONPATH:{cwd}",
             },
         )
+        await asyncio.sleep(1)
         try:
             hello_world = tasks.hello_world
 
