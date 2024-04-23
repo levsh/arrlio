@@ -13,7 +13,7 @@ class Test_Task:
             pass
 
         task = models.Task(foo, "foo")
-        assert task.func == foo
+        assert task.func._original == foo
         assert task.name == "foo"
         assert task.queue == settings.TASK_QUEUE
         assert task.priority == settings.TASK_PRIORITY
@@ -59,7 +59,7 @@ class Test_Task:
             event_ttl=None,
             thread=True,
         )
-        assert task.func == foo
+        assert task.func._original == foo
         assert task.name == "foo"
         assert task.queue == "Q"
         assert task.priority == 777

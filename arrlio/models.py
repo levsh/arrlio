@@ -22,6 +22,22 @@ from arrlio.settings import (
 from arrlio.types import Args, AsyncCallable, Kwds, TaskId, TaskPriority, Timeout
 
 
+class FuncProxy:
+    def __init__(self, func):
+        self._original = func
+
+    def __getattribute__(self, name: str):
+        if name not in ("_original", "__deepcopy__"):
+            return getattr(object.__getattribute__(self, "_original"), name)
+        return object.__getattribute__(self, name)
+
+    def __call__(self, *args, **kwds):
+        return self._original(*args, **kwds)
+
+    def __deepcopy__(self, memo):
+        return self
+
+
 @dataclass(slots=True, frozen=True)
 class Task:
     """Task `dataclass`.
@@ -61,6 +77,14 @@ class Task:
 
     loads: Callable | None = None
     dumps: Callable | None = None
+
+    def __post_init__(self):
+        if self.func:
+            object.__setattr__(self, "func", FuncProxy(self.func))
+        if self.loads:
+            object.__setattr__(self, "loads", FuncProxy(self.loads))
+        if self.dumps:
+            object.__setattr__(self, "dumps", FuncProxy(self.dumps))
 
     def __call__(self, *args, **kwds) -> Any:
         """Call task function with args and kwds."""
