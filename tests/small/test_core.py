@@ -2,7 +2,8 @@ from unittest import mock
 
 import pytest
 
-from arrlio import App, AsyncResult, Config, backends, serializers, settings, task
+from arrlio import App, AsyncResult, Config, serializers, settings, task
+from arrlio.backends import brokers, event_backends, result_backends
 
 
 def test_task():
@@ -23,8 +24,7 @@ class TestApp:
         config = Config()
         app = App(config)
         assert app.config == config
-        assert isinstance(app.backend, backends.local.Backend)
-        assert isinstance(app.backend.serializer, serializers.nop.Serializer)
+        assert isinstance(app.broker, brokers.local.Broker)
         await app.close()
 
     @pytest.mark.asyncio
@@ -32,7 +32,7 @@ class TestApp:
         config = Config()
         app = App(config)
 
-        with mock.patch.object(app.backend, "send_task") as mock_send_task:
+        with mock.patch.object(app.broker, "send_task") as mock_send_task:
             ar = await app.send_task("foo")
             mock_send_task.assert_awaited_once()
             task_instance = mock_send_task.call_args[0][0]
@@ -53,7 +53,7 @@ class TestApp:
             assert isinstance(ar, AsyncResult)
             assert ar.task_instance == task_instance
 
-        with mock.patch.object(app.backend, "send_task") as mock_send_task:
+        with mock.patch.object(app.broker, "send_task") as mock_send_task:
             ar = await app.send_task(
                 "foo",
                 args=(1, 2),

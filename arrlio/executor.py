@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 import threading
+
 from asyncio import get_running_loop, new_event_loop, set_event_loop, wait_for
 from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from threading import Thread, current_thread
@@ -10,9 +11,10 @@ from typing import AsyncGenerator
 
 from pydantic_settings import BaseSettings
 
-from arrlio.exceptions import NotFoundError, TaskTimeoutError
+from arrlio.exceptions import TaskNotFoundError, TaskTimeoutError
 from arrlio.models import TaskInstance, TaskResult
 from arrlio.utils import is_info_level
+
 
 logger = logging.getLogger("arrlio.executor")
 
@@ -70,7 +72,7 @@ class Executor:
 
         try:
             if (func := task_instance.func) is None:
-                raise NotFoundError(f"task with name '{task_instance.name}' not found")
+                raise TaskNotFoundError(f"task with name '{task_instance.name}' not found")
 
             # task_instance.validate()
 
@@ -175,7 +177,7 @@ class Executor:
         done_ev = asyncio_Event()
         sync_ev = threading_Event()
         res_ev = asyncio_Event()
-        task_result: TaskResult = None
+        task_result: TaskResult = None  # type: ignore
 
         def thread(root_loop, res_ev, sync_ev, done_ev):
             nonlocal task_result

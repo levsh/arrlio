@@ -7,17 +7,31 @@ nav:
     - Task arguments: user_guide/task_args.md
     - Task result: user_guide/task_result.md
     - Settings: user_guide/settings.md
-    - Backends: user_guide/backends.md
+    - Brokers: user_guide/brokers.md
+    - Result backends: user_guide/result_backends.md
+    - Event backends: user_guide/event_backends.md
     - Advanced:
-      - Backend configuration: user_guide/advanced/backend_configuration.md
+      - Configuration: user_guide/advanced/configuration.md
       - Task submitting: user_guide/advanced/task_submitting.md
       - Generators: user_guide/advanced/generators.md
   - API Reference: api_reference.md
 theme:
   name: material
-  palette:
-    primary: teal
-    accent: light blue
+  palette: 
+    # Palette toggle for light mode
+    - scheme: default
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/lightbulb
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/lightbulb-outline
+        name: Switch to light mode
   features:
     - content.code.copy
 markdown_extensions:
@@ -30,5 +44,6 @@ markdown_extensions:
   - admonition
 plugins:
   - search
-  - mkdocstrings
+  - mkdocstrings:
+      default_handler: python
 repo_url: https://github.com/levsh/arrlio

@@ -16,7 +16,7 @@ from arrlio import App, Config
 app = App(Config())
 ```
 !!! info
-    By default `local` backend will be used
+    By default `local` broker and backends will be used
 
 Start consuming tasks and run `hello_world` task:
 

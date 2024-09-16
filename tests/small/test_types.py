@@ -2,8 +2,8 @@ import pydantic
 import pydantic_settings
 import pytest
 
-from arrlio import backends
-from arrlio.types import BackendModule, SecretAmqpDsn, SecretAnyUrl
+from arrlio.backends import brokers, event_backends, result_backends
+from arrlio.types import BrokerModule, EventBackendModule, ResultBackendModule, SecretAmqpDsn, SecretAnyUrl
 
 
 def test_SecretAnyUrl():
@@ -76,21 +76,61 @@ def test_SecretAmqpDsn():
             assert repr(m.url) == "SecretAnyUrl('amqp://***:***@example.org')"
 
 
-def test_BackendModule():
+def test_BrokerModule():
     class M(pydantic_settings.BaseSettings):
-        backend: BackendModule
+        broker: BrokerModule
 
-    m = M(backend="arrlio.backends.local")
-    assert m.backend == backends.local
+    m = M(broker="arrlio.backends.brokers.local")
+    assert m.broker == brokers.local
 
-    m = M(backend="arrlio.backends.rabbitmq")
-    assert m.backend == backends.rabbitmq
+    m = M(broker="arrlio.backends.brokers.rabbitmq")
+    assert m.broker == brokers.rabbitmq
 
-    m = M(backend=backends.local)
-    assert m.backend == backends.local
+    m = M(broker=brokers.local)
+    assert m.broker == brokers.local
 
-    m = M(backend=backends.rabbitmq)
-    assert m.backend == backends.rabbitmq
+    m = M(broker=brokers.rabbitmq)
+    assert m.broker == brokers.rabbitmq
 
     with pytest.raises(ValueError):
-        m = M(backend="abc")
+        m = M(broker="abc")
+
+
+def test_ResultBackendModule():
+    class M(pydantic_settings.BaseSettings):
+        result_backend: ResultBackendModule
+
+    m = M(result_backend="arrlio.backends.result_backends.local")
+    assert m.result_backend == result_backends.local
+
+    m = M(result_backend="arrlio.backends.result_backends.rabbitmq")
+    assert m.result_backend == result_backends.rabbitmq
+
+    m = M(result_backend=result_backends.local)
+    assert m.result_backend == result_backends.local
+
+    m = M(result_backend=result_backends.rabbitmq)
+    assert m.result_backend == result_backends.rabbitmq
+
+    with pytest.raises(ValueError):
+        m = M(result_backend="abc")
+
+
+def test_EventBackendModule():
+    class M(pydantic_settings.BaseSettings):
+        event_backend: EventBackendModule
+
+    m = M(event_backend="arrlio.backends.event_backends.local")
+    assert m.event_backend == event_backends.local
+
+    m = M(event_backend="arrlio.backends.event_backends.rabbitmq")
+    assert m.event_backend == event_backends.rabbitmq
+
+    m = M(event_backend=event_backends.local)
+    assert m.event_backend == event_backends.local
+
+    m = M(event_backend=event_backends.rabbitmq)
+    assert m.event_backend == event_backends.rabbitmq
+
+    with pytest.raises(ValueError):
+        m = M(event_backend="abc")

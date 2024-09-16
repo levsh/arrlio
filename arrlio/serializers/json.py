@@ -1,11 +1,37 @@
 import importlib
 import json
 import logging
-from json import dumps as json_dumps
-from json import loads as json_loads
+
+from typing import Callable, Optional, Type
+
+from arrlio.utils import ExtendedJSONEncoder
+
+
+try:
+    import orjson
+
+    def json_dumps(obj, cls=None):
+        return orjson.dumps(obj, default=cls)
+
+    json_loads = orjson.loads
+
+    JSONEncoderType = Optional[Callable]
+    JSON_ENCODER = None
+
+except ImportError:
+    import json
+
+    def json_dumps(*args, **kwds):
+        return json.dumps(*args, **kwds).encode()
+
+    json_loads = json.loads
+
+    JSONEncoderType = Optional[Type[json.JSONEncoder]]
+    JSON_ENCODER = ExtendedJSONEncoder
+
 from traceback import format_tb
 from types import TracebackType
-from typing import Annotated, Any, Type
+from typing import Annotated, Any, Callable
 
 from pydantic import Field, PlainSerializer
 from pydantic_settings import SettingsConfigDict
@@ -15,13 +41,13 @@ from arrlio.exceptions import TaskError
 from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.serializers import base
 from arrlio.settings import ENV_PREFIX
-from arrlio.utils import ExtendedJSONEncoder
+
 
 logger = logging.getLogger("arrlio.serializers.json")
 
 
 Encoder = Annotated[
-    Type[json.JSONEncoder],
+    JSONEncoderType,
     PlainSerializer(lambda x: f"{x}", return_type=str, when_used="json"),
 ]
 
@@ -29,7 +55,7 @@ Encoder = Annotated[
 class Config(base.Config):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}JSON_SERIALIZER_")
 
-    encoder: Encoder = Field(default=ExtendedJSONEncoder)
+    encoder: Encoder = Field(default=JSON_ENCODER)
 
 
 class Serializer(base.Serializer):
@@ -46,7 +72,7 @@ class Serializer(base.Serializer):
             data: Data to dumps.
         """
 
-        return json_dumps(data, cls=self.config.encoder).encode()
+        return json_dumps(data, cls=self.config.encoder)
 
     def loads(self, data: bytes) -> Any:
         """Loads json encoded data to Python object.
@@ -60,18 +86,18 @@ class Serializer(base.Serializer):
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
         """Dumps `arrlio.models.TaskInstance` object as json encoded string."""
 
-        data = task_instance.dict(exclude=["func", "dumps", "loads"])
-        extra = data["extra"]
-        if graph := extra.get("graph:graph"):
-            extra["graph:graph"] = graph.dict()
+        data = task_instance.asdict(exclude=["func", "shared", "dumps", "loads"])
+        headers = data["headers"]
+        if graph := headers.get("graph:graph"):
+            headers["graph:graph"] = graph.asdict()
         return self.dumps({k: v for k, v in data.items() if v is not None})
 
     def loads_task_instance(self, data: bytes, **kwds) -> TaskInstance:
         """Loads `arrlio.models.TaskInstance` object from json encoded string."""
 
         data: dict = self.loads(data)
-        if data["extra"].get("graph:graph"):
-            data["extra"]["graph:graph"] = Graph.from_dict(data["extra"]["graph:graph"])
+        if data["headers"].get("graph:graph"):
+            data["headers"]["graph:graph"] = Graph.from_dict(data["headers"]["graph:graph"])
         name = data["name"]
         task_instance: TaskInstance
         if name in registered_tasks:
@@ -115,7 +141,7 @@ class Serializer(base.Serializer):
     def dumps_task_result(self, task_result: TaskResult, task_instance: TaskInstance | None = None, **kwds) -> bytes:
         """Dumps `arrlio.models.TaskResult` as json encoded string."""
 
-        data = task_result.dict()
+        data = task_result.asdict()
         if data["exc"]:
             data["exc"] = self.dumps_exc(data["exc"])
             data["trb"] = self.dumps_trb(data["trb"])
@@ -135,7 +161,7 @@ class Serializer(base.Serializer):
     def dumps_event(self, event: Event, **kwds) -> bytes:
         """Dumps `arrlio.models.Event` as json encoded string."""
 
-        data = event.dict()
+        data = event.asdict()
         if event.type == "task.result":
             result = data["data"]["result"]
             if result["exc"]:

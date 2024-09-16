@@ -4,20 +4,37 @@ import re
 import pytest
 
 import arrlio
+
 from arrlio import exceptions
-from arrlio.backends import local, rabbitmq
+from arrlio.backends import brokers
 from tests import tasks
 
-timeout = 5
+
+TIMEOUT = 5
 
 
 class TestArrlio:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -35,24 +52,24 @@ class TestArrlio:
 
         for _ in range(3):
             ar = await app.send_task(tasks.hello_world)
-            assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
-            assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
 
         for _ in range(3):
             ar = await app.send_task("hello_world")
-            assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
-            assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
+            assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
 
-        if isinstance(app.backend, rabbitmq.Backend):
+        if isinstance(app.broker, brokers.rabbitmq.Broker):
             for _ in range(3):
-                ar = await app.send_task("hello_world", extra={"rabbitmq:reply_to": "amq.rabbitmq.reply-to"})
-                assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
-                assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
+                ar = await app.send_task("hello_world", headers={"rabbitmq:reply_to": "amq.rabbitmq.reply-to"})
+                assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
+                assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
 
         for _ in range(3):
             ar = await app.send_task(tasks.sync_task)
-            assert await asyncio.wait_for(ar.get(), timeout) == "Hello from sync_task!"
-            assert await asyncio.wait_for(ar.get(), timeout) == "Hello from sync_task!"
+            assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello from sync_task!"
+            assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello from sync_task!"
 
         for task in (tasks.async_xrange, tasks.xrange):
             for _ in range(3):
@@ -69,9 +86,24 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -87,18 +119,34 @@ class TestArrlio:
         await app.consume_tasks()
         await asyncio.sleep(1)
 
-        with pytest.raises(exceptions.TaskError):
-            ar = await app.send_task("invalid")
-            await ar.get()
-        with pytest.raises(exceptions.TaskError):
-            await ar.get()
+        for _ in range(2):
+            with pytest.raises(exceptions.TaskError):
+                ar = await app.send_task("invalid")
+                await ar.get()
+            with pytest.raises(exceptions.TaskError):
+                await ar.get()
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -118,7 +166,7 @@ class TestArrlio:
 
         for _ in range(3):
             ar = await app.send_task(tasks.echo, args=(1, 2), kwds={"3": 3, "4": 4}, queue="queue1")
-            res = await asyncio.wait_for(ar.get(), timeout)
+            res = await asyncio.wait_for(ar.get(), TIMEOUT)
             assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
             assert res == ((1, 2), {"3": 3, "4": 4}) or res == [[1, 2], {"3": 3, "4": 4}]
 
@@ -137,13 +185,18 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local", "config": {"pool_size": 1}}},
-            # {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"pool_size": 1}}},
+            {
+                "broker": {
+                    "module": "arrlio.backends.brokers.local",
+                    "config": {"pool_size": 1},
+                },
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
         ],
         indirect=True,
         ids=[
-            "              local",
-            # "           rabbitmq",
+            "                   local",
         ],
     )
     @pytest.mark.asyncio
@@ -154,10 +207,10 @@ class TestArrlio:
         await asyncio.sleep(1)
 
         for _ in range(3):
-            await app.send_task(tasks.sleep, args=(0.5,), priority=10, ack_late=True)
+            await app.send_task(tasks.sleep, args=(0.5,), priority=5, ack_late=True)
             t1 = asyncio.create_task((await app.send_task(tasks.sleep, args=(1,), priority=1, ack_late=True)).get())
             t2 = asyncio.create_task((await app.send_task(tasks.sleep, args=(1,), priority=2, ack_late=True)).get())
-            done, pending = await asyncio.wait_for(asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED), timeout)
+            done, pending = await asyncio.wait_for(asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED), TIMEOUT)
             assert done == {t2}
             assert pending == {t1}
             await t1
@@ -166,13 +219,12 @@ class TestArrlio:
         "params",
         [
             {
-                "backend": {
-                    "module": "arrlio.backends.rabbitmq",
-                    "config": {
-                        "tasks_queue_durable": True,
-                        "results_queue_durable": True,
-                    },
-                }
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"queue_durable": True},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
             },
         ],
         indirect=True,
@@ -202,14 +254,29 @@ class TestArrlio:
                 assert results == [0, 1, 2]
 
                 ar = await app.send_task(tasks.hello_world)
-                assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
+                assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -228,14 +295,29 @@ class TestArrlio:
         for _ in range(3):
             ar = await app.send_task(tasks.sleep, args=(3600,), timeout=1)
             with pytest.raises(exceptions.TaskError):
-                await asyncio.wait_for(ar.get(), timeout)
+                await asyncio.wait_for(ar.get(), TIMEOUT)
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -253,17 +335,32 @@ class TestArrlio:
 
         for _ in range(3):
             ar = await app.send_task(tasks.thread_name)
-            assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), timeout))
+            assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), TIMEOUT))
 
             ar = await app.send_task("thread_name")
-            assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), timeout))
+            assert re.match("^Thread-[0-9]*", await asyncio.wait_for(ar.get(), TIMEOUT))
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -281,18 +378,33 @@ class TestArrlio:
 
         ar = await app.send_task(tasks.noresult)
         with pytest.raises(exceptions.TaskResultError):
-            await asyncio.wait_for(ar.get(), timeout)
+            await asyncio.wait_for(ar.get(), TIMEOUT)
 
         ar = await app.send_task(tasks.hello_world, result_return=False)
         with pytest.raises(exceptions.TaskResultError):
-            await asyncio.wait_for(ar.get(), timeout)
+            await asyncio.wait_for(ar.get(), TIMEOUT)
 
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq", "config": {"results_queue_mode": "direct_reply_to"}}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {"reply_to_mode": "direct_reply_to"},
+                },
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -318,11 +430,15 @@ class TestArrlio:
         "params",
         [
             {
-                "backend": {"module": "arrlio.backends.local"},
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
                 "plugins": [{"module": "arrlio.plugins.events"}],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq"},
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
                 "plugins": [{"module": "arrlio.plugins.events"}],
             },
         ],
@@ -348,21 +464,25 @@ class TestArrlio:
         await asyncio.sleep(1)
 
         ar = await app.send_task(tasks.hello_world, events=True)
-        assert await asyncio.wait_for(ar.get(), timeout) == "Hello World!"
+        assert await asyncio.wait_for(ar.get(), TIMEOUT) == "Hello World!"
         await asyncio.wait_for(ev.wait(), 1)
 
     @pytest.mark.parametrize(
         "params",
         [
             {
-                "backend": {"module": "arrlio.backends.local"},
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
                 ],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq"},
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
@@ -393,9 +513,9 @@ class TestArrlio:
 
         ars = await app.send_graph(graph, args=(0,))
 
-        assert await asyncio.wait_for(ars["A"].get(), timeout) == 1
-        assert await asyncio.wait_for(ars["B"].get(), timeout) == 2
-        assert await asyncio.wait_for(ars["C"].get(), timeout) == 3
+        assert await asyncio.wait_for(ars["A"].get(), TIMEOUT) == 1
+        assert await asyncio.wait_for(ars["B"].get(), TIMEOUT) == 2
+        assert await asyncio.wait_for(ars["C"].get(), TIMEOUT) == 3
 
         # xrange
 
@@ -443,14 +563,18 @@ class TestArrlio:
         "params",
         [
             {
-                "backend": {"module": "arrlio.backends.local"},
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
                 ],
             },
             {
-                "backend": {"module": "arrlio.backends.rabbitmq"},
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
                 "plugins": [
                     {"module": "arrlio.plugins.events"},
                     {"module": "arrlio.plugins.graphs"},
@@ -484,7 +608,7 @@ class TestArrlio:
         assert await asyncio.wait_for(ars["A"].get(), 1) is True
         assert await asyncio.wait_for(ars["B"].get(), 1) is None
         with pytest.raises(exceptions.TaskClosedError):
-            await asyncio.wait_for(ars["C"].get(), timeout)
+            await asyncio.wait_for(ars["C"].get(), TIMEOUT)
 
         ###
 
@@ -498,8 +622,16 @@ class TestArrlio:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.local"}},
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
+            {
+                "broker": {"module": "arrlio.backends.brokers.local"},
+                "result_backend": {"module": "arrlio.backends.result_backends.local"},
+                "event_backend": {"module": "arrlio.backends.event_backends.local"},
+            },
+            {
+                "broker": {"module": "arrlio.backends.brokers.rabbitmq"},
+                "result_backend": {"module": "arrlio.backends.result_backends.rabbitmq"},
+                "event_backend": {"module": "arrlio.backends.event_backends.rabbitmq"},
+            },
         ],
         indirect=True,
         ids=[
@@ -515,7 +647,7 @@ class TestArrlio:
         await asyncio.sleep(1)
 
         ar = await app.send_task(tasks.loads_dumps, args=[tasks.LoadsDumps(x=1)])
-        if isinstance(app.backend, local.Backend):
+        if isinstance(app.broker, brokers.local.Broker):
             assert await asyncio.wait_for(ar.get(), 1) == tasks.LoadsDumps(x=1)
         else:
             assert await asyncio.wait_for(ar.get(), 1) == {"x": 1}

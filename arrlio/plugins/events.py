@@ -1,5 +1,6 @@
 import asyncio
 import logging
+
 from asyncio import create_task, sleep
 from datetime import datetime, timezone
 from time import monotonic
@@ -10,6 +11,7 @@ from pydantic import Field, PlainSerializer
 
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.plugins import base
+
 
 logger = logging.getLogger("arrlio.plugins.events")
 
@@ -35,14 +37,14 @@ class Plugin(base.Plugin):
         return "arrlio.events"
 
     @property
-    def event_types(self) -> list[str]:
-        return [
+    def event_types(self) -> tuple[str, ...]:
+        return (
             "task.send",
             "task.ping",
             "task.reveived",
             "task.result",
             "task.done",
-        ]
+        )
 
     async def _ping(self, task_instance: TaskInstance):
         timeout_time = monotonic() + 60

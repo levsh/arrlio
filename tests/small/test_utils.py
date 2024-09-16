@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 import json
 import uuid
@@ -6,28 +5,6 @@ import uuid
 import pytest
 
 from arrlio import task, utils
-
-
-@pytest.mark.asyncio
-async def test_wait_for():
-    async def foo():
-        await asyncio.sleep(0.1)
-        return "foo"
-
-    assert await utils.wait_for(foo(), 2) == "foo"
-
-    flag = asyncio.Event()
-
-    async def foo():
-        try:
-            await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            flag.set()
-
-    with pytest.raises(asyncio.TimeoutError):
-        await utils.wait_for(foo(), 0.1)
-    await asyncio.sleep(0)
-    assert flag.is_set()
 
 
 @pytest.mark.asyncio
@@ -145,7 +122,7 @@ def test_ExtendedJSONEncoder():
         """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", """
         """\"queue\": \"arrlio.tasks\", \"priority\": 1, \"timeout\": 300, \"ttl\": 300, """
         """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, """
-        """\"thread\": null, \"events\": false, \"event_ttl\": 300, \"extra\": {}}"""
+        """\"thread\": null, \"events\": false, \"event_ttl\": 300, \"headers\": {}}"""
     )
 
     class C:

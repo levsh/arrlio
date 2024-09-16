@@ -1,4 +1,5 @@
 import asyncio
+
 from contextlib import asynccontextmanager
 from types import ModuleType
 from unittest import mock
@@ -6,6 +7,7 @@ from unittest import mock
 import pytest
 
 import arrlio
+
 from arrlio import App, Config, TaskResult, exceptions
 from arrlio.plugins import base
 from arrlio.plugins.events import Config as EventsPluginConfig
@@ -122,7 +124,7 @@ class TestGraphsPlugin:
                 graph_app_id = "app_id"
                 graph_call_id = "call_id"
                 task_instance = tasks.xrange.instantiate(
-                    extra={
+                    headers={
                         "graph:graph": graph,
                         "graph:id": graph_id,
                         "graph:app_id": graph_app_id,

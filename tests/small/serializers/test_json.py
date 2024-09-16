@@ -1,10 +1,12 @@
 import datetime
 import sys
+
 from uuid import UUID
 
 import pydantic
 
 import arrlio
+
 from arrlio import serializers
 from arrlio.models import Event, Task, TaskResult
 
@@ -19,7 +21,7 @@ class TestSerializer:
         assert serializer.dumps_task_instance(task_instance) == (
             b'{"name": "test", "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
             b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, '
-            b'"extra": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, "meta": {}}'
+            b'"headers": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, "meta": {}}'
         )
 
     def test_loads_task_instance(self):
@@ -35,7 +37,7 @@ class TestSerializer:
             (
                 b'{"name": "86e68", "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
                 b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, '
-                b'"extra": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [{"x": 1}], "kwds": {}, '
+                b'"headers": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [{"x": 1}], "kwds": {}, '
                 b'"meta": {}}'
             )
         )
@@ -77,13 +79,13 @@ class TestSerializer:
         if sys.version_info.minor < 11:
             assert serializer.dumps_task_result(task_result, task_instance) == (
                 b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
-                b'"trb": "  File \\"%s\\", line 70, '
+                b'"trb": "  File \\"%s\\", line 72, '
                 b'in test_dumps_task_result\\n    1 / 0\\n", "idx": null, "routes": null}' % __file__.encode()
             )
         else:
             assert serializer.dumps_task_result(task_result, task_instance) == (
                 b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
-                b'"trb": "  File \\"%s\\", line 70, '
+                b'"trb": "  File \\"%s\\", line 72, '
                 b'in test_dumps_task_result\\n    1 / 0\\n    ~~^~~\\n", "idx": null, "routes": null}'
                 % __file__.encode()
             )

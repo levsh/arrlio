@@ -1,12 +1,17 @@
 import os
 
+
 ENV_PREFIX = os.environ.get("ARRLIO_ENV_PREFIX", "ARRLIO_")
 
-BACKEND = "arrlio.backends.local"
+SERIALIZER = "arrlio.serializers.json"
+
+BROKER = "arrlio.backends.brokers.local"
+RESULT_BACKEND = "arrlio.backends.result_backends.local"
+EVENT_BACKEND = "arrlio.backends.event_backends.local"
 
 TASK_QUEUE = "arrlio.tasks"
 TASK_MIN_PRIORITY = 1
-TASK_MAX_PRIORITY = 10
+TASK_MAX_PRIORITY = 5
 TASK_PRIORITY = 1
 TASK_TIMEOUT = 300
 TASK_TTL = 300

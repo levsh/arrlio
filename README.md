@@ -77,11 +77,9 @@ import tasks
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
-BACKEND = "arrlio.backends.local"
-# BACKEND = "arrlio.backends.rabbitmq"
 
 async def main():
-    app = arrlio.App(arrlio.Config(backend={"module": BACKEND}))
+    app = arrlio.App(arrlio.Config())
 
     async with app:
         await app.consume_tasks()
@@ -103,7 +101,7 @@ async def main():
             ar = await app.send_task(tasks.exception)
             logger.info(await ar.get())
         except Exception as e:
-            print(f"\nThis is example exception for {app.backend}:\n")
+            print(f"\nThis is example exception for {app.result_backend}:\n")
             logger.exception(e)
             print()
 
@@ -130,9 +128,6 @@ import tasks
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
-BACKEND = "arrlio.backends.local"
-# BACKEND = "arrlio.backends.rabbitmq"
-
 
 async def main():
     graph = arrlio.Graph("My Graph")
@@ -146,7 +141,6 @@ async def main():
 	# plugins are required
     app = arrlio.App(
         arrlio.Config(
-            backend={"module": BACKEND},
             plugins=[
                 {"module": "arrlio.plugins.events"},
                 {"module": "arrlio.plugins.graphs"},
@@ -178,9 +172,6 @@ import tasks
 logger = logging.getLogger("arrlio")
 logger.setLevel("INFO")
 
-BACKEND = "arrlio.backends.local"
-# BACKEND = "arrlio.backends.rabbitmq"
-
 
 async def main():
     graph = arrlio.Graph("My Graph")
@@ -190,7 +181,6 @@ async def main():
 
     app = arrlio.App(
         arrlio.Config(
-            backend={"module": BACKEND},
             plugins=[
                 {"module": "arrlio.plugins.events"},
                 {"module": "arrlio.plugins.graphs"},

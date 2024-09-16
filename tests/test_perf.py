@@ -3,10 +3,12 @@ import json
 import logging
 import os
 import subprocess
+
 from asyncio import wait_for
 from time import monotonic
 
 import pytest
+
 
 logger = logging.getLogger("arrlio")
 logger.setLevel(logging.ERROR)
@@ -23,22 +25,34 @@ class TestPerf:
         "params",
         [
             {
-                "backend": {
-                    "module": "arrlio.backends.rabbitmq",
+                "broker": {
+                    "module": "arrlio.backends.brokers.rabbitmq",
                     "config": {
-                        "results_queue_mode": "common",
                         # "serializer": {"module": "arrlio.serializers.msgpack"},
                     },
-                }
+                },
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {
+                        "reply_to_mode": "common_queue",
+                        # "serializer": {"module": "arrlio.serializers.msgpack"},
+                    },
+                },
             },
             {
-                "backend": {
-                    "module": "arrlio.backends.rabbitmq",
+                "broker": {
+                    "module": "arrlio.backends.brokers.rabbitmq",
                     "config": {
-                        "results_queue_mode": "direct_reply_to",
                         # "serializer": {"module": "arrlio.serializers.msgpack"},
                     },
-                }
+                },
+                "result_backend": {
+                    "module": "arrlio.backends.result_backends.rabbitmq",
+                    "config": {
+                        "reply_to_mode": "direct_reply_to",
+                        # "serializer": {"module": "arrlio.serializers.msgpack"},
+                    },
+                },
             },
         ],
         indirect=True,
@@ -51,7 +65,7 @@ class TestPerf:
     async def test_perf_arrlio(self, params):
         backend, app = params
 
-        url = app.backend.config.url[-1].get_secret_value()
+        url = app.broker.config.url[-1].get_secret_value()
         cmd = subprocess.run(["poetry", "run", "which", "python"], capture_output=True).stdout.decode().strip()
         cwd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
         ps = subprocess.Popen(
@@ -90,7 +104,7 @@ class TestPerf:
     @pytest.mark.parametrize(
         "params",
         [
-            {"backend": {"module": "arrlio.backends.rabbitmq"}},
+            {"broker": {"module": "arrlio.backends.brokers.rabbitmq"}},
         ],
         indirect=True,
         ids=[
@@ -104,7 +118,7 @@ class TestPerf:
         logger = logging.getLogger("arrlio")
         logger.setLevel(logging.ERROR)
 
-        host = app.backend.config.url[-1].host
+        host = app.broker.config.url[-1].host
         cmd = subprocess.run(["which", "celery"], capture_output=True).stdout.decode().strip()
         ps = subprocess.Popen(
             [cmd, "-A", "tests.celery_tasks", "worker", "--loglevel=ERROR", "--concurrency=1"],

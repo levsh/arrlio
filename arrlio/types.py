@@ -1,7 +1,10 @@
+import ipaddress
+import re
+
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, Callable, Coroutine, Optional, Union
+from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -12,6 +15,7 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Annotated
 
 from arrlio.settings import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY
+
 
 AsyncCallable = Callable[..., Coroutine]
 ExceptionFilter = Callable[[Exception], bool]
@@ -26,6 +30,9 @@ TaskPriority = Annotated[int, Ge(TASK_MIN_PRIORITY), Le(TASK_MAX_PRIORITY)]
 TaskId = Union[str, UUID]
 Args = Union[list, tuple]
 Kwds = dict
+
+
+B = TypeVar("B")
 
 
 @dataclass
@@ -77,12 +84,11 @@ class Module(ModuleType):
     #     return handler(core_schema.str_schema())
 
 
-BackendModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Backend", "Config"]))]
-
+BrokerModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Broker", "Config"]))]
+ResultBackendModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["ResultBackend", "Config"]))]
+EventBackendModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["EventBackend", "Config"]))]
 SerializerModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Serializer", "Config"]))]
-
 ExecutorModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Executor", "Config"]))]
-
 PluginModule = Annotated[Module, AfterValidator(ModuleConstraints(has_attrs=["Plugin", "Config"]))]
 
 
@@ -115,6 +121,9 @@ class SecretAnyUrl(AnyUrl):
                 netloc=f"***:***@{original.hostname}" + (f":{original.port}" if original.port is not None else "")
             ).geturl()
         obj = super().__new__(cls, url)
+        if obj.host is None:
+            raise ValueError("invalid URL")
+        cls._validate_host(obj.host)
         obj._original_str = str(AnyUrl(original.geturl()))
         obj._username = SecretStr(original.username) if original.username else None
         obj._password = SecretStr(original.password) if original.password else None
@@ -127,6 +136,18 @@ class SecretAnyUrl(AnyUrl):
     @property
     def password(self) -> SecretStr:
         return self._password
+
+    @classmethod
+    def _validate_host(cls, host: str):
+        if 1 > len(host) > 255:
+            raise ValueError("invalid URL host length")
+        splitted = host.split(".")
+        if splitted[-1] and splitted[-1][0].isdigit():
+            ipaddress.ip_address(host)
+        else:
+            for x in splitted:
+                if not re.match(r"(?!-)[a-zA-Z\d-]{1,63}(?<!-)$", x):
+                    raise ValueError("invalid URL host")
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler):

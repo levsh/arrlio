@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import logging
+
 from asyncio import TaskGroup, current_task, gather
 from contextlib import AsyncExitStack
 from contextvars import ContextVar
@@ -13,22 +14,23 @@ from rich.pretty import pretty_repr
 from roview import rodict
 
 from arrlio import settings
-from arrlio.backends.base import Backend
+from arrlio.abc import AbstractBroker, AbstractEventBackend, AbstractResultBackend
 from arrlio.configs import Config
 from arrlio.exceptions import (
     GraphError,
     HooksError,
     InternalError,
-    NotFoundError,
     TaskCancelledError,
     TaskClosedError,
     TaskError,
+    TaskNotFoundError,
 )
 from arrlio.executor import Executor
 from arrlio.models import Event, Task, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.types import Args, Kwds
 from arrlio.utils import is_debug_level, is_info_level
+
 
 logger = logging.getLogger("arrlio.core")
 
@@ -82,7 +84,10 @@ class App:
 
         self.config = config
 
-        self._backend = config.backend.module.Backend(config.backend.config)
+        self._broker = config.broker.module.Broker(config.broker.config)
+        self._result_backend = config.result_backend.module.ResultBackend(config.result_backend.config)
+        self._event_backend = config.event_backend.module.EventBackend(config.event_backend.config)
+
         self._closed: asyncio.Future = asyncio.Future()
         self._running_tasks: dict[UUID, asyncio.Task] = {}
         self._executor = config.executor.module.Executor(config.executor.config)
@@ -111,7 +116,7 @@ class App:
         }
 
     def __str__(self):
-        return f"{self.__class__.__name__}[{self._backend}]"
+        return f"{self.__class__.__name__}[{self.config.app_id}]"
 
     def __repr__(self):
         return self.__str__()
@@ -134,10 +139,22 @@ class App:
         return rodict(self._plugins, nested=True)
 
     @property
-    def backend(self) -> Backend:
-        """Application backend."""
+    def broker(self) -> AbstractBroker:
+        """Application broker."""
 
-        return self._backend
+        return self._broker
+
+    @property
+    def result_backend(self) -> AbstractResultBackend:
+        """Application result storage."""
+
+        return self._result_backend
+
+    @property
+    def event_backend(self) -> AbstractEventBackend | None:
+        """Application event bus."""
+
+        return self._event_backend
 
     @property
     def executor(self) -> Executor:
@@ -165,6 +182,10 @@ class App:
 
         logger.info("%s initializing with config\n%s", self, pretty_repr(self.config.model_dump()))
 
+        await self._broker.init()
+        await self._result_backend.init()
+        await self._event_backend.init()
+
         await self._execute_hooks("on_init")
 
         logger.info("%s initialization done", self)
@@ -186,7 +207,9 @@ class App:
                 return_exceptions=True,
             )
 
-            await self._backend.close()
+            await self._broker.close()
+            await self._result_backend.close()
+            await self._event_backend.close()
 
             for task_id, aio_task in tuple(self._running_tasks.items()):
                 logger.warning("%s cancel processing task '%s'", self, task_id)
@@ -222,7 +245,7 @@ class App:
         task: Task | str,  # pylint: disable=redefined-outer-name
         args: Args | None = None,
         kwds: Kwds | None = None,
-        extra: dict | None = None,
+        headers: dict | None = None,
         **kwargs: dict,
     ) -> "AsyncResult":
         """Send task.
@@ -231,7 +254,7 @@ class App:
             task: `arrlio.models.Task` or task name.
             args: Task args.
             kwds: Task kwds.
-            extra: `arrlio.models.Task` extra argument.
+            headers: `arrlio.models.Task` headers argument.
             kwargs: Other `arrlio.models.Task` other arguments.
 
         Returns:
@@ -242,25 +265,28 @@ class App:
         if isinstance(task, Task):
             name = task.name
 
-        if extra is None:
-            extra = {}
+        if headers is None:
+            headers = {}
 
-        extra["app_id"] = self.config.app_id
+        headers["app_id"] = self.config.app_id
 
         if name in registered_tasks:
             task_instance = registered_tasks[name].instantiate(
                 args=args,
                 kwds=kwds,
-                extra=extra,
+                headers=headers,
                 **{**self._task_settings, **kwargs},
             )
         else:
             task_instance = Task(None, name).instantiate(
                 args=args,
                 kwds=kwds,
-                extra=extra,
+                headers=headers,
                 **{**self._task_settings, **kwargs},
             )
+
+        task_instance.headers.update(self._result_backend.make_headers(task_instance))
+        task_instance.shared.update(self._result_backend.make_shared(task_instance))
 
         if is_info_level():
             logger.info(
@@ -271,7 +297,9 @@ class App:
 
         await self._execute_hooks("on_task_send", task_instance)
 
-        await self._backend.send_task(task_instance)
+        await self._broker.send_task(task_instance)
+
+        await self._result_backend.allocate_storage(task_instance)
 
         return AsyncResult(self, task_instance)
 
@@ -279,10 +307,10 @@ class App:
         if is_info_level():
             logger.info("%s send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
-        await self._backend.send_event(event)
+        await self._event_backend.send_event(event)
 
     async def pop_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
-        async for task_result in self._backend.pop_task_result(task_instance):
+        async for task_result in self._result_backend.pop_task_result(task_instance):
             if is_info_level():
                 logger.info(
                     "%s got result[idx=%s, exc=%s] for task %s[%s]",
@@ -303,7 +331,7 @@ class App:
         if isinstance(task_id, str):
             task_id = UUID(f"{task_id}")
         if task_id not in self._running_tasks:
-            raise NotFoundError(task_id)
+            raise TaskNotFoundError(task_id)
         self._running_tasks[task_id].cancel()
 
     async def consume_tasks(self, queues: list[str] | None = None):
@@ -336,7 +364,7 @@ class App:
                             task_result.set_idx((idx_0, idx_1 + 1))
 
                             if task_instance.result_return:
-                                await self._backend.push_task_result(task_result, task_instance)
+                                await self._result_backend.push_task_result(task_result, task_instance)
 
                             await self._execute_hooks("on_task_result", task_instance, task_result)
                             idx_1 += 1
@@ -359,14 +387,14 @@ class App:
                             task_result = TaskResult(exc=InternalError())
                         task_result.set_idx((idx_0, idx_1 + 1))
                         if task_instance.result_return:
-                            await self._backend.push_task_result(task_result, task_instance)
+                            await self._result_backend.push_task_result(task_result, task_instance)
                         idx_1 += 1
                     finally:
                         try:
-                            if task_instance.result_return and not task_instance.extra.get("graph:graph"):
+                            if task_instance.result_return and not task_instance.headers.get("graph:graph"):
                                 func = task_instance.func
                                 if isasyncgenfunction(func) or isgeneratorfunction(func):
-                                    await self._backend.close_task(task_instance, idx=(idx_0, idx_1 + 1))
+                                    await self._result_backend.close_task(task_instance, idx=(idx_0, idx_1 + 1))
                                     idx_1 += 1
                         finally:
                             await self._execute_hooks("on_task_done", task_instance, task_result)
@@ -376,13 +404,13 @@ class App:
             finally:
                 self._running_tasks.pop(task_id, None)
 
-        await self._backend.consume_tasks(queues, cb)
+        await self._broker.consume_tasks(queues, cb)
         logger.info("%s consuming task queues %s", self, queues)
 
     async def stop_consume_tasks(self, queues: list[str] | None = None):
         """Stop consuming tasks."""
 
-        await self._backend.stop_consume_tasks(queues=queues)
+        await self._broker.stop_consume_tasks(queues=queues)
         if queues is not None:
             logger.info("%s stop consuming task queues %s", self, queues)
         else:
@@ -402,12 +430,12 @@ class App:
     ):
         """Consume events."""
 
-        await self._backend.consume_events(callback_id, callback, event_types=event_types)
+        await self._event_backend.consume_events(callback_id, callback, event_types=event_types)
 
     async def stop_consume_events(self, callback_id: str | None = None):
         """Stop consuming events."""
 
-        await self._backend.stop_consume_events(callback_id=callback_id)
+        await self._event_backend.stop_consume_events(callback_id=callback_id)
 
     def send_graph(self, *args, **kwds):
         if "arrlio.graphs" not in self.plugins:

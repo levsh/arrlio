@@ -54,7 +54,7 @@ class TaskResultError(ArrlioError):
     pass
 
 
-class NotFoundError(ArrlioError):
+class TaskNotFoundError(ArrlioError):
     pass
 
 

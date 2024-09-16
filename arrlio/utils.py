@@ -1,18 +1,21 @@
 import asyncio
 import json
 import logging
-from asyncio import create_task, sleep, wait
+
+from asyncio import Future, create_task, current_task, sleep, wait
+from collections import defaultdict
 from datetime import datetime
 from functools import wraps
 from inspect import isasyncgenfunction
 from itertools import repeat
-from typing import Coroutine, Iterable
+from typing import Callable, Coroutine, Iterable, cast
 from uuid import UUID
 
 from pydantic import SecretBytes, SecretStr
 
 from arrlio.models import Task
 from arrlio.types import ExceptionFilter, Timeout
+
 
 logger = logging.getLogger("arrlio.utils")
 
@@ -30,25 +33,6 @@ def is_info_level():
     return isEnabledFor(INFO)
 
 
-async def wait_for(coro: Coroutine, timeout: Timeout):
-    """Wait for coroutine to complete.
-
-    Args:
-        coro: Coroutine for wait.
-        timeout: wait timeout.
-
-    Raises:
-        asyncio.TimeoutError: On timeout occurs
-    """
-
-    done, pending = await wait({create_task(coro)}, timeout=timeout)
-    if pending:
-        for pending_coro in pending:
-            pending_coro.cancel()
-        raise asyncio.TimeoutError
-    return next(iter(done)).result()
-
-
 class ExtendedJSONEncoder(json.JSONEncoder):
     """Extended JSONEncoder class."""
 
@@ -56,20 +40,20 @@ class ExtendedJSONEncoder(json.JSONEncoder):
         if isinstance(o, datetime):
             return o.isoformat()
         if isinstance(o, (UUID, SecretStr, SecretBytes)):
-            return str(o)
+            return f"{o}"
         if isinstance(o, set):
             return list(o)
         if isinstance(o, Task):
-            o = o.dict(exclude=["loads", "dumps"])
+            o = o.asdict(exclude=["loads", "dumps"])
             o["func"] = f"{o['func'].__module__}.{o['func'].__name__}"
             return o
         return super().default(o)
 
 
 def retry(
-    msg: str = None,
-    retry_timeouts: Iterable[Timeout] = None,
-    exc_filter: ExceptionFilter = None,
+    msg: str | None = None,
+    retry_timeouts: Iterable[Timeout] | None = None,
+    exc_filter: ExceptionFilter | None = None,
     on_error=None,
     reraise: bool = True,
 ):
@@ -113,7 +97,10 @@ def retry(
                         if not exc_filter(e):
                             if reraise:
                                 raise e
-                            logger.exception(e)
+                            if is_debug_level():
+                                logger.exception(e)
+                            else:
+                                logger.error(e)
                             return
                         try:
                             t = next(timeouts)
@@ -155,7 +142,10 @@ def retry(
                         if not exc_filter(e):
                             if reraise:
                                 raise e
-                            logger.exception(e)
+                            if is_debug_level():
+                                logger.exception(e)
+                            else:
+                                logger.error(e)
                             return
                         try:
                             t = next(timeouts)
@@ -214,3 +204,81 @@ class LoopIter:
 
 def event_type_to_regex(routing_key):
     return routing_key.replace(".", "\\.").replace("*", "([^.]+)").replace("#", "([^.]+(\\.[^.]+)*)")
+
+
+class Closable:
+    "Base class for closable class." ""
+
+    __slots__ = ("_closed",)
+
+    def __init__(self):
+        self._closed = Future()
+
+    @property
+    def is_closed(self) -> bool:
+        return self._closed.done()
+
+    async def close(self):
+        if self.is_closed:
+            return
+        self._closed.set_result(None)
+
+
+class AioTasksRunner(Closable):
+    __slots__ = ("_tasks",)
+
+    def __init__(self):
+        super().__init__()
+        self._tasks: dict[str, set[asyncio.Task]] = defaultdict(set)
+
+    @property
+    def task_keys(self):
+        return self._tasks.keys()
+
+    def cancel_all_tasks(self):
+        for tasks in self._tasks.values():
+            for task in tasks:
+                task.cancel()
+
+    def cancel_tasks(self, key: str):
+        for task in self._tasks[key]:
+            task.cancel()
+
+    def create_task(self, key: str, coro_factory: Callable[[], Coroutine]) -> asyncio.Task:
+        if self._closed.done():
+            raise Exception(f"{self} closed")
+
+        async def fn():
+            task = cast(asyncio.Task, current_task())
+            tasks = self._tasks[key]
+            tasks.add(task)
+            try:
+                return await coro_factory()
+            except Exception as e:
+                if not isinstance(e, (StopIteration, StopAsyncIteration)):
+                    logger.exception(e)
+                raise e
+            finally:
+                tasks.discard(task)
+                if not tasks:
+                    del self._tasks[key]
+
+        return create_task(fn())
+
+    async def close(self):
+        await super().close()
+        self.cancel_all_tasks()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+
+def doc(docstring):
+    def wrapper(fn):
+        fn.__doc__ = docstring
+        return fn
+
+    return wrapper

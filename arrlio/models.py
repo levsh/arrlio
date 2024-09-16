@@ -1,7 +1,9 @@
 import datetime
+
+from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass, field
 from types import TracebackType
-from typing import Any, Callable, ClassVar, Dict
+from typing import Any, Callable, ClassVar, Optional
 from uuid import UUID, uuid4
 
 from rich.pretty import pretty_repr
@@ -23,6 +25,8 @@ from arrlio.types import Args, AsyncCallable, Kwds, TaskId, TaskPriority, Timeou
 
 
 class FuncProxy:
+    """Proxy class for function object."""
+
     def __init__(self, func):
         self._original = func
 
@@ -44,6 +48,40 @@ class FuncProxy:
         return self
 
 
+class Shared(MutableMapping):
+    """Object to share settings between broker/result_backend/event_backend."""
+
+    def __init__(self):
+        self._data = {}
+
+    def __getitem__(self, *args, **kwds):
+        return self._data.__getitem__(*args, **kwds)
+
+    def __setitem__(self, *args, **kwds):
+        return self._data.__setitem__(*args, **kwds)
+
+    def __delitem__(self, *args, **kwds):
+        return self._data.__delitem__(*args, **kwds)
+
+    def __contains__(self, *args, **kwds):
+        return self._data.__contains__(*args, **kwds)
+
+    def __len__(self, *args, **kwds):
+        return self._data.__len__(*args, **kwds)
+
+    def __iter__(self, *args, **kwds):
+        return self._data.__iter__(*args, **kwds)
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def get(self, *args, **kwds):
+        return self._data.get(*args, **kwds)
+
+    def update(self, *args, **kwds):
+        return self._data.update(*args, **kwds)
+
+
 @dataclass(slots=True, frozen=True)
 class Task:
     """Task `dataclass`.
@@ -61,7 +99,7 @@ class Task:
         thread: Should `arrlio.executor.Executor` execute task in the separate thread.
         events: Enable or disable events for the task.
         event_ttl: Event time to live, seconds.
-        extra: Task extra data.
+        headers: Task headers.
         loads: Function to load task arguments.
         dumps: Function to dump task result
     """
@@ -76,13 +114,17 @@ class Task:
     ack_late: bool = TASK_ACK_LATE
     result_ttl: Timeout = TASK_RESULT_TTL
     result_return: bool = TASK_RESULT_RETURN
-    thread: bool | None = None
+    thread: Optional[bool] = None
     events: bool | set[str] = TASK_EVENTS
     event_ttl: Timeout = EVENT_TTL
-    extra: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
+    headers: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
 
-    loads: Callable | None = None
-    dumps: Callable | None = None
+    # TODO
+    # args_kwds_loads
+    # result_dumps
+    # result_loads
+    loads: Optional[Callable] = None
+    dumps: Optional[Callable] = None
 
     def __post_init__(self):
         if self.func:
@@ -97,11 +139,12 @@ class Task:
 
         return self.func(*args, **kwds)
 
-    def dict(self, exclude: list[str] | None = None, sanitize: bool | None = None):  # pylint: disable=unused-argument
+    def asdict(self, exclude: list[str] | None = None, sanitize: bool | None = None):  # pylint: disable=unused-argument
         """Convert to dict.
 
         Args:
             exclude: fields to exclude.
+            sanitize: flag to sanitize sensitive data.
         Returns:
             `arrlio.models.Task` as `dict`.
         """
@@ -110,16 +153,16 @@ class Task:
         exclude = exclude or []
         return {k: v for k, v in asdict(self).items() if k not in exclude}
 
-    def pretty_repr(self, exclude: list[str] = None, sanitize: bool = None):
-        return pretty_repr(self.dict(exclude=exclude, sanitize=sanitize))
+    def pretty_repr(self, exclude: list[str] | None = None, sanitize: bool | None = None):
+        return pretty_repr(self.asdict(exclude=exclude, sanitize=sanitize))
 
     def instantiate(
         self,
         task_id: TaskId | None = None,
         args: Args | None = None,
         kwds: Kwds | None = None,
-        meta: Dict | None = None,
-        extra: Dict | None = None,
+        meta: dict | None = None,
+        headers: dict | None = None,
         **kwargs,
     ) -> "TaskInstance":
         """Instantiate new `arrlio.models.TaskInstance` object with provided arguments.
@@ -128,15 +171,15 @@ class Task:
             `arrlio.models.TaskInstance` object.
         """
 
-        extra = {**self.extra, **(extra or {})}
+        headers = {**self.headers, **(headers or {})}
         return TaskInstance(
             **{
-                **self.dict(),
+                **self.asdict(),
                 "task_id": task_id,
                 "args": args or (),
                 "kwds": kwds or {},
                 "meta": meta or {},
-                "extra": extra or {},
+                "headers": headers or {},
                 **kwargs,
             }
         )
@@ -156,9 +199,11 @@ class TaskInstance(Task):
     task_id: UUID = field(default_factory=uuid4)
     args: Args = field(default_factory=tuple)
     kwds: Kwds = field(default_factory=dict)  # pylint: disable=used-before-assignment
-    meta: Dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
+    meta: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
 
-    sanitizer: ClassVar[Callable | None] = None
+    shared: Shared = field(default_factory=Shared, init=False)
+
+    sanitizer: ClassVar[Optional[Callable]] = None
 
     def __post_init__(self):
         if self.task_id is None:
@@ -168,9 +213,19 @@ class TaskInstance(Task):
         if not isinstance(self.args, tuple):
             object.__setattr__(self, "args", tuple(self.args))
 
-    def dict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
+    def asdict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
+        """Convert to dict.
+
+        Args:
+            exclude: fields to exclude.
+            sanitize: flag to sanitize sensitive data.
+        Returns:
+            `arrlio.models.TaskInstance` as `dict`.
+        """
+
+        exclude = exclude or []
         # pylint: disable=super-with-arguments
-        data = super(TaskInstance, self).dict(exclude=exclude, sanitize=sanitize)
+        data = super(TaskInstance, self).asdict(exclude=exclude, sanitize=sanitize)
         if sanitize:
             if self.sanitizer:
                 data = self.sanitizer(data)  # pylint: disable=not-callable
@@ -181,7 +236,11 @@ class TaskInstance(Task):
                     data["kwds"] = "<hidden>"
         return data
 
-    def __call__(self, meta: bool = None):  # pylint: disable=arguments-differ
+    def pretty_repr(self, exclude: list[str] | None = None, sanitize: bool | None = None):
+        exclude = (exclude or []) + ["shared"]
+        return pretty_repr(self.asdict(exclude=exclude, sanitize=sanitize))
+
+    def __call__(self, meta: bool | None = None):  # pylint: disable=arguments-differ
         """Call `arrlio.models.TaskInstance`.
 
         Args:
@@ -207,17 +266,19 @@ class TaskResult:
     """Task result `dataclass`."""
 
     res: Any = None
-    exc: Exception | tuple[str, str, str] | None = None
-    trb: TracebackType | str | None = None
-    idx: tuple[str, int] | None = None
-    routes: str | list[str] | None = None
+    exc: Optional[Exception | tuple[str, str, str]] = None
+    trb: Optional[TracebackType | str] = None
+    idx: Optional[tuple[str, int]] = None
+    routes: Optional[str | list[str]] = None
 
     def set_idx(self, idx: tuple[str, int]):
         object.__setattr__(self, "idx", idx)
 
-    def dict(self, sanitize: bool | None = None):
+    def asdict(self, sanitize: bool | None = None):
         """Convert to dict.
 
+        Args:
+            sanitize: flag to sanitize sensitive data.
         Returns:
             `arrlio.models.TaskResult` as `dict`.
         """
@@ -231,7 +292,7 @@ class TaskResult:
         }
 
     def pretty_repr(self, sanitize: bool | None = None):
-        return pretty_repr(self.dict(sanitize=sanitize))
+        return pretty_repr(self.asdict(sanitize=sanitize))
 
 
 @dataclass(slots=True, frozen=True)
@@ -248,7 +309,7 @@ class Event:
     type: str
     data: dict  # pylint: disable=used-before-assignment
     event_id: UUID = field(default_factory=uuid4)
-    dt: datetime.datetime = None
+    dt: Optional[datetime.datetime] = None
     ttl: Timeout = EVENT_TTL
 
     def __post_init__(self):
@@ -259,9 +320,11 @@ class Event:
         elif isinstance(self.dt, str):
             object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
-    def dict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
+    def asdict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
         """Convert to dict.
 
+        Args:
+            sanitize: flag to sanitize sensitive data.
         Returns:
             `arrlio.models.Event` as `dict`.
         """
@@ -272,7 +335,7 @@ class Event:
         return data
 
     def pretty_repr(self, sanitize: bool | None = None):
-        return pretty_repr(self.dict(sanitize=sanitize))
+        return pretty_repr(self.asdict(sanitize=sanitize))
 
 
 class Graph:
@@ -281,21 +344,21 @@ class Graph:
     def __init__(
         self,
         name: str,
-        nodes: Dict | None = None,
-        edges: Dict | None = None,
+        nodes: dict[str, list] | None = None,
+        edges: dict[str, list] | None = None,
         roots: set | None = None,
     ):
         """
         Args:
-            name: Graph name.
-            node: list of the graph nodes.
-            edges: list of the graph edges.
-            roots: list of the graph roots.
+            name: graph name.
+            node: graph nodes.
+            edges: graph edges.
+            roots: graph roots.
         """
 
         self.name = name
-        self.nodes: Dict[str, list[str]] = rodict({}, nested=True)
-        self.edges: Dict[str, list[str]] = rodict({}, nested=True)
+        self.nodes: dict[str, list] = rodict({}, nested=True)
+        self.edges: dict[str, list] = rodict({}, nested=True)
         self.roots: set[str] = roset(set())
         nodes = nodes or {}
         edges = edges or {}
@@ -325,11 +388,11 @@ class Graph:
             raise GraphError(f"Node '{node_id}' already in graph")
         if isinstance(task, Task):
             task = task.name
-        self.nodes.__original__[node_id] = [task, kwds]
+        self.nodes.__original__[node_id] = (task, kwds)
         if root:
             self.roots.__original__.add(node_id)
 
-    def add_edge(self, node_id_from: str, node_id_to: str, routes: str | list[str] = None):
+    def add_edge(self, node_id_from: str, node_id_to: str, routes: str | list[str] | None = None):
         """Add edge to the graph.
         If routes are specified then only results with a matching route will be passed to the incoming node.
 
@@ -345,11 +408,13 @@ class Graph:
             raise GraphError(f"Node '{node_id_to}' not found in graph")
         if isinstance(routes, str):
             routes = [routes]
-        self.edges.__original__.setdefault(node_id_from, []).append([node_id_to, routes])
+        self.edges.__original__.setdefault(node_id_from, []).append((node_id_to, routes))
 
-    def dict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
+    def asdict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
         """Convert to the dict.
 
+        Args:
+            sanitize: flag to sanitize sensitive data.
         Returns:
             `arrlio.models.Graph` as `dict`.
         """
@@ -379,4 +444,4 @@ class Graph:
         )
 
     def pretty_repr(self, sanitize: bool | None = None):
-        return pretty_repr(self.dict(sanitize=sanitize))
+        return pretty_repr(self.asdict(sanitize=sanitize))

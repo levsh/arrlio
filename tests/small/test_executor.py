@@ -36,7 +36,7 @@ class TestExecutor:
         assert len(results) == 1
         assert results[0].res is None
         assert results[0].exc is not None
-        assert isinstance(results[0].exc, exceptions.NotFoundError)
+        assert isinstance(results[0].exc, exceptions.TaskNotFoundError)
 
         results = []
         async for result in executor.execute(tasks.sleep.instantiate(args=(1,), timeout=0)):

@@ -3,6 +3,7 @@ import uuid
 import pytest
 
 import arrlio
+
 from arrlio import models, settings
 from tests import tasks
 
@@ -163,16 +164,16 @@ def test_graph():
     graph.add_node("C", C)
     graph.add_node("Z", A)
     assert graph.nodes == {
-        "A": ["test_models.A", {}],
-        "B": ["test_models.B", {"args": (1,), "kwds": {"a": "b"}}],
-        "C": ["test_models.C", {}],
-        "Z": ["test_models.A", {}],
+        "A": ("test_models.A", {}),
+        "B": ("test_models.B", {"args": (1,), "kwds": {"a": "b"}}),
+        "C": ("test_models.C", {}),
+        "Z": ("test_models.A", {}),
     }
 
     graph.add_edge("A", "B")
     graph.add_edge("B", "B")
     graph.add_edge("A", "C")
-    assert graph.edges == {"A": [["B", None], ["C", None]], "B": [["B", None]]}
+    assert graph.edges == {"A": [("B", None), ("C", None)], "B": [("B", None)]}
 
     assert graph.roots == {"A"}
 
@@ -187,9 +188,10 @@ def test_dict():
 
     task_instance = foo.instantiate(args=(1,), kwds={"k": "v"})
 
-    data = task_instance.dict()
+    data = task_instance.asdict()
     data.pop("task_id")
     data.pop("func")
+    data.pop("shared")
     data.pop("loads")
     data.pop("dumps")
     assert data == {
@@ -207,10 +209,10 @@ def test_dict():
         "thread": None,
         "events": False,
         "event_ttl": 300,
-        "extra": {},
+        "headers": {},
     }
 
-    data = task_instance.dict(exclude=["task_id", "func", "args", "kwds", "loads", "dumps"])
+    data = task_instance.asdict(exclude=["task_id", "func", "args", "kwds", "shared", "loads", "dumps"])
     assert data == {
         "name": "test_models.foo",
         "queue": "arrlio.tasks",
@@ -224,5 +226,5 @@ def test_dict():
         "thread": None,
         "events": False,
         "event_ttl": 300,
-        "extra": {},
+        "headers": {},
     }

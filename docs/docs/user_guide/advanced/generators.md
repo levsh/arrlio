@@ -18,4 +18,4 @@ async with app:
 ```
 
 !!! note
-    For RabbitMQ backend this feature works only with `ResutsQueueMode.COMMON` mode.
+    For RabbitMQ broker/bakcends this feature works only with `REPLY_TO_MODE.COMMON_QUEUE` mode.
