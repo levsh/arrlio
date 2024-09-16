@@ -48,7 +48,7 @@ PREFETCH_COUNT = 10
 RESULT_TTL = 600
 
 
-class SerializerConfig(SerializerConfig):
+class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
     """RabbitMQ result backend serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_RESULT_BACKEND_SERIALIZER_")

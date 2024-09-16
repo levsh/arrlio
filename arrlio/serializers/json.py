@@ -1,5 +1,6 @@
+# pylint: disable=wrong-import-order,ungrouped-imports
+
 import importlib
-import json
 import logging
 
 from typing import Callable, Optional, Type
@@ -27,11 +28,11 @@ except ImportError:
     json_loads = json.loads
 
     JSONEncoderType = Optional[Type[json.JSONEncoder]]
-    JSON_ENCODER = ExtendedJSONEncoder
+    JSON_ENCODER = ExtendedJSONEncoder  # pylint: disable=invalid-name
 
 from traceback import format_tb
 from types import TracebackType
-from typing import Annotated, Any, Callable
+from typing import Annotated, Any
 
 from pydantic import Field, PlainSerializer
 from pydantic_settings import SettingsConfigDict

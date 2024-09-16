@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 
-from asyncio import Future, create_task, current_task, sleep, wait
+from asyncio import Future, create_task, current_task, sleep
 from collections import defaultdict
 from datetime import datetime
 from functools import wraps

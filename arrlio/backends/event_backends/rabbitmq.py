@@ -49,7 +49,7 @@ PREFETCH_COUNT = 10
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class SerializerConfig(SerializerConfig):
+class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
     """RabbitMQ event backend serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_EVENT_BACKEND_SERIALIZER_")
@@ -159,9 +159,10 @@ class EventBackend(Closable, AbstractEventBackend):
     ):
         if callback_id in self._callbacks:
             raise ArrlioError(
-                "callback_id '%s' already in use for consuming '%s' event_types",
-                callback_id,
-                self._callbacks[callback_id][1],
+                (
+                    f"callback_id '{callback_id}' already in use for consuming "
+                    f"'{self._callbacks[callback_id][1]}' event_types"
+                )
             )
 
         event_types = event_types or ["#"]
@@ -202,7 +203,7 @@ class EventBackend(Closable, AbstractEventBackend):
         for event_type in event_types:
             await self._queue.bind(self._exchange, event_type, restore=True)
 
-        # TODO
+        # TODO  pylint: disable=fixme
         await self._queue.consume(
             lambda *args, **kwds: create_task(on_message(*args, **kwds)) and None,
             retry_timeout=self.config.pull_retry_timeout,

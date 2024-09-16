@@ -80,14 +80,3 @@ def generate_coverage_gist(c):
 
     with open("artifacts/shields_io_coverage_gist_data.json", "w") as f:
         f.write(json.dumps(data))
-
-
-@task
-def gettext_msgfmt(c):
-    base = os.path.dirname(os.path.abspath(__file__))
-    cmd = (
-        f"python {os.path.join(base, 'locales/msgfmt.py')} "
-        f"-o {os.path.join(base, 'locales/ru/LC_MESSAGES/base.mo')} "
-        f"{os.path.join(base, 'locales/ru/LC_MESSAGES/base.po')}"
-    )
-    c.run(cmd)

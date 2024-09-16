@@ -44,7 +44,7 @@ TASK_TTL = 600
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class SerializerConfig(SerializerConfig):
+class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
     """RabbitMQ broker serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_BROKER_SERIALIZER_")

@@ -78,7 +78,7 @@ class Shared(MutableMapping):
     def get(self, *args, **kwds):
         return self._data.get(*args, **kwds)
 
-    def update(self, *args, **kwds):
+    def update(self, *args, **kwds):  # pylint: disable=arguments-differ
         return self._data.update(*args, **kwds)
 
 
@@ -119,7 +119,7 @@ class Task:
     event_ttl: Timeout = EVENT_TTL
     headers: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
 
-    # TODO
+    # NOTE
     # args_kwds_loads
     # result_dumps
     # result_loads
