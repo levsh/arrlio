@@ -11,12 +11,15 @@ from uuid import uuid4
 from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arrlio import settings
+from arrlio import gettext, settings
 from arrlio.abc import AbstractBroker
 from arrlio.models import TaskInstance
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level, is_info_level
+
+
+_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.brokers.local")
@@ -26,24 +29,30 @@ POOL_SIZE = 100
 
 
 class Config(BaseSettings):
-    """Local broker config."""
+    """
+    Local `Broker` config.
+
+    Atributes:
+        id: Broker Id.
+        pool_size: Tasks pool size.
+            .. caution:: Maybe removed in the future.
+    """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}LOCAL_BROKER_")
 
     id: str = Field(default_factory=lambda: f"{uuid4().hex[-4:]}")
     pool_size: PositiveInt = Field(default_factory=lambda: POOL_SIZE)
-    """.. caution:: Maybe removed in the future."""
 
 
 class Broker(Closable, AbstractBroker):
-    """Local broker."""
+    """
+    Local `Broker`.
+
+    Args:
+        config: `Broker` config.
+    """
 
     def __init__(self, config: Config):
-        """
-        Args:
-            config: local broker config.
-        """
-
         super().__init__()
 
         self.config = config
@@ -84,7 +93,7 @@ class Broker(Closable, AbstractBroker):
     async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
         async def fn(queue: str):
             if is_info_level():
-                logger.info("%s start consuming tasks queue '%s'", self, queue)
+                logger.info(_("%s start consuming tasks queue '%s'"), self, queue)
 
             semaphore_acquire = self._semaphore.acquire
             semaphore_release = self._semaphore.release
@@ -97,13 +106,13 @@ class Broker(Closable, AbstractBroker):
                         await semaphore_acquire()
 
                         try:
-                            _, ts, ttl, task_instance = await queue_get()
+                            priority, ts, ttl, task_instance = await queue_get()
                             if ttl is not None and monotonic() >= ts + ttl:
                                 continue
 
                             if is_debug_level():
                                 logger.debug(
-                                    "%s got task\n%s",
+                                    _("%s got task\n%s"),
                                     self,
                                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                                 )
@@ -118,7 +127,7 @@ class Broker(Closable, AbstractBroker):
 
                     except asyncio.CancelledError:
                         if is_info_level():
-                            logger.info("%s stop consuming tasks queue '%s'", self, queue)
+                            logger.info(_("%s stop consuming tasks queue '%s'"), self, queue)
                         return
                     except Exception as e:
                         logger.exception(e)

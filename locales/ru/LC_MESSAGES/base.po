@@ -1,0 +1,65 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR ORGANIZATION
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: 2024-09-09 16:11+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: pygettext.py 1.5\n"
+
+
+#: arrlio/abc.py:35
+msgid "Send task to backend."
+msgstr "Отправить задачу на бэкенд."
+
+#: arrlio/abc.py:40
+msgid "Consume tasks from the queues and invoke `callback` on `arrlio.models.TaskInstance` received."
+msgstr "Начать слушать задачи из очередей и вызвать функцию обратного `callback` вызова при получении `arrlio.models.TaskInstance`"
+
+#: arrlio/abc.py:45
+msgid "Stop consuming tasks."
+msgstr "Перестать слушать задачи."
+
+#: arrlio/abc.py:52
+msgid "Make result backend headers for `arrlio.models.TaskInstance`."
+msgstr "Создать заголовки для `arrlio.models.TaskInstance`."
+
+#: arrlio/abc.py:57
+msgid "Make result backend shared for `arrio.models.TaskInstance`."
+msgstr "Создать общий объект бэкенда результата для `arrlio.models.TaskInstance`."
+
+#: arrlio/abc.py:62
+msgid "Allocate storage for future task result if needed."
+msgstr "Выделить хранилище для будущего результата задачи если необходимо."
+
+#: arrlio/abc.py:67
+msgid "Push `arrlio.models.TaskResult` for `arrlio.models.TaskInstance`."
+msgstr "Сохранить `arrlio.models.TaskResult` для `arrlio.models.TaskInstance`."
+
+#: arrlio/abc.py:72
+msgid "Pop `arrlio.models.TaskResult` for `arrlio.models.TaskInstance`."
+msgstr "Получить `arrlio.models.TaskResult` для `arrlio.models.TaskInstance`."
+
+#: arrlio/abc.py:77
+msgid "Close task."
+msgstr "Закрыть задачу."
+
+#: arrlio/abc.py:84
+msgid "Send `arrlio.models.Event`."
+msgstr "Послать `arrlio.models.Event`."
+
+#: arrlio/abc.py:89
+msgid "Consume events and invoke `callback` on `arrlio.models.Event` received."
+msgstr "Начать слушать эвенты и вызвать функцию обратного вызова при получении `arrlio.models.Event`."
+
+#: arrlio/abc.py:99
+msgid "Stop consuming events."
+msgstr "Перестать слушанть эвенты."
+

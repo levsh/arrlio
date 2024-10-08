@@ -24,6 +24,7 @@ from arrlio.settings import (
     TASK_TTL,
 )
 from arrlio.types import (
+    TTL,
     BrokerModule,
     EventBackendModule,
     ExecutorModule,
@@ -33,7 +34,6 @@ from arrlio.types import (
     SerializerModule,
     TaskPriority,
     Timeout,
-    Ttl,
 )
 
 
@@ -55,7 +55,9 @@ class SerializerConfig(BaseSettings, ModuleConfigValidatorMixIn):
     """Config for serializer module."""
 
     module: SerializerModule = cast(SerializerModule, SERIALIZER)
+    """Serializer module as module path or `SerializerModule` instance or `dict` instance."""
     config: ModuleConfig = Field(default_factory=BaseSettings)
+    """Module config as `dict` or `module.Config` instances."""
 
 
 class BrokerModuleConfig(BaseSettings, ModuleConfigValidatorMixIn):
@@ -64,7 +66,9 @@ class BrokerModuleConfig(BaseSettings, ModuleConfigValidatorMixIn):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}BROKER_")
 
     module: BrokerModule = cast(BrokerModule, BROKER)
+    """Broker module as module path or `BrokerModule` instance or `dict` instance."""
     config: ModuleConfig = Field(default_factory=BaseSettings)
+    """Module config as `dict` or `module.Config` instances."""
 
 
 class ResultBackendModuleConfig(BaseSettings, ModuleConfigValidatorMixIn):
@@ -73,7 +77,9 @@ class ResultBackendModuleConfig(BaseSettings, ModuleConfigValidatorMixIn):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RESULT_BACKEND_")
 
     module: ResultBackendModule = cast(ResultBackendModule, RESULT_BACKEND)
+    """Result backend module as module path or `ResultBackendModule` instance or `dict` instance."""
     config: ModuleConfig = Field(default_factory=BaseSettings)
+    """Module config as `dict` or `module.Config` instances."""
 
 
 class EventBackendModuleConfig(BaseSettings, ModuleConfigValidatorMixIn):
@@ -82,7 +88,9 @@ class EventBackendModuleConfig(BaseSettings, ModuleConfigValidatorMixIn):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}EVENT_BACKEND_")
 
     module: EventBackendModule = cast(EventBackendModule, EVENT_BACKEND)
+    """Event backend module as module path or `EventBackendModule` instance or `dict` instance."""
     config: ModuleConfig = Field(default_factory=BaseSettings)
+    """Module config as `dict` or `module.Config` instances."""
 
 
 class TaskConfig(BaseSettings):
@@ -91,13 +99,21 @@ class TaskConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}TASK_")
 
     queue: str = Field(default_factory=lambda: TASK_QUEUE)
+    """Default queue name for task."""
     priority: TaskPriority = Field(default_factory=lambda: TASK_PRIORITY)
+    """Default task priority."""
     timeout: Optional[Timeout] = Field(default_factory=lambda: TASK_TIMEOUT)
-    ttl: Optional[Ttl] = Field(default_factory=lambda: TASK_TTL)
+    """Default task excute timeout in seconds."""
+    ttl: Optional[TTL] = Field(default_factory=lambda: TASK_TTL)
+    """Default task TTL in seconds."""
     ack_late: bool = Field(default_factory=lambda: TASK_ACK_LATE)
+    """Task ack late options."""
     result_return: bool = Field(default_factory=lambda: TASK_RESULT_RETURN)
-    result_ttl: Optional[Ttl] = Field(default_factory=lambda: TASK_RESULT_TTL)
+    """Is it necessary to return the task result by default."""
+    result_ttl: Optional[TTL] = Field(default_factory=lambda: TASK_RESULT_TTL)
+    """Result TTL in seconds."""
     events: set[str] | bool = Field(default_factory=lambda: TASK_EVENTS)
+    """Will events be generated for task. This option requires `arrlio.plugins.events` plugin."""
 
 
 class EventConfig(BaseSettings):
@@ -105,7 +121,8 @@ class EventConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}EVENT_")
 
-    ttl: Optional[Ttl] = Field(default_factory=lambda: EVENT_TTL)
+    ttl: Optional[TTL] = Field(default_factory=lambda: EVENT_TTL)
+    """Event TTL in seconds."""
 
 
 class PluginModuleConfig(ModuleConfigValidatorMixIn, BaseSettings):
@@ -114,7 +131,9 @@ class PluginModuleConfig(ModuleConfigValidatorMixIn, BaseSettings):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}PLUGIN_")
 
     module: PluginModule
+    """Plugin module as module path or `PluginModule` instance or `dict` instance."""
     config: ModuleConfig = Field(default_factory=BaseSettings)
+    """Module config as `dict` or `module.Config` instances."""
 
 
 class ExecutorModuleConfig(ModuleConfigValidatorMixIn, BaseSettings):
@@ -123,20 +142,31 @@ class ExecutorModuleConfig(ModuleConfigValidatorMixIn, BaseSettings):
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}EXECUTOR_")
 
     module: ExecutorModule = cast(ExecutorModule, EXECUTOR)
+    """Executor module as module path or `ExecutorModule` instance or `dict` instance."""
     config: ModuleConfig = Field(default_factory=BaseSettings)
+    """Module config as `dict` or `module.Config` instances."""
 
 
 class Config(BaseSettings):
-    """Arrlio application config."""
+    """Arrlio application main config."""
 
     model_config = SettingsConfigDict(env_prefix=ENV_PREFIX)
 
     app_id: Annotated[str, MinLen(4)] = Field(default_factory=lambda: f"{uuid4().hex[-6:]}")
+    """Arrlio application Id."""
     broker: BrokerModuleConfig = Field(default_factory=BrokerModuleConfig)
+    """Broker module config."""
     result_backend: ResultBackendModuleConfig = Field(default_factory=ResultBackendModuleConfig)
+    """Result backend module config."""
     event_backend: EventBackendModuleConfig = Field(default_factory=EventBackendModuleConfig)
+    """Event backend module config."""
     task: TaskConfig = Field(default_factory=TaskConfig)
+    """Task config."""
     event: EventConfig = Field(default_factory=EventConfig)
+    """Event config."""
     task_queues: set[str] = Field(default_factory=lambda: TASK_QUEUES)
+    """Task queues to consume."""
     plugins: list[PluginModuleConfig] = Field(default_factory=list)
+    """List of plugins."""
     executor: ExecutorModuleConfig = Field(default_factory=ExecutorModuleConfig)
+    """Executor module config."""

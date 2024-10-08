@@ -21,15 +21,15 @@ rmqaio.LOG_SANITIZE = settings.LOG_SANITIZE
 
 
 class ReplyToMode(StrEnum):
-    """RabbitMQ reply_to mode"""
+    """RabbitMQ reply_to mode."""
 
     DIRECT_REPLY_TO = "direct_reply_to"
     """
-    Allow to avoid declaring a response queue per request. See [spec](https://www.rabbitmq.com/docs/direct-reply-to)
+    Allow to avoid declaring a response queue per request. See [spec](https://www.rabbitmq.com/docs/direct-reply-to).
     """
 
     COMMON_QUEUE = "common_queue"
-    """Common(single) results queue per backend id used for all task results"""
+    """Common(single) results queue per backend id used for all task results."""
 
     DISABLE = "disable"
 
@@ -47,6 +47,8 @@ def exc_filter(e) -> bool:
 
 
 def connection_factory(url: SecretAmqpDsn | list[SecretAmqpDsn]) -> Connection:
+    """Connection factory."""
+
     if not isinstance(url, list):
         url = [url]
     return Connection([u.get_secret_value() for u in url])

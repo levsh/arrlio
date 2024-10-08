@@ -23,18 +23,18 @@ threading_Event = threading.Event  # pylint: disable=invalid-name
 
 
 class Config(BaseSettings):
-    """`arrlio.executor.Executor` config class."""
+    """Task executor config."""
 
 
 class Executor:
-    """Executor class."""
+    """
+    Task executor.
+
+    Args:
+        config: Executor config.
+    """
 
     def __init__(self, config: Config):
-        """
-        Args:
-            config: Executor config.
-        """
-
         self.config = config
 
     def __str__(self):
@@ -44,12 +44,14 @@ class Executor:
         return self.__str__()
 
     async def __call__(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
-        """Execute `arrlio.models.TaskInstance`. Blocking until the task result available.
+        """
+        Execute `arrlio.models.TaskInstance`. Blocking until the task result available.
 
         Args:
-            task_instance: `arrlio.models.TaskInstance` object.
+            task_instance: Task instance to execute.
         Yields:
-            `arrlio.models.TaskResult` object."""
+            `arrlio.models.TaskResult`.
+        """
 
         if task_instance.thread:
             execute = self.execute_in_thread
@@ -59,12 +61,13 @@ class Executor:
             yield task_result
 
     async def execute(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
-        """Execute `arrlio.models.TaskInstance` in the same thread. Blocking until the task result available.
+        """
+        Execute `arrlio.models.TaskInstance` in the same thread. Blocking until the task result available.
 
         Args:
-            task_instance: `arrlio.models.TaskInstance` object.
+            task_instance: Task instance to execute.
         Yields:
-            `arrlio.models.TaskResult` object.
+            `arrlio.models.TaskResult`.
         """
 
         res, exc, trb = None, None, None
@@ -165,12 +168,13 @@ class Executor:
             )
 
     async def execute_in_thread(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
-        """Execute `arrlio.models.TaskInstance` in the separate thread. Blocking until the task result available.
+        """
+        Execute `arrlio.models.TaskInstance` in the separate thread. Blocking until the task result available.
 
         Args:
-            task_instance: `arrlio.models.TaskInstance` object.
+            task_instance: Task instance to execute.
         Yields:
-            `arrlio.models.TaskResult` object.
+            `arrlio.models.TaskResult`.
         """
 
         root_loop = get_running_loop()

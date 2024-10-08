@@ -15,7 +15,7 @@ from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rmqaio import Connection, Exchange, Queue, QueueType
 
-from arrlio import settings
+from arrlio import gettext, settings
 from arrlio.abc import AbstractEventBackend
 from arrlio.backends.rabbitmq import (
     PULL_RETRY_TIMEOUT,
@@ -33,12 +33,16 @@ from arrlio.types import SecretAmqpDsn, Timeout
 from arrlio.utils import AioTasksRunner, Closable, event_type_to_regex, is_debug_level, retry
 
 
+_ = gettext.gettext
+
+
 logger = logging.getLogger("arrlio.backends.event_backend.rabbitmq")
 
 
 EXCHANGE = "arrlio.events"
 EXCHANGE_DURABLE = False
 QUEUE_TYPE = QueueType.CLASSIC
+QUEUE_EXCLUSIVE = False
 QUEUE_DURABLE = False
 QUEUE_AUTO_DELETE = True
 QUEUE = "arrlio.events"
@@ -50,19 +54,35 @@ BasicProperties = aiormq.spec.Basic.Properties
 
 
 class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
-    """RabbitMQ event backend serializer config."""
+    """RabbitMQ `EventBackend` serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_EVENT_BACKEND_SERIALIZER_")
 
 
 class Config(BaseSettings):
-    """RabbitMQ event backend config."""
+    """
+    RabbitMQ `EventBackend` config.
+
+    Attributes:
+        id: `EventBackend` Id.
+        url: RabbitMQ URL. See amqp [spec](https://www.rabbitmq.com/uri-spec.html).
+        timeout: Network operation timeout in seconds.
+        push_retry_timeouts: Push operation retry timeouts as sequence of int(seconds).
+        pull_retry_timeouts: Pull operation retry timeouts as sequence of int(seconds).
+        serializer: Config for Serializer.
+        exchange: RabbitMQ exchange.
+        exchange_durable: Exchange durable option.
+        queue_type: RabbitMQ tasks queue type.
+        queue_exclusive: Queue exclusive option.
+        queue_durable: Queue durable option.
+        queue_auto_delete: Queue auto delete option.
+        prefetch_count: Events prefetch count.
+    """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_EVENT_BACKEND_")
 
     id: str = Field(default_factory=lambda: f"{uuid4().hex[-4:]}")
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
-    """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
     pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
@@ -71,6 +91,7 @@ class Config(BaseSettings):
     exchange: str = Field(default_factory=lambda: EXCHANGE)
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
     queue_type: QueueType = Field(default_factory=lambda: QUEUE_TYPE)
+    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
     queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
     queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
     queue: str = Field(default_factory=lambda: QUEUE)
@@ -78,14 +99,14 @@ class Config(BaseSettings):
 
 
 class EventBackend(Closable, AbstractEventBackend):
-    """RabbitMQ event backend."""
+    """
+    RabbitMQ `EventBackend`.
+
+    Args:
+        config: RabbitMQ `EventBackend` config.
+    """
 
     def __init__(self, config: Config):
-        """
-        Args:
-            config: RabbitMQ event backend config.
-        """
-
         super().__init__()
 
         self.config = config
@@ -147,7 +168,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug("%s put event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.debug(_("%s put event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         await self._internal_tasks_runner.create_task("send_event", lambda: self._send_event(event))
 
@@ -159,9 +180,9 @@ class EventBackend(Closable, AbstractEventBackend):
     ):
         if callback_id in self._callbacks:
             raise ArrlioError(
-                (
-                    f"callback_id '{callback_id}' already in use for consuming "
-                    f"'{self._callbacks[callback_id][1]}' event_types"
+                _("callback_id '{}' already in use for consuming '{}' event_types").format(
+                    callback_id,
+                    self._callbacks[callback_id][1],
                 )
             )
 
@@ -178,7 +199,7 @@ class EventBackend(Closable, AbstractEventBackend):
                 event: Event = self.serializer.loads_event(message.body)
 
                 if is_debug_level():
-                    logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+                    logger.debug(_("%s got event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                 await channel.basic_ack(message.delivery.delivery_tag)
 

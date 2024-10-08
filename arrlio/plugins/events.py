@@ -9,8 +9,12 @@ from uuid import UUID
 
 from pydantic import Field, PlainSerializer
 
+from arrlio import gettext
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.plugins import base
+
+
+_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.plugins.events")
@@ -24,20 +28,39 @@ EventDataExtender = Annotated[
 
 
 class Config(base.Config):
+    """
+    Events Plugin config.
+
+    Attributes:
+        event_data_extenders: Mapping with callable to extend event data.
+    """
+
     event_data_extenders: dict[str, EventDataExtender] = Field(default_factory=dict)
 
 
 class Plugin(base.Plugin):
-    def __init__(self, *args, **kwds):
-        super().__init__(*args, **kwds)
+    """
+    Events Plugin.
+
+    Args:
+        app: `arrlio.core.App` instance.
+        config: Events Plugin config.
+    """
+
+    def __init__(self, app, config: Config):
+        super().__init__(app, config)
         self._ping_tasks: dict[UUID, asyncio.Task] = {}
 
     @property
     def name(self) -> str:
+        """Plugin name."""
+
         return "arrlio.events"
 
     @property
     def event_types(self) -> tuple[str, ...]:
+        """Supported event types."""
+
         return (
             "task.send",
             "task.ping",
@@ -67,8 +90,8 @@ class Plugin(base.Plugin):
                 logger.exception(e)
 
     async def on_init(self):
-        logger.info("%s initializing...", self)
-        logger.info("%s initialization done", self)
+        logger.info(_("%s initializing..."), self)
+        logger.info(_("%s initialization done"), self)
 
     async def on_close(self):
         for task in self._ping_tasks.values():

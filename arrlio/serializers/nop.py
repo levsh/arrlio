@@ -1,5 +1,4 @@
-from typing import Any
-
+from arrlio.abc import AbstractSerializer
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.serializers import base
 
@@ -8,13 +7,7 @@ class Config(base.Config):
     pass
 
 
-class Serializer(base.Serializer):
-    def dumps(self, data: Any, **kwds) -> Any:
-        return data
-
-    def loads(self, data: Any) -> Any:
-        return data
-
+class Serializer(AbstractSerializer):
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
         return task_instance
 

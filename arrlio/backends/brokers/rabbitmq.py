@@ -11,7 +11,7 @@ from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rmqaio import Connection, Exchange, Queue, QueueType
 
-from arrlio import settings
+from arrlio import gettext, settings
 from arrlio.abc import AbstractBroker
 from arrlio.backends.rabbitmq import (
     PULL_RETRY_TIMEOUT,
@@ -29,12 +29,16 @@ from arrlio.types import TASK_MAX_PRIORITY, SecretAmqpDsn, Timeout
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level, is_info_level, retry
 
 
+_ = gettext.gettext
+
+
 logger = logging.getLogger("arrlio.backends.brokers.rabbitmq")
 
 
 EXCHANGE = "arrlio"
 EXCHANGE_DURABLE = False
 QUEUE_TYPE = QueueType.CLASSIC
+QUEUE_EXCLUSIVE = False
 QUEUE_DURABLE = False
 QUEUE_AUTO_DELETE = True
 PREFETCH_COUNT = 1
@@ -45,19 +49,35 @@ BasicProperties = aiormq.spec.Basic.Properties
 
 
 class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
-    """RabbitMQ broker serializer config."""
+    """RabbitMQ `Broker` serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_BROKER_SERIALIZER_")
 
 
 class Config(BaseSettings):
-    """RabbitMQ broker config."""
+    """
+    RabbitMQ `Broker` config.
+
+    Attributes:
+        id: `Broker` Id.
+        url: RabbitMQ URL. See amqp [spec](https://www.rabbitmq.com/uri-spec.html).
+        timeout: Network operation timeout in seconds.
+        push_retry_timeouts: Push operation retry timeouts as sequence of int(seconds).
+        pull_retry_timeouts: Pull operation retry timeouts as sequence of int(seconds).
+        serializer: Config for Serializer.
+        exchange: RabbitMQ exchange.
+        exchange_durable: Exchange durable option.
+        queue_type: RabbitMQ tasks queue type.
+        queue_exclusive: Queue exclusive option.
+        queue_durable: Queue durable option.
+        queue_auto_delete: Queue auto delete option.
+        prefetch_count: Tasks prefetch count.
+    """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_BROKER_")
 
     id: str = Field(default_factory=lambda: f"{uuid4().hex[-4:]}")
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
-    """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
     pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
@@ -65,21 +85,22 @@ class Config(BaseSettings):
     exchange: str = Field(default_factory=lambda: EXCHANGE)
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
     queue_type: QueueType = Field(default_factory=lambda: QUEUE_TYPE)
+    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
     queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
     queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
     prefetch_count: PositiveInt = Field(default_factory=lambda: PREFETCH_COUNT)
-    task_ttl: Optional[Timeout] = Field(default_factory=lambda: TASK_TTL)
+    # task_ttl: Optional[Timeout] = Field(default_factory=lambda: TASK_TTL)
 
 
 class Broker(Closable, AbstractBroker):
-    """RabbitMQ broker."""
+    """
+    RabbitMQ `Broker`.
+
+    Args:
+        config: `Broker` config.
+    """
 
     def __init__(self, config: Config):
-        """
-        Args:
-            config: RabbitMQ broker config.
-        """
-
         super().__init__()
 
         self.config = config
@@ -155,7 +176,7 @@ class Broker(Closable, AbstractBroker):
     ):
         try:
             if is_debug_level():
-                logger.debug("%s got raw message %s", self, message.body if not settings.LOG_SANITIZE else "<hiden>")
+                logger.debug(_("%s got raw message %s"), self, message.body if not settings.LOG_SANITIZE else "<hiden>")
 
             task_instance = self.serializer.loads_task_instance(
                 message.body,
@@ -168,7 +189,7 @@ class Broker(Closable, AbstractBroker):
 
             if is_info_level():
                 logger.info(
-                    "%s got task\n%s",
+                    _("%s got task\n%s"),
                     self,
                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                 )

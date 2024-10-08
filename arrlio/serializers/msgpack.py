@@ -1,4 +1,5 @@
 import logging
+
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -6,7 +7,7 @@ from uuid import UUID
 import msgpack
 
 from arrlio.serializers import base
-from arrlio.serializers.json import Serializer
+
 
 logger = logging.getLogger("arrlio.serializers.msgpack")
 
@@ -31,26 +32,26 @@ def decode(obj):
 
 
 class Config(base.Config):
-    pass
+    """Config for MessagePack serializer."""
 
 
-class Serializer(Serializer):  # pylint: disable=function-redefined
-    """Msgpack serializer class."""
+class Serializer(base.Serializer):  # pylint: disable=function-redefined
+    """MessagePack serializer."""
 
     def dumps(self, data: Any, **kwds) -> bytes:
-        """Dumps data as json encoded string.
+        """Dump data as json encoded string.
 
         Args:
-            data: Data to dumps.
+            data: Data to dump.
         """
 
         return msgpack_packb(data, default=encode)
 
     def loads(self, data: bytes) -> Any:
-        """Loads json encoded data to Python object.
+        """Load json encoded data to Python object.
 
         Args:
-            data: Data to loads.
+            data: Data to load.
         """
 
         return msgpack_unpackb(data, raw=False, object_hook=decode)

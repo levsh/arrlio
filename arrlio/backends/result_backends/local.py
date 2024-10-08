@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arrlio import settings
+from arrlio import gettext, settings
 from arrlio.abc import AbstractResultBackend
 from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Shared, TaskInstance, TaskResult
@@ -18,11 +18,19 @@ from arrlio.settings import ENV_PREFIX
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level
 
 
+_ = gettext.gettext
+
+
 logger = logging.getLogger("arrlio.backends.results.local")
 
 
 class Config(BaseSettings):
-    """Config for local result backend."""
+    """
+    Local `ResultBackend` config.
+
+    Args:
+        config: `ResultBackend` config.
+    """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}LOCAL_RESULT_BACKEND_")
 
@@ -30,14 +38,14 @@ class Config(BaseSettings):
 
 
 class ResultBackend(Closable, AbstractResultBackend):
-    """Local result backend."""
+    """
+    Local `ResultBackend.
+
+    Args:
+        config: `ResultBackend` config.
+    """
 
     def __init__(self, config: Config):
-        """
-        Args:
-            config: local result backend config.
-        """
-
         super().__init__()
 
         self.config = config
@@ -94,7 +102,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         if is_debug_level():
             logger.debug(
-                "%s push result for %s[%s]\n%s",
+                _("%s push result for %s[%s]\n%s"),
                 self,
                 task_instance.name,
                 task_id,
@@ -103,7 +111,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         await self.allocate_storage(task_instance)
 
-        ev, results, _ = self._results[task_id]
+        ev, results, expire_at = self._results[task_id]
 
         results.append(task_result)
         ev.set()
@@ -112,7 +120,7 @@ class ResultBackend(Closable, AbstractResultBackend):
         task_id = task_instance.task_id
 
         if not task_instance.result_return:
-            raise TaskResultError("try to pop result for task with result_return=False")
+            raise TaskResultError(_("Try to pop result for task with result_return=False"))
 
         async def fn():
             func = task_instance.func
@@ -121,7 +129,7 @@ class ResultBackend(Closable, AbstractResultBackend):
                 while not self.is_closed:
                     await self.allocate_storage(task_instance)
 
-                    ev, results, _ = self._results[task_id]
+                    ev, results, expire_at = self._results[task_id]
                     await ev.wait()
                     ev.clear()
 
@@ -130,7 +138,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
                         if is_debug_level():
                             logger.debug(
-                                "%s pop result for task %s[%s]\n%s",
+                                _("%s pop result for task %s[%s]\n%s"),
                                 self,
                                 task_instance.name,
                                 task_id,
@@ -144,7 +152,7 @@ class ResultBackend(Closable, AbstractResultBackend):
             else:
                 await self.allocate_storage(task_instance)
 
-                ev, results, _ = self._results[task_id]
+                ev, results, expire_at = self._results[task_id]
                 await ev.wait()
                 ev.clear()
 
@@ -152,7 +160,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
                 if is_debug_level():
                     logger.debug(
-                        "%s: pop result for task %s[%s]\n%s",
+                        _("%s pop result for task %s[%s]\n%s"),
                         self,
                         task_instance.name,
                         task_id,
@@ -176,7 +184,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         if is_debug_level():
             logger.debug(
-                "%s close task %s[%s]",
+                _("%s close task %s[%s]"),
                 self,
                 task_instance.name,
                 task_instance.task_id,

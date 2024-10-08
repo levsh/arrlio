@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arrlio import settings
+from arrlio import gettext, settings
 from arrlio.abc import AbstractEventBackend
 from arrlio.models import Event
 from arrlio.settings import ENV_PREFIX
@@ -19,11 +19,19 @@ from arrlio.types import AsyncCallable
 from arrlio.utils import AioTasksRunner, Closable, event_type_to_regex, is_debug_level, is_info_level
 
 
+_ = gettext.gettext
+
+
 logger = logging.getLogger("arrlio.backends.events.local")
 
 
 class Config(BaseSettings):
-    """Config for local event backend."""
+    """
+    Local `EventBackend` config.
+
+    Attributes:
+        id: `EventBackend` Id.
+    """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}LOCAL_EVENT_BACKEND_")
 
@@ -31,14 +39,14 @@ class Config(BaseSettings):
 
 
 class EventBackend(Closable, AbstractEventBackend):
-    """Local event backend."""
+    """
+    Local `EventBackend`.
+
+    Args:
+        config: `EventBackend` config.
+    """
 
     def __init__(self, config: Config):
-        """
-        Args:
-            config: local event backend config.
-        """
-
         super().__init__()
 
         self.config = config
@@ -63,7 +71,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug("%s put event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.debug(_("%s put event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         self._events[event.event_id] = event
 
@@ -96,7 +104,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
         async def fn():
             if is_info_level():
-                logger.info("%s start consuming events", self)
+                logger.info(_("%s start consuming events"), self)
 
             event_cond = self._event_cond
             event_cond_wait = event_cond.wait
@@ -115,7 +123,7 @@ class EventBackend(Closable, AbstractEventBackend):
                     event: Event = events_pop(next(iter(events_keys())))
 
                     if is_debug_level():
-                        logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+                        logger.debug(_("%s got event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                     for callback, event_types, patterns in event_callbacks.values():
                         if event_types is not None and not any(pattern.match(event.type) for pattern in patterns):
@@ -127,7 +135,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
                 except asyncio.CancelledError:
                     if is_info_level():
-                        logger.info("%s stop consuming events", self)
+                        logger.info(_("%s stop consuming events"), self)
                     return
                 except Exception as e:
                     logger.exception(e)

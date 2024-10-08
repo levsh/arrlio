@@ -84,7 +84,8 @@ class Shared(MutableMapping):
 
 @dataclass(slots=True, frozen=True)
 class Task:
-    """Task `dataclass`.
+    """
+    Task `dataclass`.
 
     Attributes:
         func: Task function.
@@ -94,11 +95,11 @@ class Task:
         timeout: Task timeout, seconds.
         ttl: Task time to live, seconds.
         ack_late: Ack late behaviour.
-        result_ttl: Task result time to live, seconds.
+        result_ttl: Task result TTL, seconds.
         result_return: Whether the worker should return or not the result of the task.
         thread: Should `arrlio.executor.Executor` execute task in the separate thread.
         events: Enable or disable events for the task.
-        event_ttl: Event time to live, seconds.
+        event_ttl: Event TTL, seconds.
         headers: Task headers.
         loads: Function to load task arguments.
         dumps: Function to dump task result
@@ -165,7 +166,15 @@ class Task:
         headers: dict | None = None,
         **kwargs,
     ) -> "TaskInstance":
-        """Instantiate new `arrlio.models.TaskInstance` object with provided arguments.
+        """
+        Instantiate new `arrlio.models.TaskInstance` object with provided arguments.
+
+        Args:
+            task_id: Task Id.
+            args: Task positional arguments.
+            kwds: Task keyword arguments.
+            meta: Task additional `meta` keyword argument.
+            headers: Task headers.
 
         Returns:
             `arrlio.models.TaskInstance` object.
@@ -187,13 +196,14 @@ class Task:
 
 @dataclass(slots=True, frozen=True)
 class TaskInstance(Task):
-    """Task instance `dataclass`.
+    """
+    Task instance `dataclass`.
 
     Attributes:
         task_id: Task Id.
         args: Task function positional arguments.
         kwds: Task function keyword arguments.
-        meta: Task function additional meta keyword argument.
+        meta: Task function additional `meta` keyword argument.
     """
 
     task_id: UUID = field(default_factory=uuid4)
@@ -214,7 +224,8 @@ class TaskInstance(Task):
             object.__setattr__(self, "args", tuple(self.args))
 
     def asdict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
-        """Convert to dict.
+        """
+        Convert to dict.
 
         Args:
             exclude: fields to exclude.
@@ -241,7 +252,8 @@ class TaskInstance(Task):
         return pretty_repr(self.asdict(exclude=exclude, sanitize=sanitize))
 
     def __call__(self, meta: bool | None = None):  # pylint: disable=arguments-differ
-        """Call `arrlio.models.TaskInstance`.
+        """
+        Call `arrlio.models.TaskInstance`.
 
         Args:
             meta: Add additional keyword argument `meta` to the task function call.
@@ -263,7 +275,16 @@ class TaskInstance(Task):
 
 @dataclass(slots=True, frozen=True)
 class TaskResult:
-    """Task result `dataclass`."""
+    """
+    Task result `dataclass`.
+
+    Attributes:
+        res: Task result.
+        exc: Task exception.
+        trb: Task exception traceback.
+        idx: Result index.
+        routes: Task result routes.
+    """
 
     res: Any = None
     exc: Optional[Exception | tuple[str, str, str]] = None
@@ -275,10 +296,12 @@ class TaskResult:
         object.__setattr__(self, "idx", idx)
 
     def asdict(self, sanitize: bool | None = None):
-        """Convert to dict.
+        """
+        Convert to dict.
 
         Args:
             sanitize: flag to sanitize sensitive data.
+
         Returns:
             `arrlio.models.TaskResult` as `dict`.
         """
@@ -297,13 +320,14 @@ class TaskResult:
 
 @dataclass(slots=True, frozen=True)
 class Event:
-    """Event `dataclass`.
+    """
+    Event `dataclass`.
 
     Attributes:
         type: Event type.
         event_id: Event Id.
         dt: Event datetime.
-        ttl: Event time to live, seconds.
+        ttl: Event TTL, seconds.
     """
 
     type: str
@@ -321,10 +345,12 @@ class Event:
             object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
     def asdict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
-        """Convert to dict.
+        """
+        Convert to dict.
 
         Args:
             sanitize: flag to sanitize sensitive data.
+
         Returns:
             `arrlio.models.Event` as `dict`.
         """
@@ -339,7 +365,15 @@ class Event:
 
 
 class Graph:
-    """Graph class."""
+    """
+    Graph class.
+
+    Args:
+        name: graph name.
+        node: graph nodes.
+        edges: graph edges.
+        roots: graph roots.
+    """
 
     def __init__(
         self,
@@ -348,14 +382,6 @@ class Graph:
         edges: dict[str, list] | None = None,
         roots: set | None = None,
     ):
-        """
-        Args:
-            name: graph name.
-            node: graph nodes.
-            edges: graph edges.
-            roots: graph roots.
-        """
-
         self.name = name
         self.nodes: dict[str, list] = rodict({}, nested=True)
         self.edges: dict[str, list] = rodict({}, nested=True)
@@ -376,7 +402,8 @@ class Graph:
         return self.__str__()
 
     def add_node(self, node_id: str, task: Task | str, root: bool | None = None, **kwds):
-        """Add node to the graph.
+        """
+        Add node to the graph.
 
         Args:
             node_id: Node Id.
@@ -393,7 +420,8 @@ class Graph:
             self.roots.__original__.add(node_id)
 
     def add_edge(self, node_id_from: str, node_id_to: str, routes: str | list[str] | None = None):
-        """Add edge to the graph.
+        """
+        Add edge to the graph.
         If routes are specified then only results with a matching route will be passed to the incoming node.
 
         Args:
@@ -411,10 +439,12 @@ class Graph:
         self.edges.__original__.setdefault(node_id_from, []).append((node_id_to, routes))
 
     def asdict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
-        """Convert to the dict.
+        """
+        Convert to the dict.
 
         Args:
             sanitize: flag to sanitize sensitive data.
+
         Returns:
             `arrlio.models.Graph` as `dict`.
         """
@@ -428,10 +458,12 @@ class Graph:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Graph":
-        """Create `arrlio.models.Graph` from `dict`.
+        """
+        Create `arrlio.models.Graph` from `dict`.
 
         Args:
             data: Data as dictionary object.
+
         Returns:
             `arrlio.models.Graph` object.
         """

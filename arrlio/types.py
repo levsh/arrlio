@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, Optional, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -23,16 +23,13 @@ ExceptionFilter = Callable[[Exception], bool]
 
 Timeout = Annotated[int, Ge(0)]
 
-Ttl = Annotated[int, Ge(1)]
+TTL = Annotated[int, Ge(1)]
 
 TaskPriority = Annotated[int, Ge(TASK_MIN_PRIORITY), Le(TASK_MAX_PRIORITY)]
 
 TaskId = Union[str, UUID]
 Args = Union[list, tuple]
 Kwds = dict
-
-
-B = TypeVar("B")
 
 
 @dataclass
@@ -183,7 +180,7 @@ class UrlConstraints:
 
     def __call__(self, v):
         if self.allowed_schemes and v.scheme not in self.allowed_schemes:
-            raise ValueError(f"url scheme should be one of {self.allowed_schemes}")
+            raise ValueError(f"URL scheme should be one of {self.allowed_schemes}")
         return v
 
 

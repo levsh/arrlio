@@ -57,7 +57,8 @@ def retry(
     on_error=None,
     reraise: bool = True,
 ):
-    """Retry decorator.
+    """
+    Retry decorator.
 
     Args:
         msg: Message to log on retry.

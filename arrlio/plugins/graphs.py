@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Callable, cast
 from uuid import uuid4
 
-from arrlio import AsyncResult, registered_tasks, settings
+from arrlio import AsyncResult, gettext, registered_tasks, settings
 from arrlio.exceptions import ArrlioError, GraphError
 from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult
 from arrlio.plugins import base
@@ -13,20 +13,35 @@ from arrlio.types import Args, Kwds
 from arrlio.utils import is_info_level
 
 
+_ = gettext.gettext
+
+
 logger = logging.getLogger("arrlio.plugins.graphs")
 
 
 class Config(base.Config):
-    pass
+    """
+    Graphs Plugin config.
+    """
 
 
 class Plugin(base.Plugin):
-    def __init__(self, *args, **kwds):
-        super().__init__(*args, **kwds)
+    """
+    Graphs Plugin.
+
+    Args:
+        app: `arrlio.core.App` instance.
+        config: Graphs Plugin config.
+    """
+
+    def __init__(self, app, config: Config):
+        super().__init__(app, config)
         self.graphs: dict[str, tuple[Graph, dict[str, int]]] = {}
 
     @property
     def name(self) -> str:
+        """Plugin name."""
+
         return "arrlio.graphs"
 
     @property
@@ -37,7 +52,7 @@ class Plugin(base.Plugin):
         ]
 
     async def on_init(self):
-        logger.info("%s initializing...", self)
+        logger.info(_("%s initializing..."), self)
 
         if "arrlio.events" not in self.app.plugins:
             raise ArrlioError("'arrlio.graphs' plugin depends on 'arrlio.events' plugin'")
@@ -48,7 +63,7 @@ class Plugin(base.Plugin):
             event_types=["graph.task.send", "graph.task.done"],
         )
 
-        logger.info("%s initialization done", self)
+        logger.info(_("%s initialization done"), self)
 
     async def on_close(self):
         await self.app.stop_consume_events("arrlio.graphs")
@@ -116,13 +131,13 @@ class Plugin(base.Plugin):
     ) -> dict[str, AsyncResult]:
         """
         Args:
-            graph (Graph): ~arrlio.models.Graph.
-            args (tuple, optional): ~arrlio.models.Graph root nodes args.
-            kwds (dict, optional): ~arrlio.models.Graph root nodes kwds.
-            meta (dict, optional): ~arrlio.models.Graph root nodes meta.
+            graph: Graph to send.
+            args: Root nodes positional arguments.
+            kwds: Root nodes keyword arguments.
+            meta: Root nodes `meta` keyword argument.
 
         Returns:
-            Dict[str, ~arrlio.core.AsyncResult]: Dictionary with AsyncResult objects.
+            Mapping or AsyncResult objects.
         """
 
         if not graph.nodes or not graph.roots:
@@ -140,7 +155,7 @@ class Plugin(base.Plugin):
 
         graph = self._init_graph(graph, headers=headers)
 
-        logger.info("%s send graph %s[%s]", self, graph.name, graph_id)
+        logger.info(_("%s send graph %s[%s]"), self, graph.name, graph_id)
 
         self.graphs[graph_id] = (graph, {})
         try:
@@ -211,7 +226,7 @@ class Plugin(base.Plugin):
 
             if is_info_level():
                 logger.info(
-                    "%s send graph '%s' task\n%s",
+                    _("%s send graph '%s' task\n%s"),
                     self,
                     graph.name,
                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
@@ -256,7 +271,7 @@ class Plugin(base.Plugin):
     async def _on_graph_done(self, graph_id: str):
         graph: Graph = self.graphs.pop(graph_id)[0]
 
-        logger.info("%s graph %s[%s] done", self, graph.name, graph_id)
+        logger.info(_("%s graph %s[%s] done"), self, graph.name, graph_id)
 
         for task_name, node_kwds in graph.nodes.values():
             if task_name in registered_tasks:

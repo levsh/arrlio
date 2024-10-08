@@ -1,9 +1,19 @@
+import gettext
 import importlib.metadata
 import logging
+import os
 import sys
 
 
+gettext.bindtextdomain(
+    "arrlio",
+    localedir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales"),
+)
+gettext.textdomain("arrlio")
+
+
 __version__ = importlib.metadata.version("arrlio")
+
 
 logger = logging.getLogger("arrlio")
 
@@ -13,6 +23,7 @@ log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)
 
 # pylint: disable=wrong-import-position
+# ruff: noqa: E402
 from arrlio.configs import Config, TaskConfig  # noqa
 from arrlio.core import App, AsyncResult, registered_tasks, task  # noqa
 from arrlio.models import Event, Graph, Task, TaskInstance, TaskResult  # noqa
