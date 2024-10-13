@@ -39,7 +39,7 @@ class Config(BaseSettings):
 
 class ResultBackend(Closable, AbstractResultBackend):
     """
-    Local `ResultBackend.
+    Local `ResultBackend`.
 
     Args:
         config: `ResultBackend` config.
@@ -180,7 +180,7 @@ class ResultBackend(Closable, AbstractResultBackend):
             self._results.pop(task_id, None)
 
     async def close_task(self, task_instance: TaskInstance, idx: tuple[str, int] | None = None):
-        # TODO idx pylint: disable=fixme
+        # TODO
 
         if is_debug_level():
             logger.debug(

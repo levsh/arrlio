@@ -53,7 +53,7 @@ def task(
         func: Task function.
         name: Task name.
         base: Task base class.
-        kwds: `arrlio.models.Task` arguments.
+        kwds: `Task` arguments.
     """
 
     if base is None:
@@ -81,7 +81,7 @@ class App:
     Arrlio application.
 
     Args:
-        config: Arrlio application `arrlio.settings.Config`.
+        config: Arrlio application `Config`.
     """
 
     def __init__(self, config: Config):
@@ -175,6 +175,8 @@ class App:
 
     @property
     def is_closed(self) -> bool:
+        """Application close satatus."""
+
         return self._closed.done()
 
     @property
@@ -249,7 +251,7 @@ class App:
 
     async def send_task(
         self,
-        task: Task | str,  # pylint: disable=redefined-outer-name
+        task: Task | str,
         args: Args | None = None,
         kwds: Kwds | None = None,
         headers: dict | None = None,
@@ -259,14 +261,14 @@ class App:
         Send task.
 
         Args:
-            task: `arrlio.models.Task` or task name.
+            task: `Task` or task name.
             args: Task positional arguments.
             kwds: Task keyword arguments.
-            headers: `arrlio.models.Task` headers argument.
-            kwargs: Other `arrlio.models.Task` other arguments.
+            headers: `Task` headers argument.
+            kwargs: Other `Task` arguments.
 
         Returns:
-            Task `arrlio.core.AsyncResult`.
+            Task `AsyncResult`.
         """
 
         name = task
@@ -325,13 +327,13 @@ class App:
 
     async def pop_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """
-        Pop result for provided `arrlio.models.TaskInstance`.
+        Pop result for provided `TaskInstance`.
 
         Args:
             task_instance: Task instance.
 
         Yields:
-            `arrlio.models.TaskResult`
+            Task result.
         """
         async for task_result in self._result_backend.pop_task_result(task_instance):
             if is_info_level():
@@ -403,7 +405,6 @@ class App:
                             task_result = TaskResult(exc=TaskCancelledError(task_id))
                             raise e
                         if isinstance(e, HooksError):
-                            # pylint: disable=no-member
                             if len(e.exceptions) == 1:
                                 e = e.exceptions[0]
                             else:
@@ -451,13 +452,13 @@ class App:
 
     async def execute_task(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """
-        Execute the `arrlio.models.TaskInstance` locally by the executor.
+        Execute the `TaskInstance` locally by the executor.
 
         Args:
             task_instance: Task instance to execute.
 
-        Yield:
-            `arrlio.models.TaskResutl`
+        Yields:
+            Task result.
         """
 
         async for task_result in self._executor(task_instance):
@@ -470,7 +471,7 @@ class App:
         event_types: list[str] | None = None,
     ):
         """
-        Consume events and invoke `callback` on `arrlio.models.Event` received.
+        Consume events and invoke `callback` on `Event` received.
 
         Args:
             callback_id: Callback Id. Needed for later use when stop consuming.
@@ -497,6 +498,7 @@ class App:
 
         if "arrlio.graphs" not in self.plugins:
             raise GraphError(_("Plugin required: allrio.graphs"))
+
         return self.plugins["arrlio.graphs"].send_graph(*args, **kwds)
 
 
@@ -566,7 +568,9 @@ class AsyncResult:
     async def get(self) -> Any:
         """
         Get task result. Blocking until the task result available.
-        For generator or asyncgenerator return the last available result.
+
+        Returns:
+            Task result. For generator or asyncgenerator return the last available result.
         """
 
         noresult = not self._ready

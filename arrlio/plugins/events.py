@@ -43,7 +43,7 @@ class Plugin(base.Plugin):
     Events Plugin.
 
     Args:
-        app: `arrlio.core.App` instance.
+        app: `App` instance.
         config: Events Plugin config.
     """
 

@@ -26,7 +26,7 @@ from arrlio.exceptions import ArrlioError
 from arrlio.models import TaskInstance
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, SecretAmqpDsn, Timeout
-from arrlio.utils import AioTasksRunner, Closable, is_debug_level, is_info_level, retry
+from arrlio.utils import AioTasksRunner, Closable, is_debug_level, retry
 
 
 _ = gettext.gettext
@@ -36,19 +36,32 @@ logger = logging.getLogger("arrlio.backends.brokers.rabbitmq")
 
 
 EXCHANGE = "arrlio"
+"""Broker exchange name."""
+
+
 EXCHANGE_DURABLE = False
+"""Broker exchange durable option."""
+
 QUEUE_TYPE = QueueType.CLASSIC
-QUEUE_EXCLUSIVE = False
+"""Broker queue type."""
+
 QUEUE_DURABLE = False
+"""Broker queue `durable` option."""
+
+QUEUE_EXCLUSIVE = False
+"""Broker queue `excusive` option."""
+
 QUEUE_AUTO_DELETE = True
+"""Broker queue `auto-delete` option."""
+
 PREFETCH_COUNT = 1
-TASK_TTL = 600
+"""Tasks prefetch count."""
 
 
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
+class SerializerConfig(SerializerConfig):
     """RabbitMQ `Broker` serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_BROKER_SERIALIZER_")
@@ -60,18 +73,33 @@ class Config(BaseSettings):
 
     Attributes:
         id: `Broker` Id.
+            Default:
+            ```
+            f"{uuid4().hex[-4:]}"
+            ```
         url: RabbitMQ URL. See amqp [spec](https://www.rabbitmq.com/uri-spec.html).
+            [Default][arrlio.backends.rabbitmq.URL].
         timeout: Network operation timeout in seconds.
-        push_retry_timeouts: Push operation retry timeouts as sequence of int(seconds).
-        pull_retry_timeouts: Pull operation retry timeouts as sequence of int(seconds).
+            [Default][arrlio.backends.rabbitmq.TIMEOUT].
+        push_retry_timeouts: Push operation retry timeouts(sequence of seconds).
+            [Default][arrlio.backends.rabbitmq.PUSH_RETRY_TIMEOUTS].
+        pull_retry_timeouts: Pull operation retry timeout in seconds.
+            [Default][arrlio.backends.rabbitmq.PULL_RETRY_TIMEOUT].
         serializer: Config for Serializer.
-        exchange: RabbitMQ exchange.
+        exchange: Exchange name.
+            [Default][arrlio.backends.brokers.rabbitmq.EXCHANGE].
         exchange_durable: Exchange durable option.
-        queue_type: RabbitMQ tasks queue type.
-        queue_exclusive: Queue exclusive option.
+            [Default][arrlio.backends.brokers.rabbitmq.EXCHANGE_DURABLE].
+        queue_type: Tasks queue type.
+            [Default][arrlio.backends.brokers.rabbitmq.QUEUE_TYPE].
         queue_durable: Queue durable option.
+            [Default][arrlio.backends.brokers.rabbitmq.QUEUE_DURABLE].
+        queue_exclusive: Queue exclusive option.
+            [Default][arrlio.backends.brokers.rabbitmq.QUEUE_EXCLUSIVE].
         queue_auto_delete: Queue auto delete option.
+            [Default][arrlio.backends.brokers.rabbitmq.QUEUE_AUTO_DELETE].
         prefetch_count: Tasks prefetch count.
+            [Default][arrlio.backends.brokers.rabbitmq.PREFETCH_COUNT].
     """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_BROKER_")
@@ -85,11 +113,10 @@ class Config(BaseSettings):
     exchange: str = Field(default_factory=lambda: EXCHANGE)
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
     queue_type: QueueType = Field(default_factory=lambda: QUEUE_TYPE)
-    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
     queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
+    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
     queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
     prefetch_count: PositiveInt = Field(default_factory=lambda: PREFETCH_COUNT)
-    # task_ttl: Optional[Timeout] = Field(default_factory=lambda: TASK_TTL)
 
 
 class Broker(Closable, AbstractBroker):
@@ -104,6 +131,7 @@ class Broker(Closable, AbstractBroker):
         super().__init__()
 
         self.config = config
+
         self._internal_tasks_runner = AioTasksRunner()
 
         self.serializer = config.serializer.module.Serializer(config.serializer.config)
@@ -155,11 +183,10 @@ class Broker(Closable, AbstractBroker):
                 conn=self._conn,
                 type=self.config.queue_type,
                 durable=self.config.queue_durable,
+                exclusive=self.config.queue_exclusive,
                 auto_delete=self.config.queue_auto_delete,
                 prefetch_count=self.config.prefetch_count,
                 max_priority=TASK_MAX_PRIORITY,
-                # expires=self.config.task_ttl,
-                # msg_ttl=self.config.task_ttl,
                 timeout=self.config.timeout,
             )
             await queue.declare(restore=True)
@@ -187,8 +214,8 @@ class Broker(Closable, AbstractBroker):
             if reply_to is not None:
                 task_instance.headers["rabbitmq:reply_to"] = reply_to
 
-            if is_info_level():
-                logger.info(
+            if is_debug_level():
+                logger.debug(
                     _("%s got task\n%s"),
                     self,
                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
@@ -205,7 +232,14 @@ class Broker(Closable, AbstractBroker):
         except Exception as e:
             logger.exception(e)
 
-    async def _send_task(self, task_instance: TaskInstance, **kwds):  # pylint: disable=method-hidden
+    async def _send_task(self, task_instance: TaskInstance, **kwds):
+        if is_debug_level():
+            logger.debug(
+                _("%s send task\n%s"),
+                self,
+                task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
+            )
+
         headers = {}
         data = self.serializer.dumps_task_instance(task_instance, headers=headers)
         task_headers = task_instance.headers
@@ -259,6 +293,7 @@ class Broker(Closable, AbstractBroker):
         for queue_name in queues:
             queue = await self._ensure_queue(queue_name)
             if not queue.consumer:
+                logger.info(_("%s start consuming tasks queue '%s'"), self, queue.name)
                 await queue.consume(
                     lambda *args, **kwds: self._internal_tasks_runner.create_task(
                         "on_task_message",
@@ -274,5 +309,6 @@ class Broker(Closable, AbstractBroker):
             if not (queue := self._queues.get(queue_name)):
                 continue
             if queue.consumer:
+                logger.info(_("%s stop consuming tasks queue '%s'"), self, queue_name)
                 await queue.stop_consume()
             self._queues.pop(queue_name)

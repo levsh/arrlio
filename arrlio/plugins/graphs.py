@@ -30,7 +30,7 @@ class Plugin(base.Plugin):
     Graphs Plugin.
 
     Args:
-        app: `arrlio.core.App` instance.
+        app: `App` instance.
         config: Graphs Plugin config.
     """
 

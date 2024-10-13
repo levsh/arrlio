@@ -16,7 +16,7 @@ from arrlio.abc import AbstractBroker
 from arrlio.models import TaskInstance
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY
-from arrlio.utils import AioTasksRunner, Closable, is_debug_level, is_info_level
+from arrlio.utils import AioTasksRunner, Closable, is_debug_level
 
 
 _ = gettext.gettext
@@ -56,11 +56,13 @@ class Broker(Closable, AbstractBroker):
         super().__init__()
 
         self.config = config
+
         self._internal_tasks_runner = AioTasksRunner()
 
         self._queues = defaultdict(asyncio.PriorityQueue)
 
         self._consumed_queues = set()
+
         self._semaphore = Semaphore(value=config.pool_size)
 
     def __str__(self):
@@ -77,6 +79,13 @@ class Broker(Closable, AbstractBroker):
         await super().close()
 
     async def send_task(self, task_instance: TaskInstance, **kwds):
+        if is_debug_level():
+            logger.debug(
+                _("%s send task\n%s"),
+                self,
+                task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
+            )
+
         self._queues[task_instance.queue].put_nowait(
             (
                 (
@@ -91,15 +100,16 @@ class Broker(Closable, AbstractBroker):
         )
 
     async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
+
         async def fn(queue: str):
-            if is_info_level():
-                logger.info(_("%s start consuming tasks queue '%s'"), self, queue)
+            logger.info(_("%s start consuming tasks queue '%s'"), self, queue)
 
             semaphore_acquire = self._semaphore.acquire
             semaphore_release = self._semaphore.release
             queue_get = self._queues[queue].get
 
             self._consumed_queues.add(queue)
+
             try:
                 while not self.is_closed:
                     try:
@@ -107,6 +117,7 @@ class Broker(Closable, AbstractBroker):
 
                         try:
                             priority, ts, ttl, task_instance = await queue_get()
+
                             if ttl is not None and monotonic() >= ts + ttl:
                                 continue
 
@@ -126,8 +137,7 @@ class Broker(Closable, AbstractBroker):
                         aio_task.add_done_callback(lambda *args: semaphore_release())
 
                     except asyncio.CancelledError:
-                        if is_info_level():
-                            logger.info(_("%s stop consuming tasks queue '%s'"), self, queue)
+                        logger.info(_("%s stop consuming tasks queue '%s'"), self, queue)
                         return
                     except Exception as e:
                         logger.exception(e)
@@ -136,9 +146,9 @@ class Broker(Closable, AbstractBroker):
 
         for queue in queues:
             if queue not in self._consumed_queues:
-                self._internal_tasks_runner.create_task(f"consume_queue_{queue}", partial(fn, queue))
+                self._internal_tasks_runner.create_task(f"consume_queue_[{queue}]", partial(fn, queue))
 
     async def stop_consume_tasks(self, queues: list[str] | None = None):
         for queue in self._consumed_queues:
             if queues is None or queue in queues:
-                self._internal_tasks_runner.cancel_tasks(f"consume_queue_{queue}")
+                self._internal_tasks_runner.cancel_tasks(f"consume_queue_[{queue}]")

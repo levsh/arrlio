@@ -180,35 +180,12 @@ def retry(
     return decorator
 
 
-class LoopIter:
-    """Infinity iterator class."""
-
-    __slots__ = ("_data", "_i", "_j", "_iter")
-
-    def __init__(self, data: list):
-        self._data = data
-        self._i = -1
-        self._j = 0
-        self._iter = iter(data)
-
-    def __next__(self):
-        if self._j == len(self._data):
-            self._j = 0
-            raise StopIteration
-        self._i = (self._i + 1) % len(self._data)
-        self._j += 1
-        return self._data[self._i]
-
-    def reset(self):
-        self._j = 1
-
-
 def event_type_to_regex(routing_key):
     return routing_key.replace(".", "\\.").replace("*", "([^.]+)").replace("#", "([^.]+(\\.[^.]+)*)")
 
 
 class Closable:
-    "Base class for closable class." ""
+    "Base class for closable classes." ""
 
     __slots__ = ("_closed",)
 
@@ -275,11 +252,3 @@ class AioTasksRunner(Closable):
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.close()
-
-
-def doc(docstring):
-    def wrapper(fn):
-        fn.__doc__ = docstring
-        return fn
-
-    return wrapper

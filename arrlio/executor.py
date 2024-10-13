@@ -18,8 +18,8 @@ from arrlio.utils import is_info_level
 
 logger = logging.getLogger("arrlio.executor")
 
-asyncio_Event = asyncio.Event  # pylint: disable=invalid-name
-threading_Event = threading.Event  # pylint: disable=invalid-name
+asyncio_Event = asyncio.Event
+threading_Event = threading.Event
 
 
 class Config(BaseSettings):
@@ -45,12 +45,13 @@ class Executor:
 
     async def __call__(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """
-        Execute `arrlio.models.TaskInstance`. Blocking until the task result available.
+        Execute `TaskInstance`. Blocking until the task result available.
 
         Args:
             task_instance: Task instance to execute.
+
         Yields:
-            `arrlio.models.TaskResult`.
+            Task result.
         """
 
         if task_instance.thread:
@@ -62,12 +63,13 @@ class Executor:
 
     async def execute(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """
-        Execute `arrlio.models.TaskInstance` in the same thread. Blocking until the task result available.
+        Execute `TaskInstance` in the same thread. Blocking until the task result available.
 
         Args:
             task_instance: Task instance to execute.
+
         Yields:
-            `arrlio.models.TaskResult`.
+            Task result.
         """
 
         res, exc, trb = None, None, None
@@ -169,12 +171,13 @@ class Executor:
 
     async def execute_in_thread(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """
-        Execute `arrlio.models.TaskInstance` in the separate thread. Blocking until the task result available.
+        Execute `TaskInstance` in the separate thread. Blocking until the task result available.
 
         Args:
             task_instance: Task instance to execute.
+
         Yields:
-            `arrlio.models.TaskResult`.
+            Task result.
         """
 
         root_loop = get_running_loop()

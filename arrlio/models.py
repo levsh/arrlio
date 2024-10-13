@@ -78,31 +78,40 @@ class Shared(MutableMapping):
     def get(self, *args, **kwds):
         return self._data.get(*args, **kwds)
 
-    def update(self, *args, **kwds):  # pylint: disable=arguments-differ
+    def update(self, *args, **kwds):
         return self._data.update(*args, **kwds)
 
 
 @dataclass(slots=True, frozen=True)
 class Task:
     """
-    Task `dataclass`.
+    Task.
 
     Attributes:
         func: Task function.
         name: Task name.
         queue: Task queue.
-        priority: Task priority. Min 1, max 10.
-        timeout: Task timeout, seconds.
-        ttl: Task time to live, seconds.
-        ack_late: Ack late behaviour.
-        result_ttl: Task result TTL, seconds.
+            [Default][arrlio.settings.TASK_QUEUE].
+        priority: Task priority
+            ([min][arrlio.settings.TASK_MIN_PRIORITY], [max][arrlio.settings.TASK_MAX_PRIORITY]).
+        timeout: Task timeout in seconds.
+            [Default][arrlio.settings.TASK_TIMEOUT].
+        ttl: Task TTL in seconds.
+            [Default][arrlio.settings.TASK_TTL].
+        ack_late: Ack late option.
+            [Default][arrlio.settings.TASK_ACK_LATE].
+        result_ttl: Task result TTL in seconds.
+            [Default][arrlio.settings.TASK_RESULT_TTL].
         result_return: Whether the worker should return or not the result of the task.
-        thread: Should `arrlio.executor.Executor` execute task in the separate thread.
+            [Default][arrlio.settings.TASK_RESULT_RETURN].
+        thread: Should `Executor` execute task in the separate thread.
         events: Enable or disable events for the task.
-        event_ttl: Event TTL, seconds.
+            [Default][arrlio.settings.TASK_EVENTS].
+        event_ttl: Event TTL in seconds.
+            [Default][arrlio.settings.EVENT_TTL].
         headers: Task headers.
         loads: Function to load task arguments.
-        dumps: Function to dump task result
+        dumps: Function to dump task result.
     """
 
     func: Callable | AsyncCallable
@@ -118,7 +127,7 @@ class Task:
     thread: Optional[bool] = None
     events: bool | set[str] = TASK_EVENTS
     event_ttl: Timeout = EVENT_TTL
-    headers: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
+    headers: dict = field(default_factory=dict)
 
     # NOTE
     # args_kwds_loads
@@ -140,14 +149,19 @@ class Task:
 
         return self.func(*args, **kwds)
 
-    def asdict(self, exclude: list[str] | None = None, sanitize: bool | None = None):  # pylint: disable=unused-argument
+    def asdict(
+        self,
+        exclude: list[str] | None = None,
+        sanitize: bool | None = None,
+    ) -> dict:
         """Convert to dict.
 
         Args:
             exclude: fields to exclude.
             sanitize: flag to sanitize sensitive data.
+
         Returns:
-            `arrlio.models.Task` as `dict`.
+            `Task` as `dict`.
         """
 
         # exclude = (exclude or []) + ["loads", "dumps"]
@@ -167,7 +181,7 @@ class Task:
         **kwargs,
     ) -> "TaskInstance":
         """
-        Instantiate new `arrlio.models.TaskInstance` object with provided arguments.
+        Instantiate new `TaskInstance` object with provided arguments.
 
         Args:
             task_id: Task Id.
@@ -177,7 +191,7 @@ class Task:
             headers: Task headers.
 
         Returns:
-            `arrlio.models.TaskInstance` object.
+            Task instance.
         """
 
         headers = {**self.headers, **(headers or {})}
@@ -208,8 +222,8 @@ class TaskInstance(Task):
 
     task_id: UUID = field(default_factory=uuid4)
     args: Args = field(default_factory=tuple)
-    kwds: Kwds = field(default_factory=dict)  # pylint: disable=used-before-assignment
-    meta: dict = field(default_factory=dict)  # pylint: disable=used-before-assignment
+    kwds: Kwds = field(default_factory=dict)
+    meta: dict = field(default_factory=dict)
 
     shared: Shared = field(default_factory=Shared, init=False)
 
@@ -223,23 +237,23 @@ class TaskInstance(Task):
         if not isinstance(self.args, tuple):
             object.__setattr__(self, "args", tuple(self.args))
 
-    def asdict(self, exclude: list[str] | None = None, sanitize: bool | None = None):
+    def asdict(self, exclude: list[str] | None = None, sanitize: bool | None = None) -> dict:
         """
         Convert to dict.
 
         Args:
             exclude: fields to exclude.
             sanitize: flag to sanitize sensitive data.
+
         Returns:
-            `arrlio.models.TaskInstance` as `dict`.
+            `TaskInstance` as `dict`.
         """
 
         exclude = exclude or []
-        # pylint: disable=super-with-arguments
         data = super(TaskInstance, self).asdict(exclude=exclude, sanitize=sanitize)
         if sanitize:
             if self.sanitizer:
-                data = self.sanitizer(data)  # pylint: disable=not-callable
+                data = self.sanitizer(data)
             else:
                 if data["args"]:
                     data["args"] = "<hidden>"
@@ -251,9 +265,9 @@ class TaskInstance(Task):
         exclude = (exclude or []) + ["shared"]
         return pretty_repr(self.asdict(exclude=exclude, sanitize=sanitize))
 
-    def __call__(self, meta: bool | None = None):  # pylint: disable=arguments-differ
+    def __call__(self, meta: bool | None = None):
         """
-        Call `arrlio.models.TaskInstance`.
+        Call `TaskInstance`.
 
         Args:
             meta: Add additional keyword argument `meta` to the task function call.
@@ -295,7 +309,7 @@ class TaskResult:
     def set_idx(self, idx: tuple[str, int]):
         object.__setattr__(self, "idx", idx)
 
-    def asdict(self, sanitize: bool | None = None):
+    def asdict(self, sanitize: bool | None = None) -> dict:
         """
         Convert to dict.
 
@@ -303,7 +317,7 @@ class TaskResult:
             sanitize: flag to sanitize sensitive data.
 
         Returns:
-            `arrlio.models.TaskResult` as `dict`.
+            `TaskResult` as `dict`.
         """
 
         return {
@@ -327,11 +341,11 @@ class Event:
         type: Event type.
         event_id: Event Id.
         dt: Event datetime.
-        ttl: Event TTL, seconds.
+        ttl: Event TTL in seconds.
     """
 
     type: str
-    data: dict  # pylint: disable=used-before-assignment
+    data: dict
     event_id: UUID = field(default_factory=uuid4)
     dt: Optional[datetime.datetime] = None
     ttl: Timeout = EVENT_TTL
@@ -344,7 +358,7 @@ class Event:
         elif isinstance(self.dt, str):
             object.__setattr__(self, "dt", datetime.datetime.fromisoformat(self.dt))
 
-    def asdict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
+    def asdict(self, sanitize: bool | None = None) -> dict:
         """
         Convert to dict.
 
@@ -352,7 +366,7 @@ class Event:
             sanitize: flag to sanitize sensitive data.
 
         Returns:
-            `arrlio.models.Event` as `dict`.
+            `Event` as `dict`.
         """
 
         data = asdict(self)
@@ -370,7 +384,7 @@ class Graph:
 
     Args:
         name: graph name.
-        node: graph nodes.
+        nodes: graph nodes.
         edges: graph edges.
         roots: graph roots.
     """
@@ -407,7 +421,7 @@ class Graph:
 
         Args:
             node_id: Node Id.
-            task: `arrlio.models.Task` or task name.
+            task: `Task` or task name.
             root: Is node the root of the graph.
         """
 
@@ -438,7 +452,7 @@ class Graph:
             routes = [routes]
         self.edges.__original__.setdefault(node_id_from, []).append((node_id_to, routes))
 
-    def asdict(self, sanitize: bool | None = None):  # pylint: disable=unused-argument
+    def asdict(self, sanitize: bool | None = None) -> dict:
         """
         Convert to the dict.
 
@@ -446,7 +460,7 @@ class Graph:
             sanitize: flag to sanitize sensitive data.
 
         Returns:
-            `arrlio.models.Graph` as `dict`.
+            `Graph` as `dict`.
         """
 
         return {
@@ -459,13 +473,13 @@ class Graph:
     @classmethod
     def from_dict(cls, data: dict) -> "Graph":
         """
-        Create `arrlio.models.Graph` from `dict`.
+        Create `Graph` from `dict`.
 
         Args:
             data: Data as dictionary object.
 
         Returns:
-            `arrlio.models.Graph` object.
+            `Graph` object.
         """
 
         return cls(

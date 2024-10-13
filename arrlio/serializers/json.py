@@ -1,5 +1,3 @@
-# pylint: disable=wrong-import-order,ungrouped-imports
-
 import logging
 
 from typing import Callable, Optional, Type
@@ -31,7 +29,7 @@ except ImportError:
     json_loads = json.loads
 
     JSONEncoderType = Optional[Type[json.JSONEncoder]]
-    JSON_ENCODER = ExtendedJSONEncoder  # pylint: disable=invalid-name
+    JSON_ENCODER = ExtendedJSONEncoder
 
 from typing import Annotated, Any
 

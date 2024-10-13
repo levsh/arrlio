@@ -130,13 +130,3 @@ def test_ExtendedJSONEncoder():
 
     with pytest.raises(TypeError):
         json.dumps(C(), cls=utils.ExtendedJSONEncoder)
-
-
-def test_LoopIter():
-    it = utils.LoopIter([0, 1, 2])
-    for _ in range(3):
-        assert next(it) == 0
-        assert next(it) == 1
-        assert next(it) == 2
-        with pytest.raises(StopIteration):
-            next(it)

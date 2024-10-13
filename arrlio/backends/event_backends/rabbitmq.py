@@ -40,20 +40,34 @@ logger = logging.getLogger("arrlio.backends.event_backend.rabbitmq")
 
 
 EXCHANGE = "arrlio.events"
+"""EventBackend exchange name."""
+
 EXCHANGE_DURABLE = False
-QUEUE_TYPE = QueueType.CLASSIC
-QUEUE_EXCLUSIVE = False
-QUEUE_DURABLE = False
-QUEUE_AUTO_DELETE = True
+"""EventBackend exchange durable option."""
+
 QUEUE = "arrlio.events"
-EVENT_TTL = 600
+"""EventBackend queue name."""
+
+QUEUE_TYPE = QueueType.CLASSIC
+"""EventBackend queue type."""
+
+QUEUE_DURABLE = False
+"""EventBackend queue `durable` option."""
+
+QUEUE_EXCLUSIVE = False
+"""EventBackend queue `excusive` option."""
+
+QUEUE_AUTO_DELETE = True
+"""EventBackend queue `auto-delete` option."""
+
 PREFETCH_COUNT = 10
+"""Events prefetch count."""
 
 
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
+class SerializerConfig(SerializerConfig):
     """RabbitMQ `EventBackend` serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_EVENT_BACKEND_SERIALIZER_")
@@ -66,17 +80,30 @@ class Config(BaseSettings):
     Attributes:
         id: `EventBackend` Id.
         url: RabbitMQ URL. See amqp [spec](https://www.rabbitmq.com/uri-spec.html).
+            [Default][arrlio.backends.rabbitmq.URL].
         timeout: Network operation timeout in seconds.
-        push_retry_timeouts: Push operation retry timeouts as sequence of int(seconds).
-        pull_retry_timeouts: Pull operation retry timeouts as sequence of int(seconds).
+            [Default][arrlio.backends.rabbitmq.TIMEOUT].
+        push_retry_timeouts: Push operation retry timeouts(sequence of seconds).
+            [Default][arrlio.backends.rabbitmq.PUSH_RETRY_TIMEOUTS].
+        pull_retry_timeouts: Pull operation retry timeout in seconds.
+            [Default][arrlio.backends.rabbitmq.PULL_RETRY_TIMEOUT].
         serializer: Config for Serializer.
-        exchange: RabbitMQ exchange.
+        exchange: Exchange name.
+            [Default][arrlio.backends.event_backends.rabbitmq.EXCHANGE].
         exchange_durable: Exchange durable option.
-        queue_type: RabbitMQ tasks queue type.
-        queue_exclusive: Queue exclusive option.
+            [Default][arrlio.backends.event_backends.rabbitmq.EXCHANGE_DURABLE].
+        queue: Events queue name.
+            [Default][arrlio.backends.event_backends.rabbitmq.QUEUE].
+        queue_type: Events queue type.
+            [Default][arrlio.backends.event_backends.rabbitmq.QUEUE_TYPE].
         queue_durable: Queue durable option.
+            [Default][arrlio.backends.event_backends.rabbitmq.QUEUE_DURABLE].
+        queue_exclusive: Queue exclusive option.
+            [Default][arrlio.backends.event_backends.rabbitmq.QUEUE_EXCLUSIVE].
         queue_auto_delete: Queue auto delete option.
+            [Default][arrlio.backends.event_backends.rabbitmq.QUEUE_AUTO_DELETE].
         prefetch_count: Events prefetch count.
+            [Default][arrlio.backends.event_backends.rabbitmq.PREFETCH_COUNT].
     """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_EVENT_BACKEND_")
@@ -87,14 +114,13 @@ class Config(BaseSettings):
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
     pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
-    event_ttl: Optional[Timeout] = Field(default_factory=lambda: EVENT_TTL)
     exchange: str = Field(default_factory=lambda: EXCHANGE)
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
-    queue_type: QueueType = Field(default_factory=lambda: QUEUE_TYPE)
-    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
-    queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
-    queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
     queue: str = Field(default_factory=lambda: QUEUE)
+    queue_type: QueueType = Field(default_factory=lambda: QUEUE_TYPE)
+    queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
+    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
+    queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
     prefetch_count: PositiveInt = Field(default_factory=lambda: PREFETCH_COUNT)
 
 
@@ -110,6 +136,7 @@ class EventBackend(Closable, AbstractEventBackend):
         super().__init__()
 
         self.config = config
+
         self._internal_tasks_runner = AioTasksRunner()
 
         self.serializer = config.serializer.module.Serializer(config.serializer.config)
@@ -124,15 +151,15 @@ class EventBackend(Closable, AbstractEventBackend):
             auto_delete=not config.exchange_durable,
             timeout=config.timeout,
         )
+
         self._queue: Queue = Queue(
             config.queue,
             conn=self._conn,
             type=config.queue_type,
             durable=config.queue_durable,
+            exclusive=config.queue_exclusive,
             auto_delete=self.config.queue_auto_delete,
             prefetch_count=config.prefetch_count,
-            # expires=config.events_ttl,
-            # msg_ttl=config.events_ttl,
             timeout=config.timeout,
         )
         self._callbacks: dict[str, tuple[Callable[[Event], Any], list[str], list]] = {}
@@ -155,7 +182,7 @@ class EventBackend(Closable, AbstractEventBackend):
     async def close(self):
         await super().close()
 
-    async def _send_event(self, event: Event):  # pylint: disable=method-hidden
+    async def _send_event(self, event: Event):
         await self._exchange.publish(
             self.serializer.dumps_event(event),
             routing_key=event.type,
@@ -168,7 +195,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug(_("%s put event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.debug(_("%s send event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         await self._internal_tasks_runner.create_task("send_event", lambda: self._send_event(event))
 
@@ -224,23 +251,32 @@ class EventBackend(Closable, AbstractEventBackend):
         for event_type in event_types:
             await self._queue.bind(self._exchange, event_type, restore=True)
 
-        # TODO  pylint: disable=fixme
+        # TODO
+        logger.info(
+            _("%s start consuming events[callback_id=%s, event_types=%s]"),
+            self,
+            callback_id,
+            event_types,
+        )
+
         await self._queue.consume(
             lambda *args, **kwds: create_task(on_message(*args, **kwds)) and None,
             retry_timeout=self.config.pull_retry_timeout,
         )
 
     async def stop_consume_events(self, callback_id: str | None = None):
+        logger.info(_("%s stop consuming events[callback_id=%s]"), self, callback_id)
+
         if callback_id:
             if callback_id not in self._callbacks:
                 return
-            _, event_types, _ = self._callbacks.pop(callback_id)
+            callback, event_types, regex = self._callbacks.pop(callback_id)
             for event_type in set(event_types) - {x for v in self._callbacks.values() for x in v[1]}:
                 await self._queue.unbind(self._exchange, event_type)
             if not self._callbacks:
                 await self._queue.stop_consume()
         else:
-            for _, event_types, _ in self._callbacks.values():
+            for callback, event_types, regex in self._callbacks.values():
                 for event_type in event_types:
                     await self._queue.unbind(self._exchange, event_type)
             self._callbacks = {}

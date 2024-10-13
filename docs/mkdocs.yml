@@ -1,4 +1,5 @@
 site_name: Arrlio
+
 nav:
   - About: index.md
   - Installation: installation.md
@@ -15,25 +16,16 @@ nav:
       - Task submitting: user_guide/advanced/task_submitting.md
       - Generators: user_guide/advanced/generators.md
   - API Reference: api_reference.md
+
 theme:
   name: material
-  palette: 
-    # Palette toggle for light mode
-    - scheme: default
-      primary: blue grey
-      accent: light blue
-      toggle:
-        icon: material/lightbulb
-        name: Switch to dark mode
-    # Palette toggle for dark mode
-    - scheme: slate
-      primary: blue grey
-      accent: light blue
-      toggle:
-        icon: material/lightbulb-outline
-        name: Switch to light mode
+  palette:
+    scheme: slate
+    primary: teal
+    accent: light blue
   features:
     - content.code.copy
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -42,8 +34,20 @@ markdown_extensions:
   - pymdownx.superfences
   - tables
   - admonition
+
 plugins:
   - search
+  - autorefs
   - mkdocstrings:
-      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            docstring_section_style: list
+            separate_signature: true
+            line_length: 60
+
+extra_css:
+  - css/extra.css
+
 repo_url: https://github.com/levsh/arrlio

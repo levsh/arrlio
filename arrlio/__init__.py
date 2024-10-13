@@ -22,7 +22,6 @@ log_hndl = logging.StreamHandler(stream=sys.stderr)
 log_hndl.setFormatter(log_frmt)
 logger.addHandler(log_hndl)
 
-# pylint: disable=wrong-import-position
 # ruff: noqa: E402
 from arrlio.configs import Config, TaskConfig  # noqa
 from arrlio.core import App, AsyncResult, registered_tasks, task  # noqa

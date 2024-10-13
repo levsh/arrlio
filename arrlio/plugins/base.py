@@ -17,11 +17,9 @@ class Config(BaseSettings):
 class Plugin(AbstractPlugin):
     """
     Args:
-        app: `arrlio.core.App` instance.
+        app: `App` instance.
         config: Plugin config.
     """
-
-    # pylint: disable=unused-argument
 
     def __init__(self, app, config: Config):
         self.app = app

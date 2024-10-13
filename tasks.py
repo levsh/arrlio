@@ -11,7 +11,7 @@ CWD = os.path.abspath(os.path.dirname(__file__))
 def run_linters(c):
     "Run linters"
 
-    cmd = "pylint --extension-pkg-whitelist='pydantic' arrlio"
+    cmd = "poetry run ruff check arrlio"
     c.run(cmd)
 
 
@@ -84,5 +84,5 @@ def generate_coverage_gist(c):
 
 @task
 def pygettext(c):
-    cmd = f"""poetry run python {CWD}/scirpts/pygettext.py -d arrlio -o {CWD}/locales/arrlio.pot arrlio"""
+    cmd = f"""poetry run python {CWD}/scripts/pygettext.py -d arrlio -o {CWD}/arrlio/locales/arrlio.pot arrlio"""
     c.run(cmd)

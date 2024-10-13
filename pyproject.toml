@@ -3,13 +3,12 @@ requires-python = ">= 3.11"
 
 [tool.poetry]
 name = "arrlio"
-version = "1.0.0a0"
+version = "1.0.0a1"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 keywords = ["rabbitmq"]
-packages = [{include = "arrlio"}]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",
@@ -18,11 +17,12 @@ classifiers = [
     "Topic :: Utilities",
     "License :: OSI Approved :: MIT License",
 ]
+packages = [{include = "arrlio"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11, <4.0"
 aiormq = ">=6.7.6"
-rmqaio = ">=0.3.0"
+rmqaio = ">=0.6.0"
 msgpack = "*"
 pydantic = "^2"
 pydantic_settings = "*"
@@ -39,7 +39,6 @@ celery = "*"
 coverage = "*"
 docker = "*"
 httpx = "*"
-pylint = "*"
 pytest = "*"
 pytest_asyncio = "*"
 pytest_timeout = "*"

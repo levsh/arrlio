@@ -41,64 +41,115 @@ logger = logging.getLogger("arrlio.backends.result_backends.rabbitmq")
 
 
 REPLY_TO_MODE = ReplyToMode.COMMON_QUEUE
+"""ResultBackend reply to mode."""
+
 EXCHANGE = "arrlio"
+"""ResultBackend exchange name."""
+
 EXCHANGE_DURABLE = False
+"""ResultBackend exchange durable option."""
+
 QUEUE_PREFIX = "arrlio."
+"""ResultBackend queue prefix."""
+
 QUEUE_TYPE = QueueType.CLASSIC
-QUEUE_EXCLUSIVE = False
+"""ResultBackend queue type."""
+
 QUEUE_DURABLE = False
+"""ResultBackend queue `durable` option."""
+
+QUEUE_EXCLUSIVE = False
+"""ResultBackend queue `excusive` option."""
+
 QUEUE_AUTO_DELETE = True
+"""ResultBackend queue `auto-delete` option."""
+
 PREFETCH_COUNT = 10
-RESULT_TTL = 600
+"""Results prefetch count."""
 
 
-class SerializerConfig(SerializerConfig):  # pylint: disable=function-redefined
+class SerializerConfig(SerializerConfig):
     """RabbitMQ result backend serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_RESULT_BACKEND_SERIALIZER_")
 
 
 class Config(BaseSettings):
-    """RabbitMQ result backend config."""
+    """
+    RabbitMQ `ResultBackend` config.
+
+    Attributes:
+        id: `ResultBackend` Id.
+        url: RabbitMQ URL. See amqp [spec](https://www.rabbitmq.com/uri-spec.html).
+            [Default][arrlio.backends.rabbitmq.URL].
+        timeout: Network operation timeout in seconds.
+            [Default][arrlio.backends.rabbitmq.TIMEOUT].
+        push_retry_timeouts: Push operation retry timeouts(sequence of seconds).
+            [Default][arrlio.backends.rabbitmq.PUSH_RETRY_TIMEOUTS].
+        pull_retry_timeouts: Pull operation retry timeout in seconds.
+            [Default][arrlio.backends.rabbitmq.PULL_RETRY_TIMEOUT].
+        serializer: Config for Serializer.
+        reply_to_mode: Reply to mode.
+            [Default][arrlio.backends.result_backends.rabbitmq.REPLY_TO_MODE].
+        exchange: Exchange name.
+            [Default][arrlio.backends.result_backends.rabbitmq.EXCHANGE].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        exchange_durable: Exchange durable option.
+            [Default][arrlio.backends.result_backends.rabbitmq.EXCHANGE_DURABLE].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        queue_prefix: Results queue prefix.
+            [Default][arrlio.backends.result_backends.rabbitmq.QUEUE_PREFIX].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        queue_type: Events queue type.
+            [Default][arrlio.backends.result_backends.rabbitmq.QUEUE_TYPE].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        queue_durable: Queue durable option.
+            [Default][arrlio.backends.result_backends.rabbitmq.QUEUE_DURABLE].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        queue_exclusive: Queue exclusive option.
+            [Default][arrlio.backends.result_backends.rabbitmq.QUEUE_EXCLUSIVE].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        queue_auto_delete: Queue auto delete option.
+            [Default][arrlio.backends.result_backends.rabbitmq.QUEUE_AUTO_DELETE].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+        prefetch_count: Results prefetch count.
+            [Default][arrlio.backends.result_backends.rabbitmq.PREFETCH_COUNT].
+            !!! note "Only valid for `ReplyToMode.COMMON_QUEUE`."
+    """
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_RESULT_BACKEND_")
 
     id: str = Field(default_factory=lambda: f"{uuid4().hex[-4:]}")
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
-    """See amqp [spec](https://www.rabbitmq.com/uri-spec.html)."""
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
     pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
     reply_to_mode: ReplyToMode = Field(default_factory=lambda: REPLY_TO_MODE)
     exchange: str = Field(default_factory=lambda: EXCHANGE)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
     queue_prefix: str = Field(default_factory=lambda: QUEUE_PREFIX)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
-    queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
-    queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
     queue_type: QueueType = Field(default_factory=lambda: QUEUE_TYPE)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
-    result_ttl: Optional[Timeout] = Field(default_factory=lambda: RESULT_TTL)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
+    queue_durable: bool = Field(default_factory=lambda: QUEUE_DURABLE)
+    queue_exclusive: bool = Field(default_factory=lambda: QUEUE_EXCLUSIVE)
+    queue_auto_delete: bool = Field(default_factory=lambda: QUEUE_AUTO_DELETE)
     prefetch_count: PositiveInt = Field(default_factory=lambda: PREFETCH_COUNT)
-    """.. note:: Only valid for `ReplyToMode.COMMON_QUEUE`."""
 
 
 class ResultBackend(Closable, AbstractResultBackend):
+    """
+    RabbitMQ `ResultBackend`.
+
+    Args:
+        config: result backend config.
+    """
+
     def __init__(self, config: Config):
-        """
-        Args:
-            config: result backend config.
-        """
 
         super().__init__()
 
         self.config = config
+
         self._internal_tasks_runner = AioTasksRunner()
 
         self.serializer = config.serializer.module.Serializer(config.serializer.config)
@@ -127,10 +178,9 @@ class ResultBackend(Closable, AbstractResultBackend):
             conn=self._conn,
             type=config.queue_type,
             durable=config.queue_durable,
+            exclusive=config.queue_exclusive,
             auto_delete=config.queue_auto_delete,
             prefetch_count=config.prefetch_count,
-            # expires=config.results_ttl,
-            # msg_ttl=config.results_ttl,
             timeout=config.timeout,
         )
 
@@ -185,8 +235,7 @@ class ResultBackend(Closable, AbstractResultBackend):
         await self._queue.declare(restore=True, force=True)
         await self._queue.bind(self._exchange, self._queue.name, restore=True)
 
-        if is_debug_level():
-            logger.debug(_("%s start consuming results queue %s"), self, self._queue)
+        logger.info(_("%s start consuming results queue %s"), self, self._queue)
 
         await self._queue.consume(
             lambda *args, **kwds: self._internal_tasks_runner.create_task(
@@ -202,8 +251,12 @@ class ResultBackend(Closable, AbstractResultBackend):
     async def _on_conn_open(self):
         channel = await self._conn.channel()
 
-        if is_debug_level():
-            logger.debug(_("%s channel[%s] start consuming results queue '%s'"), self, channel, "amq.rabbitmq.reply-to")
+        logger.info(
+            _("%s channel[%s] start consuming results queue '%s'"),
+            self,
+            channel,
+            "amq.rabbitmq.reply-to",
+        )
 
         self._direct_reply_to_consumer = (
             channel,
@@ -281,7 +334,7 @@ class ResultBackend(Closable, AbstractResultBackend):
         self,
         task_result: TaskResult,
         task_instance: TaskInstance,
-    ):  # pylint: disable=method-hidden
+    ):
         exchange, routing_key = await self._get_result_routing(task_instance)
 
         if is_debug_level():

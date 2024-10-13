@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, Callable, Coroutine, Optional, Union
+from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -17,9 +17,11 @@ from typing_extensions import Annotated
 from arrlio.settings import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY
 
 
+T = TypeVar("T")
+
+
 AsyncCallable = Callable[..., Coroutine]
 ExceptionFilter = Callable[[Exception], bool]
-
 
 Timeout = Annotated[int, Ge(0)]
 
@@ -30,6 +32,8 @@ TaskPriority = Annotated[int, Ge(TASK_MIN_PRIORITY), Le(TASK_MAX_PRIORITY)]
 TaskId = Union[str, UUID]
 Args = Union[list, tuple]
 Kwds = dict
+
+UniqueList = Annotated[list[T], AfterValidator(lambda v: [*dict.fromkeys(v)])]
 
 
 @dataclass
@@ -49,7 +53,7 @@ class ModuleConstraints:
 
 class Module(ModuleType):
     @classmethod
-    def __get_pydantic_core_schema__(cls, source_type, handler):  # pylint: disable=unused-argument
+    def __get_pydantic_core_schema__(cls, source_type, handler):
         def validate_from_str(v):
             if isinstance(v, str):
                 try:
@@ -165,10 +169,10 @@ class SecretAnyUrl(AnyUrl):
         return isinstance(other, SecretAnyUrl) and self.get_secret_value() == other.get_secret_value()
 
     def __hash__(self):
-        return hash(self._original_str)  # pylint: disable=no-member
+        return hash(self._original_str)
 
     def get_secret_value(self) -> str:
-        return self._original_str  # pylint: disable=no-member
+        return self._original_str
 
 
 @dataclass

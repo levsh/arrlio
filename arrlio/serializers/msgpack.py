@@ -35,7 +35,7 @@ class Config(base.Config):
     """Config for MessagePack serializer."""
 
 
-class Serializer(base.Serializer):  # pylint: disable=function-redefined
+class Serializer(base.Serializer):
     """MessagePack serializer."""
 
     def dumps(self, data: Any, **kwds) -> bytes:
