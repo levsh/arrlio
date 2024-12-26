@@ -2,26 +2,34 @@ import pydantic
 import pydantic_settings
 import pytest
 
+from pydantic import TypeAdapter
+
 from arrlio.backends import brokers, event_backends, result_backends
 from arrlio.types import BrokerModule, EventBackendModule, ResultBackendModule, SecretAmqpDsn, SecretAnyUrl
 
 
 def test_SecretAnyUrl():
-    url = SecretAnyUrl("http://example.org")
-    assert url.scheme == "http"
-    assert url.username is None
-    assert url.password is None
-    assert url.host == "example.org"
-    assert str(url) == "http://example.org/"
-    assert repr(url) == "SecretAnyUrl('http://example.org/')"
+    for url in [
+        SecretAnyUrl("http://example.org"),
+        TypeAdapter(SecretAnyUrl).validate_python("http://example.org"),
+    ]:
+        assert url.scheme == "http"
+        assert url.username is None
+        assert url.password is None
+        assert url.host == "example.org"
+        assert str(url) == "http://example.org/"
+        assert repr(url) == "SecretAnyUrl('http://example.org/')"
 
-    url = SecretAnyUrl("http://user:pass@example.org")
-    assert url.scheme == "http"
-    assert url.username == pydantic.SecretStr("user")
-    assert url.password == pydantic.SecretStr("pass")
-    assert url.host == "example.org"
-    assert str(url) == "http://***:***@example.org/"
-    assert repr(url) == "SecretAnyUrl('http://***:***@example.org/')"
+    for url in [
+        SecretAnyUrl("http://user:pass@example.org"),
+        TypeAdapter(SecretAnyUrl).validate_python("http://user:pass@example.org"),
+    ]:
+        assert url.scheme == "http"
+        assert url.username == pydantic.SecretStr("user")
+        assert url.password == pydantic.SecretStr("pass")
+        assert url.host == "example.org"
+        assert str(url) == "http://***:***@example.org/"
+        assert repr(url) == "SecretAnyUrl('http://***:***@example.org/')"
 
     class S(pydantic_settings.BaseSettings):
         url: SecretAnyUrl
@@ -42,21 +50,27 @@ def test_SecretAnyUrl():
 
 
 def test_SecretAmqpDsn():
-    url = SecretAmqpDsn("amqp://example.org")
-    assert url.scheme == "amqp"
-    assert url.username is None
-    assert url.password is None
-    assert url.host == "example.org"
-    assert str(url) == "amqp://example.org"
-    assert repr(url) == "SecretAnyUrl('amqp://example.org')"
+    for url in [
+        SecretAnyUrl("amqp://example.org"),
+        TypeAdapter(SecretAnyUrl).validate_python("amqp://example.org"),
+    ]:
+        assert url.scheme == "amqp"
+        assert url.username is None
+        assert url.password is None
+        assert url.host == "example.org"
+        assert str(url) == "amqp://example.org/"
+        assert repr(url) == "SecretAnyUrl('amqp://example.org/')"
 
-    url = SecretAnyUrl("amqp://user:pass@example.org")
-    assert url.scheme == "amqp"
-    assert url.username == pydantic.SecretStr("user")
-    assert url.password == pydantic.SecretStr("pass")
-    assert url.host == "example.org"
-    assert str(url) == "amqp://***:***@example.org"
-    assert repr(url) == "SecretAnyUrl('amqp://***:***@example.org')"
+    for url in [
+        SecretAnyUrl("amqp://user:pass@example.org"),
+        TypeAdapter(SecretAnyUrl).validate_python("amqp://user:pass@example.org"),
+    ]:
+        assert url.scheme == "amqp"
+        assert url.username == pydantic.SecretStr("user")
+        assert url.password == pydantic.SecretStr("pass")
+        assert url.host == "example.org"
+        assert str(url) == "amqp://***:***@example.org/"
+        assert repr(url) == "SecretAnyUrl('amqp://***:***@example.org/')"
 
     class S(pydantic_settings.BaseSettings):
         url: SecretAmqpDsn
@@ -72,8 +86,8 @@ def test_SecretAmqpDsn():
             assert m.url.username == pydantic.SecretStr("user")
             assert m.url.password == pydantic.SecretStr("pass")
             assert m.url.host == "example.org"
-            assert str(m.url) == "amqp://***:***@example.org"
-            assert repr(m.url) == "SecretAnyUrl('amqp://***:***@example.org')"
+            assert str(m.url) == "amqp://***:***@example.org/"
+            assert repr(m.url) == "SecretAnyUrl('amqp://***:***@example.org/')"
 
 
 def test_BrokerModule():

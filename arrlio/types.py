@@ -1,11 +1,7 @@
-import ipaddress
-import re
-
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
 from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
-from urllib.parse import urlparse
 from uuid import UUID
 
 from annotated_types import Ge, Le
@@ -111,55 +107,27 @@ ModuleConfig = Annotated[
 
 
 class SecretAnyUrl(AnyUrl):
-    def __new__(cls, url) -> object:
-        if hasattr(url, "get_secret_value"):
-            url = url.get_secret_value()
-        else:
-            url = f"{url}"
-        original = urlparse(url)
-        if original.username or original.password:
-            url = original._replace(
-                netloc=f"***:***@{original.hostname}" + (f":{original.port}" if original.port is not None else "")
-            ).geturl()
-        obj = super().__new__(cls, url)
-        if obj.host is None:
-            raise ValueError("invalid URL")
-        cls._validate_host(obj.host)
-        obj._original_str = str(AnyUrl(original.geturl()))
-        obj._username = SecretStr(original.username) if original.username else None
-        obj._password = SecretStr(original.password) if original.password else None
-        return obj
-
     @property
     def username(self) -> SecretStr:
-        return self._username
+        return SecretStr(self._url.username) if self._url.username is not None else None
 
     @property
     def password(self) -> SecretStr:
-        return self._password
+        return SecretStr(self._url.password) if self._url.password is not None else None
 
-    @classmethod
-    def _validate_host(cls, host: str):
-        if 1 > len(host) > 255:
-            raise ValueError("invalid URL host length")
-        splitted = host.split(".")
-        if splitted[-1] and splitted[-1][0].isdigit():
-            ipaddress.ip_address(host)
-        else:
-            for x in splitted:
-                if not re.match(r"(?!-)[a-zA-Z\d-]{1,63}(?<!-)$", x):
-                    raise ValueError("invalid URL host")
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type: Any, handler):
-        return core_schema.no_info_before_validator_function(
-            lambda v: v if isinstance(v, cls) else cls(v),
-            core_schema.chain_schema([core_schema.is_instance_schema(source_type), handler(source_type)]),
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda v: v,
-                info_arg=False,
-                return_schema=core_schema.url_schema(),
-            ),
+    def __str__(self) -> str:
+        url = self._url
+        return str(
+            url.build(
+                scheme=url.scheme,
+                host=url.host,
+                username="***" if url.username is not None else None,
+                password="***" if url.password is not None else None,
+                port=url.port,
+                path=(url.path or "").lstrip("/"),
+                query=url.query,
+                fragment=url.fragment,
+            )
         )
 
     def __repr__(self) -> str:
@@ -168,11 +136,8 @@ class SecretAnyUrl(AnyUrl):
     def __eq__(self, other: Any) -> bool:
         return isinstance(other, SecretAnyUrl) and self.get_secret_value() == other.get_secret_value()
 
-    def __hash__(self):
-        return hash(self._original_str)
-
-    def get_secret_value(self) -> str:
-        return self._original_str
+    def get_secret_value(self):
+        return self._url
 
 
 @dataclass

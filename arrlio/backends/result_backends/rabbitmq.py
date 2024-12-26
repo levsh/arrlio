@@ -5,6 +5,7 @@ from asyncio import get_event_loop
 from datetime import datetime, timezone
 from functools import partial
 from inspect import isasyncgenfunction, isgeneratorfunction
+from itertools import repeat
 from typing import AsyncGenerator, Optional
 from uuid import UUID, uuid4
 
@@ -58,10 +59,10 @@ QUEUE_TYPE = QueueType.CLASSIC
 QUEUE_DURABLE = False
 """ResultBackend queue `durable` option."""
 
-QUEUE_EXCLUSIVE = False
+QUEUE_EXCLUSIVE = True
 """ResultBackend queue `excusive` option."""
 
-QUEUE_AUTO_DELETE = True
+QUEUE_AUTO_DELETE = False
 """ResultBackend queue `auto-delete` option."""
 
 PREFETCH_COUNT = 10
@@ -205,7 +206,11 @@ class ResultBackend(Closable, AbstractResultBackend):
         return self.__str__()
 
     async def init(self):
-        await self._conn.open()
+        await retry(
+            msg=f"{self} init error",
+            retry_timeouts=repeat(5),
+            exc_filter=exc_filter,
+        )(self._conn.open)()
 
     async def close(self):
         await super().close()
@@ -289,7 +294,7 @@ class ResultBackend(Closable, AbstractResultBackend):
             properties: aiormq.spec.Basic.Properties = message.header.properties
             task_id: UUID = UUID(properties.message_id)
 
-            task_result: TaskResult = self.serializer.loads_task_result(message.body, headers=properties.headers)
+            task_result: TaskResult = self.serializer.loads_task_result(message.body, properties.headers)
 
             if not no_ack:
                 await channel.basic_ack(message.delivery.delivery_tag)
@@ -348,8 +353,7 @@ class ResultBackend(Closable, AbstractResultBackend):
                 task_result.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
-        headers = {}
-        data = self.serializer.dumps_task_result(task_result, task_instance=task_instance, headers=headers)
+        data, headers = self.serializer.dumps_task_result(task_result, task_instance=task_instance)
 
         properties = {
             "delivery_mode": 2,

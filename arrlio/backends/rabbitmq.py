@@ -63,4 +63,4 @@ def connection_factory(url: SecretAmqpDsn | list[SecretAmqpDsn]) -> Connection:
 
     if not isinstance(url, list):
         url = [url]
-    return Connection([u.get_secret_value() for u in url])
+    return Connection([f"{u.get_secret_value()}" for u in url])

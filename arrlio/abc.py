@@ -165,7 +165,7 @@ class AbstractEventBackend(AbstractClosable, ABC):
 
 class AbstractSerializer(ABC):
     @abstractmethod
-    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes | TaskInstance:
+    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> tuple[bytes | TaskInstance, dict]:
         """
         Dump `TaskInstance`.
 
@@ -174,7 +174,7 @@ class AbstractSerializer(ABC):
         """
 
     @abstractmethod
-    def loads_task_instance(self, data: bytes | TaskInstance, **kwds) -> TaskInstance:
+    def loads_task_instance(self, data: bytes | TaskInstance, headers: dict, **kwds) -> TaskInstance:
         """
         Load `data` into `TaskInstance`.
 
@@ -189,7 +189,7 @@ class AbstractSerializer(ABC):
         *,
         task_instance: TaskInstance | None = None,
         **kwds,
-    ) -> bytes | TaskResult:
+    ) -> tuple[bytes | TaskResult, dict]:
         """
         Dump `TaskResult`.
 
@@ -199,7 +199,7 @@ class AbstractSerializer(ABC):
         """
 
     @abstractmethod
-    def loads_task_result(self, data: bytes | TaskResult, **kwds) -> TaskResult:
+    def loads_task_result(self, data: bytes | TaskResult, headers: dict, **kwds) -> TaskResult:
         """
         Load data into `TaskResult`.
 
@@ -208,7 +208,7 @@ class AbstractSerializer(ABC):
         """
 
     @abstractmethod
-    def dumps_event(self, event: Event, **kwds) -> bytes | Event:
+    def dumps_event(self, event: Event, **kwds) -> tuple[bytes | Event, dict]:
         """
         Dump `arrlio.models.Event`.
 
@@ -217,7 +217,7 @@ class AbstractSerializer(ABC):
         """
 
     @abstractmethod
-    def loads_event(self, data: bytes | Event, **kwds) -> Event:
+    def loads_event(self, data: bytes | Event, headers: dict, **kwds) -> Event:
         """
         Load `data` into `Event`.
 

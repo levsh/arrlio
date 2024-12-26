@@ -8,10 +8,9 @@ from datetime import datetime
 from functools import wraps
 from inspect import isasyncgenfunction
 from itertools import repeat
+from types import FunctionType
 from typing import Callable, Coroutine, Iterable, cast
 from uuid import UUID
-
-from pydantic import SecretBytes, SecretStr
 
 from arrlio.models import Task
 from arrlio.types import ExceptionFilter, Timeout
@@ -33,21 +32,61 @@ def is_info_level():
     return isEnabledFor(INFO)
 
 
-class ExtendedJSONEncoder(json.JSONEncoder):
-    """Extended JSONEncoder class."""
+try:
+    import orjson
 
-    def default(self, o):
-        if isinstance(o, datetime):
-            return o.isoformat()
-        if isinstance(o, (UUID, SecretStr, SecretBytes)):
+    def JSONEncoder(o):
+        if isinstance(o, UUID):
             return f"{o}"
-        if isinstance(o, set):
-            return list(o)
+        if get_secret_value := getattr(o, "get_secret_value", None):
+            return get_secret_value()
+        if isinstance(o, FunctionType):
+            return f"{o.__module__}.{o.__name__}"
         if isinstance(o, Task):
             o = o.asdict(exclude=["loads", "dumps"])
             o["func"] = f"{o['func'].__module__}.{o['func'].__name__}"
             return o
-        return super().default(o)
+        raise TypeError
+
+    def json_dumps_bytes(obj, encoder=None):
+        return orjson.dumps(obj, default=encoder or JSONEncoder)
+
+    def json_dumps(obj, encoder=None):
+        return orjson.dumps(obj, default=encoder or JSONEncoder).decode()
+
+    json_loads = orjson.loads
+
+
+except ImportError:
+    import json
+
+    class JSONEncoder(json.JSONEncoder):
+        """Extended JSONEncoder class."""
+
+        def default(self, o):
+            if isinstance(o, datetime):
+                return o.isoformat()
+            if isinstance(o, UUID):
+                return f"{o}"
+            if get_secret_value := getattr(o, "get_secret_value", None):
+                return get_secret_value()
+            if isinstance(o, FunctionType):
+                return f"{o.__module__}.{o.__name__}"
+            if isinstance(o, set):
+                return list(o)
+            if isinstance(o, Task):
+                o = o.asdict(exclude=["loads", "dumps"])
+                o["func"] = f"{o['func'].__module__}.{o['func'].__name__}"
+                return o
+            return super().default(o)
+
+    def json_dumps_bytes(*args, encoder=None, **kwds):
+        return json.dumps(*args, cls=encoder or JSONEncoder, **kwds).encode()
+
+    def json_dumps(*args, encoder=None, **kwds):
+        return json.dumps(*args, encoder or JSONEncoder, **kwds)
+
+    json_loads = json.loads
 
 
 def retry(

@@ -5,6 +5,7 @@ from asyncio import create_task
 from datetime import datetime, timezone
 from functools import partial
 from inspect import iscoroutinefunction
+from itertools import repeat
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
@@ -177,19 +178,25 @@ class EventBackend(Closable, AbstractEventBackend):
         return self.__str__()
 
     async def init(self):
-        await self._conn.open()
+        await retry(
+            msg=f"{self} init error",
+            retry_timeouts=repeat(5),
+            exc_filter=exc_filter,
+        )(self._conn.open)()
 
     async def close(self):
         await super().close()
 
     async def _send_event(self, event: Event):
+        data, headers = self.serializer.dumps_event(event)
         await self._exchange.publish(
-            self.serializer.dumps_event(event),
+            data,
             routing_key=event.type,
             properties={
                 "delivery_mode": 2,
                 "timestamp": datetime.now(tz=timezone.utc),
                 "expiration": f"{int(event.ttl * 1000)}" if event.ttl is not None else None,
+                "headers": headers,
             },
         )
 
@@ -223,7 +230,10 @@ class EventBackend(Closable, AbstractEventBackend):
 
         async def on_message(channel: aiormq.Channel, message: aiormq.abc.DeliveredMessage):
             try:
-                event: Event = self.serializer.loads_event(message.body)
+                event: Event = self.serializer.loads_event(
+                    message.body,
+                    message.header.properties.headers,
+                )
 
                 if is_debug_level():
                     logger.debug(_("%s got event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))

@@ -48,7 +48,7 @@ class Serializer(AbstractSerializer):
             data: data to load.
         """
 
-    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> bytes:
+    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> tuple[bytes, dict]:
         """
         Dump `arrlio.models.TaskInstance` object as json encoded string.
 
@@ -60,9 +60,9 @@ class Serializer(AbstractSerializer):
         headers = data["headers"]
         if graph := headers.get("graph:graph"):
             headers["graph:graph"] = graph.asdict()
-        return self.dumps({k: v for k, v in data.items() if v is not None})
+        return self.dumps({k: v for k, v in data.items() if v is not None}), {}
 
-    def loads_task_instance(self, data: bytes, **kwds) -> TaskInstance:
+    def loads_task_instance(self, data: bytes, headers: dict, **kwds) -> TaskInstance:
         """
         Load `arrlio.models.TaskInstance` object from json encoded string.
 
@@ -133,7 +133,12 @@ class Serializer(AbstractSerializer):
 
         return trb
 
-    def dumps_task_result(self, task_result: TaskResult, task_instance: TaskInstance | None = None, **kwds) -> bytes:
+    def dumps_task_result(
+        self,
+        task_result: TaskResult,
+        task_instance: TaskInstance | None = None,
+        **kwds,
+    ) -> tuple[bytes, dict]:
         """
         Dump `arrlio.models.TaskResult` as json encoded string.
 
@@ -148,9 +153,9 @@ class Serializer(AbstractSerializer):
             data["trb"] = self.dumps_trb(data["trb"])
         elif task_instance and task_instance.dumps:
             data["res"] = task_instance.dumps(data["res"])
-        return self.dumps(data)
+        return self.dumps(data), {}
 
-    def loads_task_result(self, data: bytes, **kwds) -> TaskResult:
+    def loads_task_result(self, data: bytes, headers: dict, **kwds) -> TaskResult:
         """
         Load `arrlio.models.TaskResult` from json encoded string.
 
@@ -164,7 +169,7 @@ class Serializer(AbstractSerializer):
             data["trb"] = self.loads_trb(data["trb"])
         return TaskResult(**data)
 
-    def dumps_event(self, event: Event, **kwds) -> bytes:
+    def dumps_event(self, event: Event, **kwds) -> tuple[bytes, dict]:
         """
         Dump `arrlio.models.Event` as json encoded string.
 
@@ -184,9 +189,9 @@ class Serializer(AbstractSerializer):
             if result["exc"]:
                 result["exc"] = self.dumps_exc(result["exc"])
                 result["trb"] = self.dumps_trb(result["trb"])
-        return self.dumps(data)
+        return self.dumps(data), {}
 
-    def loads_event(self, data: bytes, **kwds) -> Event:
+    def loads_event(self, data: bytes, headers: dict, **kwds) -> Event:
         """
         Load `arrlio.models.Event` from json encoded string.
 

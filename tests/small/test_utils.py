@@ -91,25 +91,25 @@ async def test_retry_generator():
     assert counter == 3
 
 
-def test_ExtendedJSONEncoder():
+def test_JSONEncoder():
     assert (
         json.dumps(
             "a",
-            cls=utils.ExtendedJSONEncoder,
+            cls=utils.JSONEncoder,
         )
         == '"a"'
     )
     assert (
         json.dumps(
             datetime.datetime(2021, 1, 1),
-            cls=utils.ExtendedJSONEncoder,
+            cls=utils.JSONEncoder,
         )
         == '"2021-01-01T00:00:00"'
     )
     assert (
         json.dumps(
             uuid.UUID("ea47d0af-c6b2-45d0-9a05-6bd1e34aa58c"),
-            cls=utils.ExtendedJSONEncoder,
+            cls=utils.JSONEncoder,
         )
         == '"ea47d0af-c6b2-45d0-9a05-6bd1e34aa58c"'
     )
@@ -118,7 +118,7 @@ def test_ExtendedJSONEncoder():
     def foo():
         pass
 
-    assert json.dumps(foo, cls=utils.ExtendedJSONEncoder) == (
+    assert json.dumps(foo, cls=utils.JSONEncoder) == (
         """{\"func\": \"test_utils.foo\", \"name\": \"test_utils.foo\", """
         """\"queue\": \"arrlio.tasks\", \"priority\": 1, \"timeout\": 300, \"ttl\": 300, """
         """\"ack_late\": false, \"result_ttl\": 300, \"result_return\": true, """
@@ -129,4 +129,4 @@ def test_ExtendedJSONEncoder():
         pass
 
     with pytest.raises(TypeError):
-        json.dumps(C(), cls=utils.ExtendedJSONEncoder)
+        json.dumps(C(), cls=utils.JSONEncoder)

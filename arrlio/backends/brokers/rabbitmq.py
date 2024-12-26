@@ -1,6 +1,7 @@
 import logging
 
 from datetime import datetime, timezone
+from itertools import repeat
 from typing import Callable, Coroutine, Optional
 from uuid import uuid4
 
@@ -164,7 +165,11 @@ class Broker(Closable, AbstractBroker):
         return self.__str__()
 
     async def init(self):
-        await self._conn.open()
+        await retry(
+            msg=f"{self} init error",
+            retry_timeouts=repeat(5),
+            exc_filter=exc_filter,
+        )(self._conn.open)()
 
     async def close(self):
         await self._exchange.close()
@@ -207,7 +212,7 @@ class Broker(Closable, AbstractBroker):
 
             task_instance = self.serializer.loads_task_instance(
                 message.body,
-                headers=message.header.properties.headers,
+                message.header.properties.headers,
             )
 
             reply_to = message.header.properties.reply_to
@@ -229,8 +234,8 @@ class Broker(Closable, AbstractBroker):
             if task_instance.ack_late:
                 await channel.basic_ack(message.delivery.delivery_tag)
 
-        except Exception as e:
-            logger.exception(e)
+        except Exception:
+            logger.exception(message.header.properties)
 
     async def _send_task(self, task_instance: TaskInstance, **kwds):
         if is_debug_level():
@@ -240,8 +245,7 @@ class Broker(Closable, AbstractBroker):
                 task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
 
-        headers = {}
-        data = self.serializer.dumps_task_instance(task_instance, headers=headers)
+        data, headers = self.serializer.dumps_task_instance(task_instance)
         task_headers = task_instance.headers
 
         reply_to = task_headers.get("rabbitmq:reply_to")

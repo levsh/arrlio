@@ -23,7 +23,7 @@ class TestConfig:
         config = rabbitmq.Config()
         assert config.id
         assert config.serializer.module == serializers.json
-        assert config.url.get_secret_value() == rabbitmq.URL
+        assert f"{config.url.get_secret_value()}" == rabbitmq.URL
         assert config.timeout == rabbitmq.TIMEOUT
         assert config.push_retry_timeouts
         assert config.pull_retry_timeout
@@ -54,7 +54,7 @@ class TestConfig:
         )
         assert config.serializer.module == serializers.json
         assert config.id == "id"
-        assert config.url.get_secret_value() == "amqps://admin@example.com"
+        assert f"{config.url.get_secret_value()}" == "amqps://admin@example.com"
         assert config.timeout == 123
         assert next(iter(config.push_retry_timeouts)) == 2
         assert config.pull_retry_timeout == 3

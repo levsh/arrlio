@@ -19,9 +19,12 @@ class TestSerializer:
         serializer = serializers.json.Serializer(serializers.json.Config())
         task_instance = Task(None, "test").instantiate(task_id="2d29459b-3245-492e-977b-09043c0f1f27", queue="queue")
         assert serializer.dumps_task_instance(task_instance) == (
-            b'{"name": "test", "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
-            b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, '
-            b'"headers": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, "meta": {}}'
+            (
+                b'{"name": "test", "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
+                b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, '
+                b'"headers": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [], "kwds": {}, "meta": {}}'
+            ),
+            {},
         )
 
     def test_loads_task_instance(self):
@@ -35,11 +38,14 @@ class TestSerializer:
         serializer = serializers.json.Serializer(serializers.json.Config())
         task_instance = serializer.loads_task_instance(
             (
-                b'{"name": "86e68", "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
-                b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, '
-                b'"headers": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [{"x": 1}], "kwds": {}, '
-                b'"meta": {}}'
-            )
+                (
+                    b'{"name": "86e68", "queue": "queue", "priority": 1, "timeout": 300, "ttl": 300, '
+                    b'"ack_late": false, "result_ttl": 300, "result_return": true, "events": false, "event_ttl": 300, '
+                    b'"headers": {}, "task_id": "2d29459b-3245-492e-977b-09043c0f1f27", "args": [{"x": 1}], "kwds": {}, '
+                    b'"meta": {}}'
+                )
+            ),
+            {},
         )
         assert task_instance == arrlio.registered_tasks["86e68"].instantiate(
             task_id="2d29459b-3245-492e-977b-09043c0f1f27",
@@ -63,9 +69,9 @@ class TestSerializer:
             queue="queue",
         )
         task_result = TaskResult(res=foo())
-        assert (
-            serializer.dumps_task_result(task_result, task_instance)
-            == b'{"res": {"x": 1}, "exc": null, "trb": null, "idx": null, "routes": null}'
+        assert serializer.dumps_task_result(task_result, task_instance) == (
+            b'{"res": {"x": 1}, "exc": null, "trb": null, "idx": null, "routes": null}',
+            {},
         )
 
         try:
@@ -84,17 +90,20 @@ class TestSerializer:
             )
         else:
             assert serializer.dumps_task_result(task_result, task_instance) == (
-                b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
-                b'"trb": "  File \\"%s\\", line 72, '
-                b'in test_dumps_task_result\\n    1 / 0\\n    ~~^~~\\n", "idx": null, "routes": null}'
-                % __file__.encode()
+                (
+                    b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
+                    b'"trb": "  File \\"%s\\", line 78, '
+                    b'in test_dumps_task_result\\n    1 / 0\\n    ~~^~~\\n", "idx": null, "routes": null}'
+                    % __file__.encode()
+                ),
+                {},
             )
 
     def test_loads_task_result(self):
         serializer = serializers.json.Serializer(serializers.json.Config())
 
         assert serializer.loads_task_result(
-            b'{"res": "ABC", "exc": null, "idx": null, "trb": null, "routes": null}'
+            b'{"res": "ABC", "exc": null, "idx": null, "trb": null, "routes": null}', {}
         ) == TaskResult(res="ABC")
 
         result = serializer.loads_task_result(
@@ -102,7 +111,8 @@ class TestSerializer:
                 b'{"res": null, "exc": ["builtins", "ZeroDivisionError", "division by zero"], '
                 b'"trb": "  File \\"%s\\", line 41, in '
                 b'test_dumps_task_result\\n    1 / 0\\n", "idx": null, "routes": null}' % __file__.encode()
-            )
+            ),
+            {},
         )
         assert isinstance(result, TaskResult)
         assert result.res is None
@@ -119,8 +129,11 @@ class TestSerializer:
             data={"k": "v"},
         )
         assert serializer.dumps_event(event) == (
-            b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", '
-            b'"dt": "2022-03-12T00:00:00", "ttl": 300}'
+            (
+                b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", '
+                b'"dt": "2022-03-12T00:00:00", "ttl": 300}'
+            ),
+            {},
         )
 
     def test_loads_event(self):
@@ -130,7 +143,8 @@ class TestSerializer:
             (
                 b'{"type": "TP", "data": {"k": "v"}, "event_id": "f3410fd3-660c-4e26-b433-a6c2f5bdf700", '
                 b'"dt": "2022-03-12T00:00:00", "ttl": 300}'
-            )
+            ),
+            {},
         )
         assert event == Event(
             event_id="f3410fd3-660c-4e26-b433-a6c2f5bdf700",

@@ -1,46 +1,25 @@
 import logging
 
-from typing import Callable, Optional, Type
-
-from arrlio.utils import ExtendedJSONEncoder
-
-
-try:
-    import orjson
-
-    _dumps = orjson.dumps
-
-    def json_dumps(obj, cls=None):
-        return _dumps(obj, default=cls)
-
-    json_loads = orjson.loads
-
-    JSONEncoderType = Optional[Callable]
-    JSON_ENCODER = None
-
-except ImportError:
-    import json
-
-    _dumps = json.dumps
-
-    def json_dumps(*args, **kwds):
-        return _dumps(*args, **kwds).encode()
-
-    json_loads = json.loads
-
-    JSONEncoderType = Optional[Type[json.JSONEncoder]]
-    JSON_ENCODER = ExtendedJSONEncoder
-
-from typing import Annotated, Any
+from importlib.util import find_spec
+from typing import Annotated, Any, Callable, Optional, Type
 
 from pydantic import Field, PlainSerializer
 from pydantic_settings import SettingsConfigDict
 
 from arrlio.serializers import base
 from arrlio.settings import ENV_PREFIX
+from arrlio.utils import JSONEncoder, json_dumps_bytes, json_loads
 
 
 logger = logging.getLogger("arrlio.serializers.json")
+
+
+if find_spec("orjson") is not None:
+    JSONEncoderType = Optional[Callable]
+else:
+    import json
+
+    JSONEncoderType = Optional[Type[json.JSONEncoder]]
 
 
 Encoder = Annotated[
@@ -54,7 +33,7 @@ class Config(base.Config):
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}JSON_SERIALIZER_")
 
-    encoder: Encoder = Field(default=JSON_ENCODER)
+    encoder: Encoder = Field(default=JSONEncoder)
     """Encoder class."""
 
 
@@ -72,7 +51,7 @@ class Serializer(base.Serializer):
             data: Data to dump.
         """
 
-        return json_dumps(data, cls=self.config.encoder)
+        return json_dumps_bytes(data, encoder=self.config.encoder)
 
     def loads(self, data: bytes) -> Any:
         """Load json encoded data to Python object.

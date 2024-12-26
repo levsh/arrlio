@@ -41,11 +41,14 @@ logger = logging.getLogger("arrlio.core")
 registered_tasks = rodict({}, nested=True)
 
 
+_curr_app = ContextVar("curr_app", default=None)
+
+
 def task(
     func: FunctionType | MethodType | Type | None = None,
     name: str | None = None,
     base: Type[Task] | None = None,
-    **kwds: dict,
+    **kwds,
 ):
     """Task decorator.
 
@@ -168,7 +171,7 @@ class App:
         return self._executor
 
     @property
-    def context(self):
+    def context(self) -> dict:
         """Application current context."""
 
         return self._context.get()
@@ -300,7 +303,7 @@ class App:
 
         if is_info_level():
             logger.info(
-                _("%s send task instance\n%s"),
+                _("%s send task\n%s"),
                 self,
                 task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
@@ -378,12 +381,15 @@ class App:
             idx_0 = uuid4().hex
             idx_1 = 0
 
+            self._context.set({})
+            context = self.context
+
             try:
                 task_result: TaskResult = TaskResult()
 
                 async with AsyncExitStack() as stack:
                     try:
-                        self.context["task_instance"] = task_instance
+                        context["task_instance"] = task_instance
 
                         for context_hook in self._hooks["task_context"]:
                             await stack.enter_async_context(context_hook(task_instance))
@@ -461,8 +467,12 @@ class App:
             Task result.
         """
 
-        async for task_result in self._executor(task_instance):
-            yield task_result
+        token = _curr_app.set(self)
+        try:
+            async for task_result in self._executor(task_instance):
+                yield task_result
+        finally:
+            _curr_app.reset(token)
 
     async def consume_events(
         self,
@@ -579,3 +589,7 @@ class AsyncResult:
         if noresult:
             raise TaskClosedError(self.task_id)
         return self._result
+
+
+def get_app() -> App | None:
+    return _curr_app.get()
