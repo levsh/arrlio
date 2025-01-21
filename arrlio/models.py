@@ -2,9 +2,12 @@ import datetime
 
 from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass, field
+from inspect import Signature, _empty, signature
 from types import TracebackType
-from typing import Any, Callable, ClassVar, Optional
+from typing import Any, Callable, ClassVar, Literal, Optional
 from uuid import UUID, uuid4
+
+import pydantic
 
 from rich.pretty import pretty_repr
 from roview import rodict, roset
@@ -21,7 +24,7 @@ from arrlio.settings import (
     TASK_TIMEOUT,
     TASK_TTL,
 )
-from arrlio.types import Args, AsyncCallable, Kwds, TaskId, TaskPriority, Timeout
+from arrlio.types import Args, AsyncCallable, Kwds, Meta, TaskId, TaskPriority, Timeout
 
 
 class FuncProxy:
@@ -49,7 +52,7 @@ class FuncProxy:
 
 
 class Shared(MutableMapping):
-    """Object to share settings between broker/result_backend/event_backend."""
+    """Object to share settings between Broker/ResultBackend/EventBackend."""
 
     def __init__(self):
         self._data = {}
@@ -276,7 +279,12 @@ class TaskInstance(Task):
         args = self.args
         kwds = self.kwds
         if meta is True:
-            kwds = {"meta": self.meta, **kwds}
+            sig: Signature = signature(self.func)
+            if "meta" in sig.parameters and (
+                sig.parameters["meta"].annotation == Meta
+                or Meta in getattr(sig.parameters["meta"].annotation, "__args__", [])
+            ):
+                kwds = {"meta": self.meta, **kwds}
         if isinstance(self.func, type):
             func = self.func()
         else:
@@ -285,6 +293,51 @@ class TaskInstance(Task):
 
     def instantiate(self, *args, **kwds):
         raise NotImplementedError
+
+    def validate(self, mode: Literal["pydantic"] = "pydantic"):
+        """Validate `args` and `kwds` and converts values according to the function signature(type hints)."""
+
+        sig: Signature = signature(self.func)
+
+        field = {"pydantic": pydantic.Field}[mode]
+
+        __dict__ = {}
+
+        for k, v in sig.parameters.items():
+            if v.default != _empty:
+                _field = field(default=v.default)
+            else:
+                _field = field()
+            __dict__[k] = (v.annotation if v.annotation != _empty else Any, _field)
+
+        Model = pydantic.create_model(f"{self.func}", **__dict__)  # pylint: disable=invalid-name
+
+        if "meta" in sig.parameters and (
+            sig.parameters["meta"].annotation == Meta
+            or Meta in getattr(sig.parameters["meta"].annotation, "__args__", [])
+        ):
+            binded = sig.bind(*self.args, meta=self.meta, **self.kwds)
+        else:
+            binded = sig.bind(*self.args, **self.kwds)
+        binded.apply_defaults()
+
+        model = Model(**binded.arguments)
+
+        args = []
+        kwds = {}
+
+        for k, v in sig.parameters.items():
+            if v.kind == v.VAR_POSITIONAL:
+                args.extend(getattr(model, k))
+            elif v.kind == v.VAR_KEYWORD:
+                kwds.update(getattr(model, k))
+            elif v.default == _empty:
+                args.append(getattr(model, k))
+            else:
+                kwds[k] = getattr(model, k)
+
+        object.__setattr__(self, "args", tuple(args))
+        object.__setattr__(self, "kwds", dict(kwds))
 
 
 @dataclass(slots=True, frozen=True)

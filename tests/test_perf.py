@@ -72,7 +72,7 @@ class TestPerf:
             [cmd, "arrlio/tests/worker.py"],
             cwd=cwd,
             env={
-                "ARRLIO_RABBITMQ_URL": json.dumps([url]),
+                "ARRLIO_RABBITMQ_URL": json.dumps([f"{url}"]),
                 # "ARRLIO_SERIALIZER_MODULE": "arrlio.serializers.msgpack",
                 "PYTHONPATH": f"$PYTHONPATH:{cwd}",
             },

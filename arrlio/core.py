@@ -7,7 +7,7 @@ from contextlib import AsyncExitStack
 from contextvars import ContextVar
 from inspect import isasyncgenfunction, isgeneratorfunction
 from types import FunctionType, MethodType
-from typing import Any, AsyncGenerator, Callable, Type
+from typing import Any, AsyncGenerator, Callable, Protocol, Type
 from uuid import UUID, uuid4
 
 from rich.pretty import pretty_repr
@@ -44,8 +44,12 @@ registered_tasks = rodict({}, nested=True)
 _curr_app = ContextVar("curr_app", default=None)
 
 
+class AsyncFunc(Protocol):
+    async def __call__(self, *args, **kwds) -> Any: ...
+
+
 def task(
-    func: FunctionType | MethodType | Type | None = None,
+    func: FunctionType | MethodType | Type | AsyncFunc | None = None,
     name: str | None = None,
     base: Type[Task] | None = None,
     **kwds,

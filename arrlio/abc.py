@@ -18,7 +18,7 @@ class AbstractClosable(ABC):
     async def close(self):
         raise NotImplementedError
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "AbstractClosable":
         await self.init()
         return self
 
@@ -30,7 +30,7 @@ class AbstractBroker(AbstractClosable, ABC):
     @abstractmethod
     async def send_task(self, task_instance: TaskInstance, **kwds):
         """
-        Send task to backend.
+        Send task.
 
         Args:
             task_instance: Task instance to send.

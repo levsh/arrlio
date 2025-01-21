@@ -1,7 +1,9 @@
+import logging
+
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, NewType, Optional, TypeVar, Union
 from uuid import UUID
 
 from annotated_types import Ge, Le
@@ -11,6 +13,9 @@ from pydantic_settings import BaseSettings
 from typing_extensions import Annotated
 
 from arrlio.settings import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY
+
+
+logger = logging.getLogger("arrlio.types")
 
 
 T = TypeVar("T")
@@ -30,6 +35,9 @@ Args = Union[list, tuple]
 Kwds = dict
 
 UniqueList = Annotated[list[T], AfterValidator(lambda v: [*dict.fromkeys(v)])]
+
+
+Meta = NewType("Meta", Union[dict])
 
 
 @dataclass
@@ -55,7 +63,8 @@ class Module(ModuleType):
                 try:
                     v = import_module(v)
                 except ModuleNotFoundError as e:
-                    raise ValueError("module not found") from e
+                    logger.exception(e)
+                    raise ValueError("unable to load module") from e
             return v
 
         from_str_schema = core_schema.chain_schema(

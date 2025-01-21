@@ -79,7 +79,7 @@ class Executor:
             if (func := task_instance.func) is None:
                 raise TaskNotFoundError(f"task with name '{task_instance.name}' not found")
 
-            # task_instance.validate()
+            task_instance.validate()
 
             meta: bool = (kwdefaults := func.__kwdefaults__) is not None and "meta" in kwdefaults
 

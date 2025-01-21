@@ -2,11 +2,14 @@ import asyncio
 import logging
 import threading
 import time
+
 from dataclasses import asdict, dataclass
 from typing import List
 
 import arrlio
-from arrlio import TaskInstance
+
+from arrlio.types import Meta
+
 
 logger = logging.getLogger("arrlio.tests")
 
@@ -17,8 +20,8 @@ async def hello_world():
 
 
 @arrlio.task(name="meta_true")
-async def meta_true(*, meta: dict = None):
-    assert meta
+async def meta_true(*, meta: Meta | None = None):
+    assert meta, meta
     assert isinstance(meta, dict)
 
 
@@ -62,12 +65,14 @@ def zero_division():
 
 
 @arrlio.task
-def add_one(x: str):
+def add_one(x: int):
     return int(x) + 1
 
 
 @arrlio.task
-def logger_info(data, *, meta: dict = None):
+def logger_info(data, *, meta: Meta | None = None):
+    if meta is None:
+        assert False
     assert meta["graph:source_node"]
     assert meta["graph:app_id"]
     assert meta["graph:id"]
