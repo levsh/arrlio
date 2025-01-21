@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from rich.pretty import pretty_repr
 from roview import rodict
 
-from arrlio import gettext, settings
+from arrlio import settings
 from arrlio.abc import AbstractBroker, AbstractEventBackend, AbstractResultBackend
 from arrlio.configs import Config
 from arrlio.exceptions import (
@@ -30,9 +30,6 @@ from arrlio.models import Event, Task, TaskInstance, TaskResult
 from arrlio.plugins.base import Plugin
 from arrlio.types import Args, Kwds
 from arrlio.utils import is_debug_level, is_info_level
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.core")
@@ -67,14 +64,14 @@ def task(
         base = Task
     if func is not None:
         if not isinstance(func, (FunctionType, MethodType)):
-            raise TypeError(_("Argument 'func' does not a function or method"))
+            raise TypeError("Argument 'func' does not a function or method")
         if name is None:
             name = f"{func.__module__}.{func.__name__}"
         if name in registered_tasks:
-            raise ValueError(_("Task '{}' already registered").format(name))
+            raise ValueError(f"Task '{name}' already registered")
         t = base(func=func, name=name, **kwds)
         registered_tasks.__original__[name] = t
-        logger.debug(_("Register task '%s'"), t.name)
+        logger.debug("Register task '%s'", t.name)
         return t
 
     def wrapper(func):
@@ -196,7 +193,7 @@ class App:
         if self.is_closed:
             return
 
-        logger.info(_("%s initializing with config\n%s"), self, pretty_repr(self.config.model_dump()))
+        logger.info("%s initializing with config\n%s", self, pretty_repr(self.config.model_dump()))
 
         await self._broker.init()
         await self._result_backend.init()
@@ -204,7 +201,7 @@ class App:
 
         await self._execute_hooks("on_init")
 
-        logger.info(_("%s initialization done"), self)
+        logger.info("%s initialization done", self)
 
     async def close(self):
         """Close application."""
@@ -228,7 +225,7 @@ class App:
             await self._event_backend.close()
 
             for task_id, aio_task in tuple(self._running_tasks.items()):
-                logger.warning(_("%s cancel processing task '%s'"), self, task_id)
+                logger.warning("%s cancel processing task '%s'", self, task_id)
                 aio_task.cancel()
                 try:
                     await aio_task
@@ -242,10 +239,10 @@ class App:
     async def _execute_hook(self, hook_fn, *args, **kwds):
         try:
             if is_debug_level():
-                logger.debug(_("%s execute hook %s"), self, hook_fn)
+                logger.debug("%s execute hook %s", self, hook_fn)
             await hook_fn(*args, **kwds)
         except Exception as e:
-            logger.exception(_("%s hook %s error"), self, hook_fn)
+            logger.exception("%s hook %s error", self, hook_fn)
             raise e
 
     async def _execute_hooks(self, hook: str, *args, **kwds):
@@ -254,11 +251,11 @@ class App:
                 for hook_fn in self._hooks[hook]:
                     tg.create_task(self._execute_hook(hook_fn, *args, **kwds))
         except ExceptionGroup as eg:
-            raise HooksError(exceptions=eg.exceptions)
+            raise HooksError(exceptions=eg.exceptions)  # pylint: disable=raise-missing-from
 
     async def send_task(
         self,
-        task: Task | str,
+        task: Task | str,  # pylint: disable=redefined-outer-name
         args: Args | None = None,
         kwds: Kwds | None = None,
         headers: dict | None = None,
@@ -307,7 +304,7 @@ class App:
 
         if is_info_level():
             logger.info(
-                _("%s send task\n%s"),
+                "%s send task\n%s",
                 self,
                 task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
@@ -328,7 +325,7 @@ class App:
             event: Event to send.
         """
         if is_info_level():
-            logger.info(_("%s send event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.info("%s send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         await self._event_backend.send_event(event)
 
@@ -345,7 +342,7 @@ class App:
         async for task_result in self._result_backend.pop_task_result(task_instance):
             if is_info_level():
                 logger.info(
-                    _("%s got result[idx=%s, exc=%s] for task %s[%s]"),
+                    "%s got result[idx=%s, exc=%s] for task %s[%s]",
                     self,
                     task_result.idx,
                     task_result.exc is not None,
@@ -409,9 +406,9 @@ class App:
                             await self._execute_hooks("on_task_result", task_instance, task_result)
                             idx_1 += 1
 
-                    except (asyncio.CancelledError, Exception) as e:
+                    except (asyncio.CancelledError, HooksError, Exception) as e:
                         if isinstance(e, asyncio.CancelledError):
-                            logger.error(_("%s task %s[%s] cancelled"), self, task_instance.name, task_id)
+                            logger.error("%s task %s[%s] cancelled", self, task_instance.name, task_id)
                             task_result = TaskResult(exc=TaskCancelledError(task_id))
                             raise e
                         if isinstance(e, HooksError):
@@ -419,7 +416,7 @@ class App:
                                 e = e.exceptions[0]
                             else:
                                 e = TaskError(exceptions=e.exceptions)
-                            logger.error(_("%s task %s[%s] %s: %s"), self, task_instance.name, task_id, e.__class__, e)
+                            logger.error("%s task %s[%s] %s: %s", self, task_instance.name, task_id, e.__class__, e)
                             task_result = TaskResult(exc=e)
                         else:
                             logger.exception(e)
@@ -444,7 +441,7 @@ class App:
                 self._running_tasks.pop(task_id, None)
 
         await self._broker.consume_tasks(queues, cb)
-        logger.info(_("%s consuming task queues %s"), self, queues)
+        logger.info("%s consuming task queues %s", self, queues)
 
     async def stop_consume_tasks(self, queues: list[str] | None = None):
         """
@@ -456,9 +453,9 @@ class App:
 
         await self._broker.stop_consume_tasks(queues=queues)
         if queues is not None:
-            logger.info(_("%s stop consuming task queues %s"), self, queues)
+            logger.info("%s stop consuming task queues %s", self, queues)
         else:
-            logger.info(_("%s stop consuming task queues"), self)
+            logger.info("%s stop consuming task queues", self)
 
     async def execute_task(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         """
@@ -511,7 +508,7 @@ class App:
         """
 
         if "arrlio.graphs" not in self.plugins:
-            raise GraphError(_("Plugin required: allrio.graphs"))
+            raise GraphError("Plugin required: allrio.graphs")
 
         return self.plugins["arrlio.graphs"].send_graph(*args, **kwds)
 
@@ -546,7 +543,7 @@ class AsyncResult:
         return self._result
 
     @property
-    def exception(self) -> Exception:
+    def exception(self) -> Exception | None:
         """Task exception."""
 
         return self._exception

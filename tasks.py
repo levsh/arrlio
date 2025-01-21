@@ -80,9 +80,3 @@ def generate_coverage_gist(c):
 
     with open("artifacts/shields_io_coverage_gist_data.json", "w") as f:
         f.write(json.dumps(data))
-
-
-@task
-def pygettext(c):
-    cmd = f"""poetry run python {CWD}/scripts/pygettext.py -d arrlio -o {CWD}/arrlio/locales/arrlio.pot arrlio"""
-    c.run(cmd)

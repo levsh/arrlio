@@ -12,7 +12,7 @@ from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rmqaio import Connection, Exchange, Queue, QueueType
 
-from arrlio import gettext, settings
+from arrlio import configs, settings
 from arrlio.abc import AbstractBroker
 from arrlio.backends.rabbitmq import (
     PULL_RETRY_TIMEOUT,
@@ -22,15 +22,11 @@ from arrlio.backends.rabbitmq import (
     connection_factory,
     exc_filter,
 )
-from arrlio.configs import SerializerConfig
 from arrlio.exceptions import ArrlioError
 from arrlio.models import TaskInstance
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, SecretAmqpDsn, Timeout
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level, retry
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.brokers.rabbitmq")
@@ -62,7 +58,7 @@ PREFETCH_COUNT = 1
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class SerializerConfig(SerializerConfig):
+class SerializerConfig(configs.SerializerConfig):
     """RabbitMQ `Broker` serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_BROKER_SERIALIZER_")
@@ -109,7 +105,7 @@ class Config(BaseSettings):
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
+    pull_retry_timeout: Timeout = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
     exchange: str = Field(default_factory=lambda: EXCHANGE)
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
@@ -152,7 +148,7 @@ class Broker(Closable, AbstractBroker):
 
         self._queues: dict[str, Queue] = {}
 
-        self._send_task = retry(
+        self._send_task_with_retry = retry(
             msg=f"{self} action send_task",
             retry_timeouts=config.push_retry_timeouts,
             exc_filter=exc_filter,
@@ -208,7 +204,7 @@ class Broker(Closable, AbstractBroker):
     ):
         try:
             if is_debug_level():
-                logger.debug(_("%s got raw message %s"), self, message.body if not settings.LOG_SANITIZE else "<hiden>")
+                logger.debug("%s got raw message %s", self, message.body if not settings.LOG_SANITIZE else "<hiden>")
 
             task_instance = self.serializer.loads_task_instance(
                 message.body,
@@ -221,7 +217,7 @@ class Broker(Closable, AbstractBroker):
 
             if is_debug_level():
                 logger.debug(
-                    _("%s got task\n%s"),
+                    "%s got task\n%s",
                     self,
                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                 )
@@ -240,7 +236,7 @@ class Broker(Closable, AbstractBroker):
     async def _send_task(self, task_instance: TaskInstance, **kwds):
         if is_debug_level():
             logger.debug(
-                _("%s send task\n%s"),
+                "%s send task\n%s",
                 self,
                 task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
@@ -249,8 +245,6 @@ class Broker(Closable, AbstractBroker):
         task_headers = task_instance.headers
 
         reply_to = task_headers.get("rabbitmq:reply_to")
-
-        # await self._ensure_queue(task_instance.queue)
 
         properties = {
             "delivery_mode": 2,
@@ -291,13 +285,16 @@ class Broker(Closable, AbstractBroker):
             )
 
     async def send_task(self, task_instance: TaskInstance, **kwds):
-        await self._internal_tasks_runner.create_task("send_task", lambda: self._send_task(task_instance, **kwds))
+        await self._internal_tasks_runner.create_task(
+            "send_task",
+            lambda: self._send_task_with_retry(task_instance, **kwds),
+        )
 
-    async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance | Exception], Coroutine]):
+    async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
         for queue_name in queues:
             queue = await self._ensure_queue(queue_name)
             if not queue.consumer:
-                logger.info(_("%s start consuming tasks queue '%s'"), self, queue.name)
+                logger.info("%s start consuming tasks queue '%s'", self, queue.name)
                 await queue.consume(
                     lambda *args, **kwds: self._internal_tasks_runner.create_task(
                         "on_task_message",
@@ -313,6 +310,6 @@ class Broker(Closable, AbstractBroker):
             if not (queue := self._queues.get(queue_name)):
                 continue
             if queue.consumer:
-                logger.info(_("%s stop consuming tasks queue '%s'"), self, queue_name)
+                logger.info("%s stop consuming tasks queue '%s'", self, queue_name)
                 await queue.stop_consume()
             self._queues.pop(queue_name)

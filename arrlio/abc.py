@@ -112,7 +112,7 @@ class AbstractResultBackend(AbstractClosable, ABC):
             task_instance: Task instance.
         """
 
-        raise NotImplementedError
+        yield TaskResult()
 
     @abstractmethod
     async def close_task(self, task_instance: TaskInstance, idx: tuple[str, int] | None = None):

@@ -7,7 +7,7 @@ class InternalError(ArrlioError):
 
 
 class HooksError(ArrlioError):
-    def __init__(self, *args, exceptions: list[Exception] | tuple[Exception] | None = None):
+    def __init__(self, *args, exceptions: list[Exception | ExceptionGroup] | tuple[Exception | ExceptionGroup, ...]):
         super().__init__(*args)
         self.exceptions = exceptions
 
@@ -23,7 +23,11 @@ class HooksError(ArrlioError):
 
 
 class TaskError(ArrlioError):
-    def __init__(self, *args, exceptions: list[Exception] | None = None):
+    def __init__(
+        self,
+        *args,
+        exceptions: list[Exception | ExceptionGroup] | tuple[Exception | ExceptionGroup, ...] | None = None,
+    ):
         super().__init__(*args)
         self.exceptions = exceptions
 

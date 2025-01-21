@@ -124,8 +124,8 @@ class Executor:
 
                         except StopAsyncIteration:
                             break
-                        except asyncio.TimeoutError:
-                            raise TaskTimeoutError(task_instance.timeout)
+                        except asyncio.TimeoutError as e:
+                            raise TaskTimeoutError(task_instance.timeout) from e
 
                 else:
                     res = task_instance(meta=meta)
@@ -134,8 +134,8 @@ class Executor:
                     else:
                         yield TaskResult(res=res, exc=exc, trb=trb)
 
-            except asyncio.TimeoutError:
-                raise TaskTimeoutError(task_instance.timeout)
+            except asyncio.TimeoutError as e:
+                raise TaskTimeoutError(task_instance.timeout) from e
 
         except Exception as e:
             exc_info = sys.exc_info()

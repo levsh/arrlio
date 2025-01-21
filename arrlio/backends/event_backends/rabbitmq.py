@@ -14,9 +14,9 @@ import aiormq.exceptions
 
 from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from rmqaio import Connection, Exchange, Queue, QueueType
+from rmqaio import Connection, Exchange, ExchangeType, Queue, QueueType
 
-from arrlio import gettext, settings
+from arrlio import configs, settings
 from arrlio.abc import AbstractEventBackend
 from arrlio.backends.rabbitmq import (
     PULL_RETRY_TIMEOUT,
@@ -26,15 +26,11 @@ from arrlio.backends.rabbitmq import (
     connection_factory,
     exc_filter,
 )
-from arrlio.configs import SerializerConfig
 from arrlio.exceptions import ArrlioError
 from arrlio.models import Event
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import SecretAmqpDsn, Timeout
 from arrlio.utils import AioTasksRunner, Closable, event_type_to_regex, is_debug_level, retry
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.event_backend.rabbitmq")
@@ -68,7 +64,7 @@ PREFETCH_COUNT = 10
 BasicProperties = aiormq.spec.Basic.Properties
 
 
-class SerializerConfig(SerializerConfig):
+class SerializerConfig(configs.SerializerConfig):
     """RabbitMQ `EventBackend` serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_EVENT_BACKEND_SERIALIZER_")
@@ -113,7 +109,7 @@ class Config(BaseSettings):
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
+    pull_retry_timeout: Timeout = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
     exchange: str = Field(default_factory=lambda: EXCHANGE)
     exchange_durable: bool = Field(default_factory=lambda: EXCHANGE_DURABLE)
@@ -147,7 +143,7 @@ class EventBackend(Closable, AbstractEventBackend):
         self._exchange: Exchange = Exchange(
             config.exchange,
             conn=self._conn,
-            type="topic",
+            type=ExchangeType.TOPIC,
             durable=config.exchange_durable,
             auto_delete=not config.exchange_durable,
             timeout=config.timeout,
@@ -165,7 +161,7 @@ class EventBackend(Closable, AbstractEventBackend):
         )
         self._callbacks: dict[str, tuple[Callable[[Event], Any], list[str], list]] = {}
 
-        self._send_event = retry(
+        self._send_event_with_retry = retry(
             msg=f"{self} action send_event",
             retry_timeouts=config.push_retry_timeouts,
             exc_filter=exc_filter,
@@ -202,9 +198,9 @@ class EventBackend(Closable, AbstractEventBackend):
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug(_("%s send event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.debug("%s send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
-        await self._internal_tasks_runner.create_task("send_event", lambda: self._send_event(event))
+        await self._internal_tasks_runner.create_task("send_event", lambda: self._send_event_with_retry(event))
 
     async def consume_events(
         self,
@@ -214,9 +210,9 @@ class EventBackend(Closable, AbstractEventBackend):
     ):
         if callback_id in self._callbacks:
             raise ArrlioError(
-                _("callback_id '{}' already in use for consuming '{}' event_types").format(
-                    callback_id,
-                    self._callbacks[callback_id][1],
+                (
+                    f"callback_id '{callback_id}' already in use for consuming "
+                    f"'{self._callbacks[callback_id][1]}' event_types"
                 )
             )
 
@@ -236,7 +232,7 @@ class EventBackend(Closable, AbstractEventBackend):
                 )
 
                 if is_debug_level():
-                    logger.debug(_("%s got event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+                    logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                 await channel.basic_ack(message.delivery.delivery_tag)
 
@@ -263,7 +259,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
         # TODO
         logger.info(
-            _("%s start consuming events[callback_id=%s, event_types=%s]"),
+            "%s start consuming events[callback_id=%s, event_types=%s]",
             self,
             callback_id,
             event_types,
@@ -275,7 +271,7 @@ class EventBackend(Closable, AbstractEventBackend):
         )
 
     async def stop_consume_events(self, callback_id: str | None = None):
-        logger.info(_("%s stop consuming events[callback_id=%s]"), self, callback_id)
+        logger.info("%s stop consuming events[callback_id=%s]", self, callback_id)
 
         if callback_id:
             if callback_id not in self._callbacks:

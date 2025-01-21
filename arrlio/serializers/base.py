@@ -40,6 +40,8 @@ class Serializer(AbstractSerializer):
             data: data to dump.
         """
 
+        return
+
     def loads(self, data: bytes | Any) -> Any:
         """
         Load data.
@@ -47,6 +49,8 @@ class Serializer(AbstractSerializer):
         Args:
             data: data to load.
         """
+
+        return
 
     def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> tuple[bytes, dict]:
         """
@@ -163,7 +167,7 @@ class Serializer(AbstractSerializer):
             data: Data to load from.
         """
 
-        data = self.loads(data)
+        data: dict = self.loads(data)
         if data["exc"]:
             data["exc"] = self.loads_exc(data["exc"])
             data["trb"] = self.loads_trb(data["trb"])

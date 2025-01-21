@@ -11,15 +11,12 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arrlio import gettext, settings
+from arrlio import settings
 from arrlio.abc import AbstractEventBackend
 from arrlio.models import Event
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import AsyncCallable
 from arrlio.utils import AioTasksRunner, Closable, event_type_to_regex, is_debug_level
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.events.local")
@@ -72,7 +69,7 @@ class EventBackend(Closable, AbstractEventBackend):
 
     async def send_event(self, event: Event):
         if is_debug_level():
-            logger.debug(_("%s send event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+            logger.debug("%s send event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
         self._events[event.event_id] = event
 
@@ -95,7 +92,7 @@ class EventBackend(Closable, AbstractEventBackend):
         )
 
         logger.info(
-            _("%s start consuming events[callback_id=%s, event_types=%s]"),
+            "%s start consuming events[callback_id=%s, event_types=%s]",
             self,
             callback_id,
             event_types,
@@ -111,7 +108,7 @@ class EventBackend(Closable, AbstractEventBackend):
                 logger.exception(e)
 
         async def fn():
-            logger.debug(_("%s start consuming events"), self)
+            logger.debug("%s start consuming events", self)
 
             event_cond = self._event_cond
             event_cond_wait = event_cond.wait
@@ -130,7 +127,7 @@ class EventBackend(Closable, AbstractEventBackend):
                     event: Event = events_pop(next(iter(events_keys())))
 
                     if is_debug_level():
-                        logger.debug(_("%s got event\n%s"), self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
+                        logger.debug("%s got event\n%s", self, event.pretty_repr(sanitize=settings.LOG_SANITIZE))
 
                     for callback, cb_event_types, patterns in event_callbacks.values():
                         if cb_event_types is not None and not any(pattern.match(event.type) for pattern in patterns):
@@ -138,10 +135,10 @@ class EventBackend(Closable, AbstractEventBackend):
                         if iscoroutinefunction(callback):
                             create_internal_task("event_cb", partial(callback_task, event))
                         else:
-                            callback(event)
+                            callback(event)  # type: ignore
 
                 except asyncio.CancelledError:
-                    logger.debug(_("%s stop consuming events"), self)
+                    logger.debug("%s stop consuming events", self)
                     return
                 except Exception as e:
                     logger.exception(e)
@@ -149,7 +146,7 @@ class EventBackend(Closable, AbstractEventBackend):
         self._internal_tasks_runner.create_task("consume_events", fn)
 
     async def stop_consume_events(self, callback_id: str | None = None):
-        logger.info(_("%s stop consuming events[callback_id=%s]"), self, callback_id)
+        logger.info("%s stop consuming events[callback_id=%s]", self, callback_id)
 
         if callback_id is not None:
             self._event_callbacks.pop(callback_id, None)

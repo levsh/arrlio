@@ -1,15 +1,6 @@
-import gettext
 import importlib.metadata
 import logging
-import os
 import sys
-
-
-gettext.bindtextdomain(
-    "arrlio",
-    localedir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales"),
-)
-gettext.textdomain("arrlio")
 
 
 __version__ = importlib.metadata.version("arrlio")

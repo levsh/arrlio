@@ -9,12 +9,8 @@ from uuid import UUID
 
 from pydantic import Field, PlainSerializer
 
-from arrlio import gettext
 from arrlio.models import Event, TaskInstance, TaskResult
 from arrlio.plugins import base
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.plugins.events")
@@ -90,8 +86,8 @@ class Plugin(base.Plugin):
                 logger.exception(e)
 
     async def on_init(self):
-        logger.info(_("%s initializing..."), self)
-        logger.info(_("%s initialization done"), self)
+        logger.info("%s initializing...", self)
+        logger.info("%s initialization done", self)
 
     async def on_close(self):
         for task in self._ping_tasks.values():

@@ -81,7 +81,7 @@ class Shared(MutableMapping):
     def get(self, *args, **kwds):
         return self._data.get(*args, **kwds)
 
-    def update(self, *args, **kwds):
+    def update(self, *args, **kwds):  # pylint: disable=arguments-differ
         return self._data.update(*args, **kwds)
 
 
@@ -253,10 +253,13 @@ class TaskInstance(Task):
         """
 
         exclude = exclude or []
-        data = super(TaskInstance, self).asdict(exclude=exclude, sanitize=sanitize)
+        data = super(TaskInstance, self).asdict(  # pylint: disable=super-with-arguments
+            exclude=exclude,
+            sanitize=sanitize,
+        )
         if sanitize:
             if self.sanitizer:
-                data = self.sanitizer(data)
+                data = self.sanitizer(data)  # pylint: disable=not-callable
             else:
                 if data["args"]:
                     data["args"] = "<hidden>"
@@ -299,15 +302,15 @@ class TaskInstance(Task):
 
         sig: Signature = signature(self.func)
 
-        field = {"pydantic": pydantic.Field}[mode]
+        field_cls = {"pydantic": pydantic.Field}[mode]
 
         __dict__ = {}
 
         for k, v in sig.parameters.items():
             if v.default != _empty:
-                _field = field(default=v.default)
+                _field = field_cls(default=v.default)
             else:
-                _field = field()
+                _field = field_cls()
             __dict__[k] = (v.annotation if v.annotation != _empty else Any, _field)
 
         Model = pydantic.create_model(f"{self.func}", **__dict__)  # pylint: disable=invalid-name

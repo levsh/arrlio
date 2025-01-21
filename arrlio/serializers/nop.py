@@ -8,10 +8,10 @@ class Config(base.Config):
 
 
 class Serializer(AbstractSerializer):
-    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> TaskInstance:
-        return task_instance
+    def dumps_task_instance(self, task_instance: TaskInstance, **kwds) -> tuple[TaskInstance, dict]:
+        return task_instance, {}
 
-    def loads_task_instance(self, data: TaskInstance, **kwds) -> TaskInstance:
+    def loads_task_instance(self, data: TaskInstance, headers: dict, **kwds) -> TaskInstance:
         return data
 
     def dumps_task_result(
@@ -19,14 +19,14 @@ class Serializer(AbstractSerializer):
         task_result: TaskResult,
         task_instance: TaskInstance | None = None,
         **kwds,
-    ) -> TaskResult:
-        return task_result
+    ) -> tuple[TaskResult, dict]:
+        return task_result, {}
 
-    def loads_task_result(self, data: TaskResult, **kwds) -> TaskResult:
+    def loads_task_result(self, data: TaskResult, headers: dict, **kwds) -> TaskResult:
         return data
 
-    def dumps_event(self, event: Event, **kwds) -> Event:
-        return event
+    def dumps_event(self, event: Event, **kwds) -> tuple[Event, dict]:
+        return event, {}
 
-    def loads_event(self, data: Event, **kwds) -> Event:
+    def loads_event(self, data: Event, headers: dict, **kwds) -> Event:
         return data

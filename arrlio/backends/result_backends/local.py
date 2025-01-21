@@ -10,15 +10,12 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arrlio import gettext, settings
+from arrlio import settings
 from arrlio.abc import AbstractResultBackend
 from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Shared, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.results.local")
@@ -102,7 +99,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         if is_debug_level():
             logger.debug(
-                _("%s push result for %s[%s]\n%s"),
+                "%s push result for %s[%s]\n%s",
                 self,
                 task_instance.name,
                 task_id,
@@ -120,7 +117,7 @@ class ResultBackend(Closable, AbstractResultBackend):
         task_id = task_instance.task_id
 
         if not task_instance.result_return:
-            raise TaskResultError(_("Try to pop result for task with result_return=False"))
+            raise TaskResultError("Try to pop result for task with result_return=False")
 
         async def fn():
             func = task_instance.func
@@ -138,7 +135,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
                         if is_debug_level():
                             logger.debug(
-                                _("%s pop result for task %s[%s]\n%s"),
+                                "%s pop result for task %s[%s]\n%s",
                                 self,
                                 task_instance.name,
                                 task_id,
@@ -160,7 +157,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
                 if is_debug_level():
                     logger.debug(
-                        _("%s pop result for task %s[%s]\n%s"),
+                        "%s pop result for task %s[%s]\n%s",
                         self,
                         task_instance.name,
                         task_id,
@@ -184,7 +181,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         if is_debug_level():
             logger.debug(
-                _("%s close task %s[%s]"),
+                "%s close task %s[%s]",
                 self,
                 task_instance.name,
                 task_instance.task_id,

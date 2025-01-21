@@ -29,6 +29,7 @@ yarl = "*"
 
 [tool.poetry.group.dev.dependencies]
 invoke = "*"
+pylint = "*"
 ruff = "*"
 
 [tool.poetry.group.test.dependencies]

@@ -11,15 +11,12 @@ from uuid import uuid4
 from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from arrlio import gettext, settings
+from arrlio import settings
 from arrlio.abc import AbstractBroker
 from arrlio.models import TaskInstance
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import TASK_MAX_PRIORITY, TASK_MIN_PRIORITY
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.brokers.local")
@@ -81,7 +78,7 @@ class Broker(Closable, AbstractBroker):
     async def send_task(self, task_instance: TaskInstance, **kwds):
         if is_debug_level():
             logger.debug(
-                _("%s send task\n%s"),
+                "%s send task\n%s",
                 self,
                 task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
             )
@@ -102,7 +99,7 @@ class Broker(Closable, AbstractBroker):
     async def consume_tasks(self, queues: list[str], callback: Callable[[TaskInstance], Coroutine]):
 
         async def fn(queue: str):
-            logger.info(_("%s start consuming tasks queue '%s'"), self, queue)
+            logger.info("%s start consuming tasks queue '%s'", self, queue)
 
             semaphore_acquire = self._semaphore.acquire
             semaphore_release = self._semaphore.release
@@ -123,7 +120,7 @@ class Broker(Closable, AbstractBroker):
 
                             if is_debug_level():
                                 logger.debug(
-                                    _("%s got task\n%s"),
+                                    "%s got task\n%s",
                                     self,
                                     task_instance.pretty_repr(sanitize=settings.LOG_SANITIZE),
                                 )
@@ -137,7 +134,7 @@ class Broker(Closable, AbstractBroker):
                         aio_task.add_done_callback(lambda *args: semaphore_release())
 
                     except asyncio.CancelledError:
-                        logger.info(_("%s stop consuming tasks queue '%s'"), self, queue)
+                        logger.info("%s stop consuming tasks queue '%s'", self, queue)
                         return
                     except Exception as e:
                         logger.exception(e)

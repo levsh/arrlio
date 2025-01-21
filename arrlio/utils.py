@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 
 from asyncio import Future, create_task, current_task, sleep
@@ -9,7 +8,7 @@ from functools import wraps
 from inspect import isasyncgenfunction
 from itertools import repeat
 from types import FunctionType
-from typing import Callable, Coroutine, Iterable, cast
+from typing import Any, Callable, Coroutine, Iterable, cast
 from uuid import UUID
 
 from arrlio.models import Task
@@ -95,7 +94,7 @@ def retry(
     exc_filter: ExceptionFilter | None = None,
     on_error=None,
     reraise: bool = True,
-):
+) -> Any:
     """
     Retry decorator.
 
@@ -125,7 +124,7 @@ def retry(
         if isasyncgenfunction(fn):
 
             @wraps(fn)
-            async def wrapper(*args, **kwds):
+            async def wrapper1(*args, **kwds):
                 timeouts = iter(retry_timeouts)
                 attempt = 0
                 while True:
@@ -167,12 +166,14 @@ def retry(
                                 await on_error(e)
                             await sleep(t)
                         except StopIteration:
-                            raise e
+                            raise e  # pylint: disable=raise-missing-from
+
+            return wrapper1
 
         else:
 
             @wraps(fn)
-            async def wrapper(*args, **kwds):
+            async def wrapper2(*args, **kwds):
                 timeouts = iter(retry_timeouts)
                 attempt = 0
                 while True:
@@ -212,9 +213,9 @@ def retry(
                                 await on_error(e)
                             await sleep(t)
                         except StopIteration:
-                            raise e
+                            raise e  # pylint: disable=raise-missing-from
 
-        return wrapper
+            return wrapper2
 
     return decorator
 

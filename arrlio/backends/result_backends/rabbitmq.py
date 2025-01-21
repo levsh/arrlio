@@ -16,7 +16,7 @@ from pydantic import Field, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rmqaio import Connection, Exchange, Queue, QueueType, SimpleExchange
 
-from arrlio import gettext, settings
+from arrlio import configs, settings
 from arrlio.abc import AbstractResultBackend
 from arrlio.backends.rabbitmq import (
     PULL_RETRY_TIMEOUT,
@@ -27,15 +27,11 @@ from arrlio.backends.rabbitmq import (
     connection_factory,
     exc_filter,
 )
-from arrlio.configs import SerializerConfig
 from arrlio.exceptions import TaskClosedError, TaskResultError
 from arrlio.models import Shared, TaskInstance, TaskResult
 from arrlio.settings import ENV_PREFIX
 from arrlio.types import SecretAmqpDsn, Timeout
 from arrlio.utils import AioTasksRunner, Closable, is_debug_level, retry
-
-
-_ = gettext.gettext
 
 
 logger = logging.getLogger("arrlio.backends.result_backends.rabbitmq")
@@ -69,7 +65,7 @@ PREFETCH_COUNT = 10
 """Results prefetch count."""
 
 
-class SerializerConfig(SerializerConfig):
+class SerializerConfig(configs.SerializerConfig):
     """RabbitMQ result backend serializer config."""
 
     model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}RABBITMQ_RESULT_BACKEND_SERIALIZER_")
@@ -124,7 +120,7 @@ class Config(BaseSettings):
     url: SecretAmqpDsn | list[SecretAmqpDsn] = Field(default_factory=lambda: URL)
     timeout: Optional[Timeout] = Field(default_factory=lambda: TIMEOUT)
     push_retry_timeouts: Optional[list[Timeout]] = Field(default_factory=lambda: PUSH_RETRY_TIMEOUTS)
-    pull_retry_timeout: Optional[Timeout] = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
+    pull_retry_timeout: Timeout = Field(default_factory=lambda: PULL_RETRY_TIMEOUT)
     serializer: SerializerConfig = Field(default_factory=SerializerConfig)
     reply_to_mode: ReplyToMode = Field(default_factory=lambda: REPLY_TO_MODE)
     exchange: str = Field(default_factory=lambda: EXCHANGE)
@@ -187,13 +183,13 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         self._storage: dict[UUID, tuple[asyncio.Event, list[TaskResult]]] = {}
 
-        self._push_task_result_ack_late = retry(
+        self._push_task_result_ack_late_with_retry = retry(
             msg=f"{self} action push_task_result",
             retry_timeouts=self.config.push_retry_timeouts,
             exc_filter=lambda e: isinstance(e, asyncio.TimeoutError),
         )(self._push_task_result)
 
-        self._push_task_result = retry(
+        self._push_task_result_with_retry = retry(
             msg=f"{self} action push_task_result",
             retry_timeouts=self.config.push_retry_timeouts,
             exc_filter=exc_filter,
@@ -240,7 +236,7 @@ class ResultBackend(Closable, AbstractResultBackend):
         await self._queue.declare(restore=True, force=True)
         await self._queue.bind(self._exchange, self._queue.name, restore=True)
 
-        logger.info(_("%s start consuming results queue %s"), self, self._queue)
+        logger.info("%s start consuming results queue %s", self, self._queue)
 
         await self._queue.consume(
             lambda *args, **kwds: self._internal_tasks_runner.create_task(
@@ -257,7 +253,7 @@ class ResultBackend(Closable, AbstractResultBackend):
         channel = await self._conn.channel()
 
         logger.info(
-            _("%s channel[%s] start consuming results queue '%s'"),
+            "%s channel[%s] start consuming results queue '%s'",
             self,
             channel,
             "amq.rabbitmq.reply-to",
@@ -301,7 +297,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
             if is_debug_level():
                 logger.debug(
-                    _("%s channel[%s] got result for task %s\n%s"),
+                    "%s channel[%s] got result for task %s\n%s",
                     self,
                     channel,
                     task_id,
@@ -344,7 +340,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
         if is_debug_level():
             logger.debug(
-                _("%s push result for task %s[%s] into exchange '%s' with routing_key '%s'\n%s"),
+                "%s push result for task %s[%s] into exchange '%s' with routing_key '%s'\n%s",
                 self,
                 task_instance.name,
                 task_instance.task_id,
@@ -387,12 +383,12 @@ class ResultBackend(Closable, AbstractResultBackend):
         if task_instance.ack_late:
             await self._internal_tasks_runner.create_task(
                 "push_task_result",
-                lambda: self._push_task_result_ack_late(task_result, task_instance),
+                lambda: self._push_task_result_ack_late_with_retry(task_result, task_instance),
             )
         else:
             await self._internal_tasks_runner.create_task(
                 "push_task_result",
-                lambda: self._push_task_result(task_result, task_instance),
+                lambda: self._push_task_result_with_retry(task_result, task_instance),
             )
 
     async def _pop_task_results(self, task_instance: TaskInstance):
@@ -404,7 +400,7 @@ class ResultBackend(Closable, AbstractResultBackend):
             if task_instance.headers.get("arrlio:closable") or isasyncgenfunction(func) or isgeneratorfunction(func):
                 while not self.is_closed:
                     if task_id not in self._storage:
-                        raise TaskResultError(_("Result expired"))
+                        raise TaskResultError("Result expired")
 
                     ev, results = self._storage[task_id]
                     await ev.wait()
@@ -419,7 +415,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
                         if is_debug_level():
                             logger.debug(
-                                _("%s pop result for task %s[%s]\n%s"),
+                                "%s pop result for task %s[%s]\n%s",
                                 self,
                                 task_instance.name,
                                 task_id,
@@ -435,7 +431,7 @@ class ResultBackend(Closable, AbstractResultBackend):
 
                 if is_debug_level():
                     logger.debug(
-                        _("%s pop result for task %s[%s]\n%s"),
+                        "%s pop result for task %s[%s]\n%s",
                         self,
                         task_instance.name,
                         task_id,
@@ -462,9 +458,7 @@ class ResultBackend(Closable, AbstractResultBackend):
                         continue
                     idx_data[idx_0] += 1
                     if idx_1 > idx_data[idx_0]:
-                        raise TaskResultError(
-                            _("Unexpected result index, expect {}, got {}").format(idx_data[idx_0], idx_1)
-                        )
+                        raise TaskResultError(f"Unexpected result index, expect {idx_data[idx_0]}, got {idx_1}")
                 if not isinstance(task_result.exc, TaskClosedError):
                     yield task_result
 
@@ -476,14 +470,14 @@ class ResultBackend(Closable, AbstractResultBackend):
 
     async def pop_task_result(self, task_instance: TaskInstance) -> AsyncGenerator[TaskResult, None]:
         if not task_instance.result_return:
-            raise TaskResultError(_("Try to pop result for task with result_return=False"))
+            raise TaskResultError("Try to pop result for task with result_return=False")
 
         async for task_result in self._pop_task_results(task_instance):
             yield task_result
 
     async def close_task(self, task_instance: TaskInstance, idx: tuple[str, int] | None = None):
         if is_debug_level():
-            logger.debug(_("%s close task %s[%s]"), self, task_instance.name, task_instance.task_id)
+            logger.debug("%s close task %s[%s]", self, task_instance.name, task_instance.task_id)
 
         if "rabbitmq:reply_to" not in task_instance.headers:
             task_instance.headers["rabbitmq:reply_to"] = self._get_reply_to(task_instance)
