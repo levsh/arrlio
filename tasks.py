@@ -1,15 +1,11 @@
 import json
-import os
 
 from invoke import task
 
 
-CWD = os.path.abspath(os.path.dirname(__file__))
-
-
 @task
 def run_linters(c):
-    "Run linters"
+    "Run linters."
 
     cmd = "poetry run ruff check arrlio"
     c.run(cmd)
@@ -17,7 +13,7 @@ def run_linters(c):
 
 @task
 def tests_small(c):
-    """Run small tests"""
+    """Run small tests."""
 
     cmd = (
         "coverage run --data-file=artifacts/.coverage --source arrlio -m pytest -v --maxfail=1 tests/small/ && "
@@ -29,7 +25,7 @@ def tests_small(c):
 
 @task
 def tests_medium(c):
-    """Run medium tests"""
+    """Run medium tests."""
 
     cmd = "pytest -v --maxfail=1 --timeout=300 tests/medium/test_arrlio.py"
     c.run(cmd)
@@ -37,12 +33,16 @@ def tests_medium(c):
 
 @task
 def run_tests(c):
+    """Run tests."""
+
     tests_small(c)
     tests_medium(c)
 
 
 @task
-def run_checks(c):
+def run_all_checks(c):
+    """Run all checks."""
+
     run_linters(c)
     tests_small(c)
     tests_medium(c)

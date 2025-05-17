@@ -19,7 +19,7 @@ packages = [{include = "arrlio"}]
 [tool.poetry.dependencies]
 python = ">=3.11, <4.0"
 aiormq = ">=6.7.6"
-rmqaio = ">=0.10.0"
+rmqaio = ">=0.15.0"
 msgpack = "*"
 pydantic = "^2.10"
 pydantic_settings = "*"

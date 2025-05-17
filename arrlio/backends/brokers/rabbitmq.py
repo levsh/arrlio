@@ -134,7 +134,6 @@ class Broker(Closable, AbstractBroker):
         self.serializer = config.serializer.module.Serializer(config.serializer.config)
 
         self._conn: Connection = connection_factory(config.url)
-        self._conn.set_callback("on_open", "on_conn_open_once", self._on_conn_open_once)
 
         self._default_exchange = Exchange(conn=self._conn)
 
@@ -166,16 +165,13 @@ class Broker(Closable, AbstractBroker):
             retry_timeouts=repeat(5),
             exc_filter=exc_filter,
         )(self._conn.open)()
+        await self._exchange.declare(restore=True, force=True)
 
     async def close(self):
         await self._exchange.close()
         for queue in self._queues.values():
             await queue.close()
         await super().close()
-
-    async def _on_conn_open_once(self):
-        await self._exchange.declare(restore=True, force=True)
-        self._conn.remove_callback("on_open", "on_conn_open_once")
 
     async def _ensure_queue(self, name: str) -> Queue:
         if name not in self._queues:

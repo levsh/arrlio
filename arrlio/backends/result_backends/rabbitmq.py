@@ -152,8 +152,6 @@ class ResultBackend(Closable, AbstractResultBackend):
         self.serializer = config.serializer.module.Serializer(config.serializer.config)
 
         self._conn: Connection = connection_factory(config.url)
-        self._conn.set_callback("on_open", "on_conn_open_once", self._on_conn_open_once)
-        self._conn.set_callback("on_open", "on_conn_open", self._on_conn_open)
 
         self._direct_reply_to_consumer: tuple[
             aiormq.abc.AbstractChannel,
@@ -208,6 +206,40 @@ class ResultBackend(Closable, AbstractResultBackend):
             exc_filter=exc_filter,
         )(self._conn.open)()
 
+        await self._exchange.declare(restore=True, force=True)
+        await self._queue.declare(restore=True, force=True)
+        await self._queue.bind(self._exchange, self._queue.name, restore=True)
+
+        logger.info("%s start consuming results queue %s", self, self._queue)
+
+        await self._queue.consume(
+            lambda *args, **kwds: self._internal_tasks_runner.create_task(
+                "on_result_message",
+                lambda: self._on_result_message(*args, **kwds),
+            )
+            and None,
+            retry_timeout=self.config.pull_retry_timeout,
+        )
+
+        channel = await self._conn.channel()
+
+        logger.info(
+            "%s channel[%s] start consuming results queue '%s'",
+            self,
+            channel,
+            "amq.rabbitmq.reply-to",
+        )
+
+        self._direct_reply_to_consumer = (
+            channel,
+            await channel.basic_consume(
+                "amq.rabbitmq.reply-to",
+                partial(self._on_result_message, channel, no_ack=True),
+                no_ack=True,
+                timeout=self.config.timeout,
+            ),
+        )
+
     async def close(self):
         await super().close()
         await self._queue.close(delete=True)
@@ -230,44 +262,6 @@ class ResultBackend(Closable, AbstractResultBackend):
         if task_instance.headers.get("rabbitmq:reply_to") == "amq.rabbitmq.reply-to":
             shared["rabbitmq:conn"] = self._conn
         return shared
-
-    async def _on_conn_open_once(self):
-        await self._exchange.declare(restore=True, force=True)
-        await self._queue.declare(restore=True, force=True)
-        await self._queue.bind(self._exchange, self._queue.name, restore=True)
-
-        logger.info("%s start consuming results queue %s", self, self._queue)
-
-        await self._queue.consume(
-            lambda *args, **kwds: self._internal_tasks_runner.create_task(
-                "on_result_message",
-                lambda: self._on_result_message(*args, **kwds),
-            )
-            and None,
-            retry_timeout=self.config.pull_retry_timeout,
-        )
-
-        self._conn.remove_callback("on_open", "on_conn_open_once")
-
-    async def _on_conn_open(self):
-        channel = await self._conn.channel()
-
-        logger.info(
-            "%s channel[%s] start consuming results queue '%s'",
-            self,
-            channel,
-            "amq.rabbitmq.reply-to",
-        )
-
-        self._direct_reply_to_consumer = (
-            channel,
-            await channel.basic_consume(
-                "amq.rabbitmq.reply-to",
-                partial(self._on_result_message, channel, no_ack=True),
-                no_ack=True,
-                timeout=self.config.timeout,
-            ),
-        )
 
     def _allocate_storage(self, task_id: UUID) -> tuple:
         if task_id not in self._storage:
